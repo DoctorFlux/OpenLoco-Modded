@@ -1,0 +1,15 @@
+---
+description: Test expectations for new engine and mod code
+globs: "**/*Tests.cpp,src/**/tests/**"
+alwaysApply: false
+---
+
+# Testing
+
+Follow `docs/TESTING_PLAN.md`.
+
+- New foundation code gets GoogleTest coverage in the library that owns it, using `loco_add_library` `TEST_FILES`.
+- Run `ctest --test-dir build/windows -C Debug --output-on-failure -R Modding` for loader changes, and the full suite when shared engine code changes.
+- Tests must not read or write the Steam Locomotion folder or `%APPDATA%\OpenLoco`.
+- A green build is not feature completion. Record the command and result in `docs/DEVELOPMENT_STATUS.md`.
+- Add the scenario named in the testing plan before marking shunting, signals, lines, or cargo features complete.

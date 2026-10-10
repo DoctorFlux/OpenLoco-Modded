@@ -8,6 +8,7 @@
 #include <OpenLoco/GameSaveCompare.h>
 #include <OpenLoco/GameState.h>
 #include <OpenLoco/Logging.h>
+#include <OpenLoco/Modding/Activation.hpp>
 #include <OpenLoco/Objects/Object.h>
 #include <OpenLoco/OpenLoco.h>
 #include <OpenLoco/Platform/Crash.h>
@@ -53,6 +54,50 @@ namespace OpenLoco
         std::cout << "                              Default: \"info, warning, error\"" << std::endl;
         std::cout << "--all                -a     For compare, print out all divergences" << std::endl;
         std::cout << "--locomotion_path           Overrides the path to Locomotion install." << std::endl;
+        std::cout << "mods --mods_path <dir>      Validate and activate enabled mods, then exit" << std::endl;
+        std::cout << "--mods_path                 Also activate that mods directory on a normal launch" << std::endl;
+    }
+
+    static Modding::HostCallbacks modHostCallbacks()
+    {
+        Modding::HostCallbacks callbacks;
+        callbacks.onInfo = [](std::string_view message) {
+            Logging::info("{}", std::string(message));
+        };
+        callbacks.onError = [](std::string_view message) {
+            Logging::error("{}", std::string(message));
+        };
+        return callbacks;
+    }
+
+    static int runModsCommand(const CommandLineOptions& options)
+    {
+        if (!options.modsPath.has_value() || options.modsPath->empty())
+        {
+            Logging::error("mods requires --mods_path <directory>.");
+            return EXIT_FAILURE;
+        }
+        const auto result = Modding::activateMods(fs::u8path(*options.modsPath), modHostCallbacks());
+        return result.errors.empty() ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+    static void activateConfiguredMods(const CommandLineOptions& options)
+    {
+        std::error_code ec;
+        fs::path path;
+        if (options.modsPath.has_value() && !options.modsPath->empty())
+        {
+            path = fs::u8path(*options.modsPath);
+        }
+        else
+        {
+            path = Platform::getUserDirectory() / "mods";
+            if (!fs::is_directory(path, ec))
+            {
+                return;
+            }
+        }
+        Modding::activateMods(path, modHostCallbacks());
     }
 
     static int uncompressFile(const CommandLineOptions& options)
@@ -290,6 +335,11 @@ namespace OpenLoco
 
         setCommandLineOptions(options);
 
+        if (options.action == CommandLineAction::mods)
+        {
+            return runModsCommand(options);
+        }
+
         Config::read();
         if (options.locomotionDataPath.has_value())
         {
@@ -297,6 +347,7 @@ namespace OpenLoco
         }
         Environment::setLocale();
         Environment::resolvePaths();
+        activateConfiguredMods(options);
 
         auto ret = runCommandLineOnlyCommand(options);
         if (ret)

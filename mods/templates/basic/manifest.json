@@ -1,0 +1,16 @@
+{
+    "id": "openloco.template.basic",
+    "name": "Basic mod template",
+    "author": "",
+    "version": "0.1.0",
+    "engineApiVersion": "0.1.0",
+    "dependencies": [],
+    "optionalDependencies": [],
+    "conflicts": [],
+    "capabilities": [],
+    "platforms": ["windows", "linux", "macos"],
+    "description": "Copy this directory, change the id, and replace this description.",
+    "license": "MIT",
+    "entryPoints": [],
+    "stateSchemaVersion": 1
+}

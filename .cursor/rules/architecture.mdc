@@ -1,0 +1,16 @@
+---
+description: Engine layering for OpenLoco foundation changes
+globs: src/**/*.{h,hpp,cpp},docs/ARCHITECTURE.md
+alwaysApply: false
+---
+
+# Architecture
+
+Follow `docs/ARCHITECTURE.md`.
+
+- Layer A is the engine: entities, movement, reservations, commands, objects, world coordinates, serialization, UI extension points.
+- Layer B is `src/Modding`: manifests, discovery, dependencies, and later events and commands. It must not depend on gameplay mods.
+- Layer C is data and scripts under `mods/`. Do not compile a gameplay mod into `OpenLoco.exe`.
+- Prefer a general engine service over a shunting-only or timetable-only structure.
+- `src/Modding` is not called from the game loop yet. Do not wire it in until the call site is specified and tested.
+- The manifest parser accepts a JSON subset only. Do not treat that parser as a general JSON library.

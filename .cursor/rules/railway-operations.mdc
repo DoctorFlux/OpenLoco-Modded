@@ -1,0 +1,17 @@
+---
+description: Train movement, coupling, and signalling constraints
+globs: src/OpenLoco/src/Vehicles/**,src/OpenLoco/src/GameCommands/Vehicles/**,src/OpenLoco/src/GameCommands/Track/**,src/OpenLoco/include/OpenLoco/Vehicles/**,src/OpenLoco/include/OpenLoco/Map/**
+alwaysApply: false
+---
+
+# Railway operations
+
+Follow `docs/mods/TRAIN_SHUNTING.md` and `docs/mods/PATH_SIGNALS.md`.
+
+- Existing orders, block signals, and depot coupling stay working.
+- Shunting must move vehicles on track. Do not teleport wagons.
+- A consist's service identity is separate from its physical wagon list.
+- The lead entity is not assumed to be the locomotive.
+- Block occupancy in `Routing.cpp` is the current signal model. Path reservations are new and must release on cancel, crash, and save/load.
+- Coupling commands are rail-only. Do not offer them to road, air, or water vehicles.
+- One programmable-logic interpreter serves lines, yards, and shunters. Do not add a second scripting runtime.

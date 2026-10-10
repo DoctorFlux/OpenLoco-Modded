@@ -1,0 +1,16 @@
+{
+    "id": "openloco.sample.hello",
+    "name": "Hello World",
+    "author": "OpenLoco Advanced Modding Framework",
+    "version": "0.1.0",
+    "engineApiVersion": "0.1.0",
+    "dependencies": [],
+    "optionalDependencies": [],
+    "conflicts": [],
+    "capabilities": [],
+    "platforms": ["windows", "linux", "macos"],
+    "description": "Sample mod that logs one line when enabled. It contains no Locomotion assets.",
+    "license": "MIT",
+    "entryPoints": ["scripts/activate.json"],
+    "stateSchemaVersion": 1
+}

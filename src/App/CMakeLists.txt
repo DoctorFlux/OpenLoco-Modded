@@ -4,6 +4,7 @@ set(private_files
 
 set(private_link_libraries
     OpenLoco
+    Modding
     SDL3::SDL3
     $<$<PLATFORM_ID:Windows>:Resources>
     $<$<BOOL:${MINGW}>:version>

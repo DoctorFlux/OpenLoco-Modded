@@ -18,6 +18,7 @@ namespace OpenLoco
         help,
         version,
         intro,
+        mods,
     };
 
     struct CommandLineOptions
@@ -33,6 +34,7 @@ namespace OpenLoco
         std::string logLevels;
         std::string all;
         std::optional<std::string> locomotionDataPath{};
+        std::optional<std::string> modsPath{};
     };
 
     std::optional<CommandLineOptions> parseCommandLine(std::vector<std::string>&& argv);

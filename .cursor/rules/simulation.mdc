@@ -1,0 +1,16 @@
+---
+description: Deterministic simulation rules
+globs: src/OpenLoco/src/**/*.{h,hpp,cpp},src/OpenLoco/include/**/*.{h,hpp}
+alwaysApply: false
+---
+
+# Simulation
+
+Follow `docs/ARCHITECTURE.md` and `docs/TESTING_PLAN.md`.
+
+- Simulation uses the game PRNG and tick counter, not wall-clock time and not `std::rand` for new logic.
+- Commands must be ordered, validated, and serializable before multiplayer can be claimed.
+- New scans of every entity or tile need an invalidation story. Prefer events and bounded work.
+- Passenger and cargo features must keep a classic anonymous-cargo mode.
+- Do not claim multiplayer works. `NetworkBase` exists; the title-screen control is hidden and the checksum fields are unused.
+- Record determinism tests before marking a simulation feature complete.

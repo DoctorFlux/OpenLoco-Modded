@@ -1,0 +1,16 @@
+---
+description: Save and object format constraints
+globs: src/OpenLoco/**/S5/**,src/OpenLoco/include/OpenLoco/S5/**,docs/SAVE_FORMAT.md
+alwaysApply: false
+---
+
+# Save formats
+
+Follow `docs/SAVE_FORMAT.md` and `docs/UPSTREAM_TRACKING.md`.
+
+- `kCurrentVersion` is `0x62262`. `sizeof(S5::GameState)` is `0x4A0644`. A mismatch throws "Unsupported S5 version".
+- Import SV5/SC5. Write any extended state to a new file. Never overwrite the source save.
+- Do not add fields to `S5::GameState` until a versioned container exists.
+- Mod state lives in that container, not in a sidecar that can diverge from the save.
+- Original DAT objects remain loadable. Object-limit work waits for a format that can grow past `kMaxObjects` (859) and the caps in `S5/Limits.h`.
+- Upstream NSF/NOF are plans, not code, as of the v26.01 development post. Re-read upstream before implementing either.
