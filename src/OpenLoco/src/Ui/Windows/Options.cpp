@@ -2437,7 +2437,7 @@ namespace OpenLoco::Ui::Windows::Options
 
     namespace Misc
     {
-        static constexpr Ui::Size kWindowSize = { 420, 266 };
+        static constexpr Ui::Size kWindowSize = { 420, 356 };
 
         enum widx
         {
@@ -2445,12 +2445,17 @@ namespace OpenLoco::Ui::Windows::Options
             enableCheatsToolbarButton,
             disableAICompanies,
             disableTownExpansion,
+            calendarSpeedLabel,
+            calendarSpeed,
+            calendarSpeedBtn,
 
             groupVehicleBehaviour,
             disable_vehicle_breakdowns,
             disable_vehicle_load_penalty,
             disableStationSizeLimit,
             trainsReverseAtSignals,
+            noObsolescence,
+            infiniteMoney,
 
             groupSaveOptions,
             autosave_frequency_label,
@@ -2461,6 +2466,7 @@ namespace OpenLoco::Ui::Windows::Options
             autosave_amount_down_btn,
             autosave_amount_up_btn,
             export_plugin_objects,
+            openLines,
         };
 
         namespace Widx
@@ -2472,40 +2478,50 @@ namespace OpenLoco::Ui::Windows::Options
             constexpr WidgetId kDisableVehicleLoadPenalty{ "disable_vehicle_load_penalty" };
             constexpr WidgetId kDisableStationSizeLimit{ "disableStationSizeLimit" };
             constexpr WidgetId kTrainsReverseAtSignals{ "trainsReverseAtSignals" };
+            constexpr WidgetId kNoObsolescence{ "no_obsolescence" };
+            constexpr WidgetId kInfiniteMoney{ "infinite_money" };
+            constexpr WidgetId kCalendarSpeed{ "calendar_speed" };
+            constexpr WidgetId kCalendarSpeedBtn{ "calendar_speed_btn" };
             constexpr WidgetId kAutosaveFrequency{ "autosave_frequency" };
             constexpr WidgetId kAutosaveFrequencyBtn{ "autosave_frequency_btn" };
             constexpr WidgetId kAutosaveAmount{ "autosave_amount" };
             constexpr WidgetId kAutosaveAmountDownBtn{ "autosave_amount_down_btn" };
             constexpr WidgetId kAutosaveAmountUpBtn{ "autosave_amount_up_btn" };
             constexpr WidgetId kExportPluginObjects{ "export_plugin_objects" };
+            constexpr WidgetId kOpenLines{ "open_lines" };
         }
 
         static constexpr auto _widgets = makeWidgets(
             Common::makeCommonWidgets(kWindowSize, StringIds::options_title_miscellaneous),
 
             // Gameplay tweaks group
-            Widgets::GroupBox({ 4, 49 }, { 412, 62 }, WindowColour::secondary, StringIds::gameplay_tweaks),
+            Widgets::GroupBox({ 4, 49 }, { 412, 78 }, WindowColour::secondary, StringIds::gameplay_tweaks),
             Widgets::Checkbox(Widx::kEnableCheatsToolbarButton, { 10, 64 }, { 400, 12 }, WindowColour::secondary, StringIds::option_cheat_menu_enable, StringIds::tooltip_option_cheat_menu_enable),
             Widgets::Checkbox(Widx::kDisableAICompanies, { 10, 79 }, { 400, 12 }, WindowColour::secondary, StringIds::disableAICompanies, StringIds::disableAICompanies_tip),
             Widgets::Checkbox(Widx::kDisableTownExpansion, { 10, 94 }, { 400, 12 }, WindowColour::secondary, StringIds::disableTownExpansion, StringIds::disableTownExpansion_tip),
+            Widgets::Label({ 10, 109 }, { 200, 12 }, WindowColour::secondary, ContentAlign::left, StringIds::calendar_speed),
+            Widgets::dropdownWidgets(Widx::kCalendarSpeed, Widx::kCalendarSpeedBtn, { 250, 109 }, { 156, 12 }, WindowColour::secondary, StringIds::empty, StringIds::calendar_speed_tip),
 
             // Vehicle behaviour
-            Widgets::GroupBox({ 4, 115 }, { 412, 77 }, WindowColour::secondary, StringIds::vehicleTrackBehaviour),
-            Widgets::Checkbox(Widx::kDisableVehicleBreakdowns, { 10, 130 }, { 400, 12 }, WindowColour::secondary, StringIds::disable_vehicle_breakdowns),
-            Widgets::Checkbox(Widx::kDisableVehicleLoadPenalty, { 10, 145 }, { 400, 12 }, WindowColour::secondary, StringIds::disableVehicleLoadingPenalty, StringIds::disableVehicleLoadingPenaltyTip),
-            Widgets::Checkbox(Widx::kDisableStationSizeLimit, { 10, 160 }, { 400, 12 }, WindowColour::secondary, StringIds::disableStationSizeLimitLabel, StringIds::disableStationSizeLimitTooltip),
-            Widgets::Checkbox(Widx::kTrainsReverseAtSignals, { 10, 175 }, { 400, 12 }, WindowColour::secondary, StringIds::trainsReverseAtSignals),
+            Widgets::GroupBox({ 4, 131 }, { 412, 107 }, WindowColour::secondary, StringIds::vehicleTrackBehaviour),
+            Widgets::Checkbox(Widx::kDisableVehicleBreakdowns, { 10, 146 }, { 400, 12 }, WindowColour::secondary, StringIds::disable_vehicle_breakdowns),
+            Widgets::Checkbox(Widx::kDisableVehicleLoadPenalty, { 10, 161 }, { 400, 12 }, WindowColour::secondary, StringIds::disableVehicleLoadingPenalty, StringIds::disableVehicleLoadingPenaltyTip),
+            Widgets::Checkbox(Widx::kDisableStationSizeLimit, { 10, 176 }, { 400, 12 }, WindowColour::secondary, StringIds::disableStationSizeLimitLabel, StringIds::disableStationSizeLimitTooltip),
+            Widgets::Checkbox(Widx::kTrainsReverseAtSignals, { 10, 191 }, { 400, 12 }, WindowColour::secondary, StringIds::trainsReverseAtSignals),
+            Widgets::Checkbox(Widx::kNoObsolescence, { 10, 206 }, { 400, 12 }, WindowColour::secondary, StringIds::option_no_obsolescence, StringIds::option_no_obsolescence_tip),
+            Widgets::Checkbox(Widx::kInfiniteMoney, { 10, 221 }, { 400, 12 }, WindowColour::secondary, StringIds::option_infinite_money, StringIds::option_infinite_money_tip),
 
             // Save options group
-            Widgets::GroupBox({ 4, 196 }, { 412, 65 }, WindowColour::secondary, StringIds::autosave_preferences),
+            Widgets::GroupBox({ 4, 242 }, { 412, 80 }, WindowColour::secondary, StringIds::autosave_preferences),
 
-            Widgets::Label({ 10, 211 }, { 200, 12 }, WindowColour::secondary, ContentAlign::left, StringIds::autosave_frequency),
-            Widgets::dropdownWidgets(Widx::kAutosaveFrequency, Widx::kAutosaveFrequencyBtn, { 250, 211 }, { 156, 12 }, WindowColour::secondary, StringIds::empty),
+            Widgets::Label({ 10, 257 }, { 200, 12 }, WindowColour::secondary, ContentAlign::left, StringIds::autosave_frequency),
+            Widgets::dropdownWidgets(Widx::kAutosaveFrequency, Widx::kAutosaveFrequencyBtn, { 250, 257 }, { 156, 12 }, WindowColour::secondary, StringIds::empty),
 
-            Widgets::Label({ 10, 226 }, { 200, 12 }, WindowColour::secondary, ContentAlign::left, StringIds::autosave_amount),
-            Widgets::stepperWidgets(Widx::kAutosaveAmount, Widx::kAutosaveAmountDownBtn, Widx::kAutosaveAmountUpBtn, { 250, 226 }, { 156, 12 }, WindowColour::secondary, StringIds::empty),
+            Widgets::Label({ 10, 272 }, { 200, 12 }, WindowColour::secondary, ContentAlign::left, StringIds::autosave_amount),
+            Widgets::stepperWidgets(Widx::kAutosaveAmount, Widx::kAutosaveAmountDownBtn, Widx::kAutosaveAmountUpBtn, { 250, 272 }, { 156, 12 }, WindowColour::secondary, StringIds::empty),
 
-            Widgets::Checkbox(Widx::kExportPluginObjects, { 10, 241 }, { 400, 12 }, WindowColour::secondary, StringIds::export_plugin_objects, StringIds::export_plugin_objects_tip)
+            Widgets::Checkbox(Widx::kExportPluginObjects, { 10, 287 }, { 400, 12 }, WindowColour::secondary, StringIds::export_plugin_objects, StringIds::export_plugin_objects_tip),
+            Widgets::Button(Widx::kOpenLines, { 10, 324 }, { 120, 15 }, WindowColour::secondary, StringIds::line_manager_button)
 
         );
 
@@ -2563,6 +2579,16 @@ namespace OpenLoco::Ui::Windows::Options
                 self.activatedWidgets |= (1ULL << widx::export_plugin_objects);
             }
 
+            if (Config::get().obsoleteDisabled)
+            {
+                self.activatedWidgets |= (1ULL << widx::noObsolescence);
+            }
+
+            if (Config::get().infiniteMoney)
+            {
+                self.activatedWidgets |= (1ULL << widx::infiniteMoney);
+            }
+
             self.widgets[widx::export_plugin_objects].hidden = !ObjectManager::getCustomObjectsInIndexStatus();
         }
 
@@ -2604,6 +2630,21 @@ namespace OpenLoco::Ui::Windows::Options
             // Value for autosave amount
             auto scale = Config::get().autosaveAmount;
             drawDropdownContent(self, drawingCtx, widx::autosave_amount, StringIds::int_32, scale);
+
+            StringId calendarText = StringIds::calendar_normal;
+            switch (Config::get().calendarSpeed)
+            {
+                case Config::CalendarSpeed::slow:
+                    calendarText = StringIds::calendar_slow;
+                    break;
+                case Config::CalendarSpeed::frozen:
+                    calendarText = StringIds::calendar_frozen;
+                    break;
+                case Config::CalendarSpeed::normal:
+                    calendarText = StringIds::calendar_normal;
+                    break;
+            }
+            drawDropdownContent(self, drawingCtx, widx::calendarSpeed, calendarText, 0);
         }
 
         static void changeAutosaveAmount(Window& self, int32_t delta)
@@ -2733,6 +2774,22 @@ namespace OpenLoco::Ui::Windows::Options
                 case Widx::kExportPluginObjects:
                     exportPluginObjectsMouseUp(self);
                     break;
+
+                case Widx::kNoObsolescence:
+                    Config::get().obsoleteDisabled = !Config::get().obsoleteDisabled;
+                    Config::write();
+                    self.invalidate();
+                    break;
+
+                case Widx::kInfiniteMoney:
+                    Config::get().infiniteMoney = !Config::get().infiniteMoney;
+                    Config::write();
+                    self.invalidate();
+                    break;
+
+                case Widx::kOpenLines:
+                    Ui::Windows::LineManager::open();
+                    break;
             }
         }
 
@@ -2749,6 +2806,16 @@ namespace OpenLoco::Ui::Windows::Options
                 case Widx::kAutosaveAmountUpBtn:
                     changeAutosaveAmount(self, 1);
                     break;
+                case Widx::kCalendarSpeedBtn:
+                {
+                    auto dropdown = self.widgets[widx::calendarSpeed];
+                    Dropdown::show(self.x + dropdown.left, self.y + dropdown.top, dropdown.width() - 4, dropdown.height(), self.getColour(WindowColour::secondary), 3, 0x80);
+                    Dropdown::add(0, StringIds::dropdown_stringid, { StringIds::calendar_normal });
+                    Dropdown::add(1, StringIds::dropdown_stringid, { StringIds::calendar_slow });
+                    Dropdown::add(2, StringIds::dropdown_stringid, { StringIds::calendar_frozen });
+                    Dropdown::setItemSelected(static_cast<size_t>(Config::get().calendarSpeed));
+                    break;
+                }
             }
         }
 
@@ -2758,6 +2825,14 @@ namespace OpenLoco::Ui::Windows::Options
             {
                 case Widx::kAutosaveFrequencyBtn:
                     handleAutosaveFrequencyDropdown(self, item_index);
+                    break;
+                case Widx::kCalendarSpeedBtn:
+                    if (item_index >= 0 && item_index <= 2)
+                    {
+                        Config::get().calendarSpeed = static_cast<Config::CalendarSpeed>(item_index);
+                        Config::write();
+                        self.invalidate();
+                    }
                     break;
             }
         }

@@ -581,7 +581,7 @@ namespace OpenLoco::Ui::Windows::Construction
         if (getGameState().lastAirport != 0xFF)
         {
             const auto* airportObj = ObjectManager::get<AirportObject>(getGameState().lastAirport);
-            if (getGameState().currentYear > airportObj->obsoleteYear)
+            if (isPastObsoleteYear(getGameState().currentYear, airportObj->obsoleteYear))
             {
                 getGameState().lastAirport = 0xFF;
             }

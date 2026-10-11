@@ -5,6 +5,7 @@
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
 #include "GameCommands/Vehicles/CreateVehicle.h"
+#include "Lines/Line.h"
 #include "GameState.h"
 #include "Graphics/Colour.h"
 #include "Graphics/ImageIds.h"
@@ -1252,8 +1253,17 @@ namespace OpenLoco::Ui::Windows::BuildVehicle
 
         if (_buildTargetVehicle == -1)
         {
-            auto vehicle = EntityManager::get<Vehicles::VehicleBase>(GameCommands::getLegacyReturnState().lastCreatedVehicleId);
+            const auto createdId = GameCommands::getLegacyReturnState().lastCreatedVehicleId;
+            auto vehicle = EntityManager::get<Vehicles::VehicleBase>(createdId);
             Vehicle::Details::open(vehicle);
+            if (const auto lineId = Lines::purchaseLine())
+            {
+                if (auto* head = EntityManager::get<Vehicles::VehicleHead>(createdId); head != nullptr && head->isVehicleHead())
+                {
+                    Lines::assignVehicle(lineId, enumValue(head->id), head->mode);
+                }
+                Lines::clearPurchase();
+            }
         }
         sub_4B92A5(window);
     }
@@ -2017,7 +2027,13 @@ namespace OpenLoco::Ui::Windows::BuildVehicle
         return true;
     }
 
+    static void onClose([[maybe_unused]] Window& window)
+    {
+        Lines::clearPurchase();
+    }
+
     static constexpr WindowEventList kEvents = {
+        .onClose = onClose,
         .onMouseUp = onMouseUp,
         .onResize = onResize,
         .onMouseDown = onMouseDown,

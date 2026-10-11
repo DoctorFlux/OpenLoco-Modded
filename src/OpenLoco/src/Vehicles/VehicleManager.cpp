@@ -13,6 +13,7 @@
 #include "MessageManager.h"
 #include "Objects/ObjectManager.h"
 #include "SceneManager.h"
+#include "Signals/PathSignals.h"
 #include "Ui/WindowManager.h"
 #include "Vehicles/OrderManager.h"
 #include "Vehicles/Orders.h"
@@ -102,7 +103,7 @@ namespace OpenLoco::VehicleManager
             {
                 continue;
             }
-            if (curYear >= vehObj->obsolete)
+            if (isAtOrPastObsoleteYear(curYear, vehObj->obsolete))
             {
                 continue;
             }
@@ -412,6 +413,7 @@ namespace OpenLoco::VehicleManager
         }
 
         Audio::stopVehicleNoise(head.id);
+        Signals::forgetTrain(enumValue(head.id));
         Vehicles::RoutingManager::freeRoutingHandle(head.routingHandle);
         Vehicles::OrderManager::freeOrders(&head);
         MessageManager::removeAllSubjectRefs(enumValue(head.id), MessageItemArgumentType::vehicle);

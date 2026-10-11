@@ -1,5 +1,7 @@
 #include "Paint/PaintRoad.h"
+#include "Graphics/Colour.h"
 #include "Graphics/ImageIds.h"
+#include "Lines/Line.h"
 #include "Graphics/RenderTarget.h"
 #include "Logging.h"
 #include "Map/RoadElement.h"

@@ -405,7 +405,7 @@ namespace OpenLoco
             {
                 continue;
             }
-            if (year < buildingObj->designedYear || year > buildingObj->obsoleteYear)
+            if (year < buildingObj->designedYear || isPastObsoleteYear(year, buildingObj->obsoleteYear))
             {
                 continue;
             }

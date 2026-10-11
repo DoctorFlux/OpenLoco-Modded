@@ -1,18 +1,9 @@
 ---
-description: Mod package and API rules
-globs: src/Modding/**,mods/**,docs/MODDING_API.md,docs/mods/**
+description: In-game feature notes that used to sit beside the mod loader
+globs: docs/mods/**
 alwaysApply: false
 ---
 
-# Modding
+# Gameplay notes
 
-Follow `docs/MODDING_API.md` and `docs/mods/MOD_LOADER.md`.
-
-- Package id is a dotted lowercase id (`openloco.sample.hello`). Versions are `MAJOR.MINOR.PATCH`.
-- API compatibility: same major and minor, running patch >= required patch. `kModApiVersion` is the source of that string.
-- Unknown manifest keys are ignored. Nested JSON objects are rejected.
-- `.olmod` is a proposed zip of the unpacked layout. This loader reads directories only.
-- Example mods in `mods/examples` must not contain original game assets or native code.
-- Dependency failures, conflicts, cycles, and an incompatible API produce errors and an empty load order.
-- Activate a mod only when its id is in `enabled.json`. The only entry action is `{"log":["..."]}`.
-- Do not write mod enablement into an SV5 save.
+There is no mod loader. Shared lines, timetables, and path and chain signals are in the game. The files under `docs/mods/` describe those systems. Do not add manifests, `enabled.json`, or a Hello World sample.

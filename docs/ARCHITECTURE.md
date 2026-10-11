@@ -7,17 +7,9 @@ OpenLoco.exe and vanilla libraries
         |
         v
 Engine services (commands, entities, map, objects, serialization, UI hooks)
-        |
-        v
-src/Modding  (manifests, discovery, dependencies, enabled.json, log actions)
-        |
-        v
-mods/  (manifest, data, scripts, assets that are not original Locomotion files)
 ```
 
-`src/Modding` may depend on `Core` and the C++ standard library. It must not depend on `OpenLoco` gameplay types. The executable calls `activateMods`. Gameplay libraries must not grow a dependency on a particular mod.
-
-`OpenLoco.exe mods --mods_path <dir>` activates that directory and exits. A normal launch activates `%APPDATA%\OpenLoco\mods` only when the directory already exists. Unlisted mods are not run.
+Shared lines, timetables, and path and chain signals are in the game. There is no mod loader. A normal launch does not read a mods directory.
 
 ## Current engine map
 
@@ -34,7 +26,6 @@ mods/  (manifest, data, scripts, assets that are not original Locomotion files)
 | Objects | `src/OpenLoco/include/OpenLoco/Objects/ObjectManager.h` |
 | Limits | `src/OpenLoco/include/OpenLoco/S5/Limits.h`, `src/Engine/include/OpenLoco/Engine/World.hpp` |
 | Network shell | `src/OpenLoco/include/OpenLoco/Network/NetworkBase.h` |
-| Mod manifests | `src/Modding` |
 
 `plugin.dat` is the vanilla plugin-object file copied into `%APPDATA%\OpenLoco`. It is not a mod loader.
 

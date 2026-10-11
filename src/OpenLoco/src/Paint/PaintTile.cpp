@@ -1,5 +1,6 @@
 #include "Paint/PaintTile.h"
 #include "Graphics/Colour.h"
+#include "Lines/Line.h"
 #include "Graphics/ImageIds.h"
 #include "Graphics/RenderTarget.h"
 #include "Input.h"

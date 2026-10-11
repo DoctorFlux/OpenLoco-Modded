@@ -5,6 +5,7 @@
 #include "Map/TileManager.h"
 #include "Map/Track/Track.h"
 #include "Map/Track/TrackData.h"
+#include "Signals/PathSignals.h"
 #include "Vehicles/RoutingManager.h"
 #include "ViewportManager.h"
 
@@ -97,6 +98,7 @@ namespace OpenLoco::Vehicles
         }
         else
         {
+            Signals::onTailLeavesPiece(enumValue(head), _oldTilePos, ref);
             if (ref & (1 << 15))
             {
                 setSignalState(_oldTilePos, trackAndDir.track, trackType, 0);

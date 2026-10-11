@@ -33,7 +33,7 @@ namespace OpenLoco
             {
                 continue;
             }
-            if (currentYear > airportObj->obsoleteYear)
+            if (isPastObsoleteYear(currentYear, airportObj->obsoleteYear))
             {
                 continue;
             }
@@ -60,7 +60,7 @@ namespace OpenLoco
             {
                 continue;
             }
-            if (currentYear > dockObj->obsoleteYear)
+            if (isPastObsoleteYear(currentYear, dockObj->obsoleteYear))
             {
                 continue;
             }
@@ -93,7 +93,7 @@ namespace OpenLoco
                 {
                     continue;
                 }
-                if (currentYear > roadStationObj->obsoleteYear)
+                if (isPastObsoleteYear(currentYear, roadStationObj->obsoleteYear))
                 {
                     continue;
                 }
@@ -117,7 +117,7 @@ namespace OpenLoco
                 {
                     continue;
                 }
-                if (currentYear > trainStationObj->obsoleteYear)
+                if (isPastObsoleteYear(currentYear, trainStationObj->obsoleteYear))
                 {
                     continue;
                 }
@@ -171,7 +171,7 @@ namespace OpenLoco
                 {
                     continue;
                 }
-                if (currentYear > obsoleteYear)
+                if (isPastObsoleteYear(currentYear, obsoleteYear))
                 {
                     continue;
                 }
@@ -367,7 +367,7 @@ namespace OpenLoco
             signals &= ~(1 << signalId);
             auto signalObj = ObjectManager::get<TrainSignalObject>(signalId);
 
-            if (currentYear > signalObj->obsoleteYear)
+            if (isPastObsoleteYear(currentYear, signalObj->obsoleteYear))
             {
                 continue;
             }
@@ -395,7 +395,7 @@ namespace OpenLoco
                 {
                     continue;
                 }
-                if (currentYear > signalObj->obsoleteYear)
+                if (isPastObsoleteYear(currentYear, signalObj->obsoleteYear))
                 {
                     continue;
                 }

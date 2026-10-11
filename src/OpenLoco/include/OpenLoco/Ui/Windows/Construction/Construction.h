@@ -73,6 +73,8 @@ namespace OpenLoco::Ui::Windows::Construction
         uint8_t isSignalBothDirections;  // 0x0113602F
         uint8_t signalPlacementStepSize; // new
         bool repeatedSignalMode;         // new
+        uint8_t signalKind;              // new, Signals::SignalKind
+        uint8_t signalGhostKind;         // new
 
         uint8_t bridgeList[9];           // 0x01136030
         uint8_t lastSelectedBridge;      // 0x01136039
@@ -343,6 +345,8 @@ namespace OpenLoco::Ui::Windows::Construction
             step_value,
             signal_placement_step_decrease,
             signal_placement_step_increase,
+            path_signal,
+            chain_signal,
         };
 
         namespace Widx
@@ -356,6 +360,8 @@ namespace OpenLoco::Ui::Windows::Construction
             constexpr WidgetId kStepValue{ "step_value" };
             constexpr WidgetId kStepDecrease{ "step_decrease" };
             constexpr WidgetId kStepIncrease{ "step_increase" };
+            constexpr WidgetId kPathSignal{ "path_signal" };
+            constexpr WidgetId kChainSignal{ "chain_signal" };
         }
 
         constexpr uint64_t kHoldableWidgets = (1ULL << widx::signal_placement_step_decrease) | (1ULL << widx::signal_placement_step_increase);

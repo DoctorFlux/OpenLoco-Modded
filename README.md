@@ -20,7 +20,7 @@ An open source re-implementation of Chris Sawyer's Locomotion. A construction an
 ### Build Status
 |             | Windows / Linux / MacOS | Download |
 |-------------|-----------------|----------|
-| **master**  | ![CI](https://github.com/OpenLoco/OpenLoco/workflows/CI/badge.svg) | [![GitHub release](https://img.shields.io/github/release/OpenLoco/OpenLoco.svg)](https://github.com/OpenLoco/OpenLoco/releases) |
+| **master**  | ![CI](https://github.com/DoctorFlux/OpenLoco-Modded/workflows/CI/badge.svg) | [![GitHub release](https://img.shields.io/github/release/DoctorFlux/OpenLoco-Modded.svg)](https://github.com/DoctorFlux/OpenLoco-Modded/releases) |
 
 ### Chat
 
@@ -41,7 +41,7 @@ As of December 2025, we have completed reimplementing the game in C++. It is now
 
 # 2 Downloading the game (pre-built)
 
-The latest releases can be [downloaded from GitHub](https://github.com/OpenLoco/OpenLoco/releases). Releases are currently provided for Windows, Linux and MacOS.
+The latest releases can be [downloaded from GitHub](https://github.com/DoctorFlux/OpenLoco-Modded/releases). The current Windows build is 26.09-modded.1. Linux and macOS builds are produced by CI when that workflow succeeds.
 For BSD distributions, we currently do not provide any builds. Please refer to the next section to compile the game manually. For macOS the builds are unsigned and unnotarized. This means that Gatekeeper may block them.
 
 Please note that OpenLoco requires the asset files of the original Chris Sawyer's Locomotion to play the game.

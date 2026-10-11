@@ -5,6 +5,7 @@
 #include "GameCommands/Track/RemoveTrainStation.h"
 #include "Map/RoadElement.h"
 #include "Map/SignalElement.h"
+#include "Signals/PathSignals.h"
 #include "Map/TileManager.h"
 #include "Map/Track/TrackData.h"
 #include "Map/TrackElement.h"
@@ -238,6 +239,11 @@ namespace OpenLoco::GameCommands
 
             World::TileManager::removeElement(*pieceEntry);
             World::TileManager::setLevelCrossingFlags(trackLoc);
+        }
+
+        if (hasFlags(flags, Flags::apply) && !hasFlags(flags, Flags::aiAllocated | Flags::ghost))
+        {
+            Signals::onTrackRemoved(Signals::PieceKey{ trackStart.x, trackStart.y, trackStart.z, args.rotation, args.trackId });
         }
 
         totalRemovalCost += pieceRemovalCost;

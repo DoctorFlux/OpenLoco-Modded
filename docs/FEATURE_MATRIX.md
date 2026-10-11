@@ -8,7 +8,7 @@
 | Conditional orders | No | Programmable logic | Off |
 | Timetable | No | Shared-line timetable | Off |
 | Block signals | Yes | Kept | On |
-| Path signals | No | Optional signal mode | Off |
+| Path signals | No | Path and chain checkboxes on a normal signal, with one-way or two-way placement, and a train-window reservation viewer. Implemented | Off until a player places one |
 | Depot coupling | Yes | Kept | On |
 | On-track uncouple | No | Shunting mod | Off |
 | Run-around | No | Shunting mod, real movement | Off |
@@ -30,7 +30,7 @@
 | Programmable logic | Logic editor, extra order actions | Normal orders |
 | Shared lines | Line window | Per-vehicle orders |
 | Timetables | Timetable window on a line | Lines without schedules |
-| Path signals | Signal type and reservation view | Block signals |
+| Path signals | Signal tab type dropdown and coloured arrow markers. No reservation view yet | Block signals |
 | Shunting | Yard tools and job list | Depot coupling |
 | Cargo demand | Destination and request UI | Classic freight |
 | Passenger destinations | Demand and transfer UI | Classic passengers |

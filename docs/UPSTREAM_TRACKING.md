@@ -19,7 +19,7 @@ Checked 2026-10-10 against local commit `e71abfb3` and public OpenLoco sources.
 
 - Re-read this file and the upstream README before save, object, map-limit, or network work.
 - If upstream publishes an NSF spec, adapt `SAVE_FORMAT.md` instead of growing a rival container.
-- If upstream publishes a mod format, adapt `MODDING_API.md`.
+- If upstream publishes a mod format, read it before adding a loader. This tree does not have one.
 - Do not merge upstream with a force push. Merge or rebase only on a feature branch when asked.
 
 ## Source of the January 2026 notes

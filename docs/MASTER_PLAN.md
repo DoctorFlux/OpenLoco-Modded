@@ -38,7 +38,7 @@ Vanilla code stays the implementation of today's game. New services are added be
 
 ### B. Modding framework
 
-`src/Modding` parses manifests, discovers unpacked mod directories, resolves dependencies, and runs `log` actions for ids listed in `enabled.json`. The executable calls this from the `mods` command and from a normal launch when `%APPDATA%\OpenLoco\mods` already exists. Events, simulation commands, settings UI, and per-save state are still absent. The contract is `MODDING_API.md`.
+The mod loader and Hello World sample were removed. Shared lines, timetables, and path and chain signals are in the game. A normal launch does not read a mods directory.
 
 ### C. Gameplay mods
 
@@ -106,15 +106,14 @@ Lines and logic can be designed before the save container, but they cannot be sa
 ## Repository layout
 
 - Engine and framework: this repository.
-- Sample and template mods: `mods/examples` and `mods/templates`.
-- Future gameplay mods start here and can be released as separate `.olmod` archives.
+- Gameplay that is already in the game is documented under `docs/mods/`.
 - Feature branches come off the current development branch. Do not rewrite `master`.
 
 The packaging decision is in `DECISIONS.md`: hybrid monorepo until a mod needs its own release cadence.
 
 ## Related documents
 
-- `ARCHITECTURE.md`, `MODDING_API.md`, `SAVE_FORMAT.md`, `ENGINE_LIMITS.md`
+- `ARCHITECTURE.md`, `SAVE_FORMAT.md`, `ENGINE_LIMITS.md`
 - `DEPENDENCIES.md`, `MOD_COMPATIBILITY.md`, `FEATURE_MATRIX.md`
 - `UI_UX_PLAN.md`, `TESTING_PLAN.md`, `ROADMAP.md`, `DEVELOPMENT_STATUS.md`
 - `DECISIONS.md`, `UPSTREAM_TRACKING.md`

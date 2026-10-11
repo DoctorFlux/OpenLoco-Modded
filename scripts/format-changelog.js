@@ -37,7 +37,7 @@ function peekLine(ctx) {
 function readVersionHeader(ctx) {
     // Extract the version number.
     const versionLine = consumeLine(ctx);
-    const versionMatch = versionLine.text.match(/^((\d+\.\d+(\.\d+)?(\+|-\w+)?) \((\d{4}-\d{2}-\d{2}|\?\?\?)\))$/);
+    const versionMatch = versionLine.text.match(/^((\d+\.\d+(\.\d+)?(\+|-[0-9A-Za-z.]+)?) \((\d{4}-\d{2}-\d{2}|\?\?\?)\))$/);
     if (versionMatch == null) {
         reportLineError(versionLine, "Expected a version number");
     }

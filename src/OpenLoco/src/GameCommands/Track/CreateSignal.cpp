@@ -11,6 +11,7 @@
 #include "Map/TrackElement.h"
 #include "Objects/ObjectManager.h"
 #include "Objects/TrainSignalObject.h"
+#include "Signals/PathSignals.h"
 #include "Vehicles/Vehicle.h"
 #include "ViewportManager.h"
 
@@ -246,6 +247,12 @@ namespace OpenLoco::GameCommands
                 }
                 Ui::ViewportManager::invalidate(trackLoc, elSignal->baseHeight(), elSignal->baseHeight() + 32, ZoomLevel::half);
             }
+        }
+
+        if (hasFlags(flags, Flags::apply) && !hasFlags(flags, Flags::aiAllocated))
+        {
+            const Signals::PieceKey piece{ trackStart.x, trackStart.y, trackStart.z, args.rotation, args.trackId };
+            Signals::onSignalPlaced(piece, sides, static_cast<Signals::SignalKind>(args.kind & 0x3), hasFlags(flags, Flags::ghost));
         }
 
         if (hasFlags(flags, Flags::apply))

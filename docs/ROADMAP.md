@@ -10,34 +10,13 @@ Done for commit `e71abfb3`.
 - Vanilla source map: `DEVELOPMENT-ROADMAP.md`.
 - This documentation set.
 
-## Phase 1 — Mod loader skeleton
+## Phase 1 — Mod loader
 
-Implemented through activation. Still not a mod manager.
-
-1. Parse `manifest.json`. Implemented.
-2. Resolve dependencies, optional dependencies, conflicts, and cycles. Implemented.
-3. Discover an unpacked mod directory and enforce API compatibility. Implemented.
-4. Sample and template packages under `mods/`. Implemented.
-5. `OpenLoco.exe mods --mods_path <dir>` validates and activates mods listed in `enabled.json`, then exits. A normal launch does the same for `%APPDATA%\OpenLoco\mods` when that directory already exists. Implemented.
-6. The only action is `scripts/activate.json` with a `log` array. Persist enablement in the save container later; `enabled.json` is the install switch and is not a save.
-
-## Phase 2 — Packages and manager
-
-1. Define zip layout for `.olmod` using an existing archive library if one is already linked. libzip is named in the README and is not referenced by `CMakeLists.txt` in this tree. Re-check before choosing.
-2. Install, upgrade, and remove unpacked mods in a user directory that is not the Steam folder.
-3. Mod manager window: list, enable, disable, errors, dependencies.
-4. Refuse activation when the API, capability, or conflict check fails.
-5. Per-save required-mod list once the save container exists. Until then, show "not stored in saves".
+Removed. Shared lines, timetables, and path and chain signals are part of the game. There is no manifest loader, Mods window, or Hello World sample.
 
 ## Phase 3 — Shared lines and timetables
 
-1. Line record: id, name, mode, station list, shared order slice.
-2. Assign and remove vehicles without copying orders per vehicle.
-3. Keep vanilla orders as the fallback when a vehicle has no line.
-4. Timetable rows: dwell, departure target, interval.
-5. Hold an early vehicle. Recover a late one by skipping dwell, not by teleporting.
-6. UI for lines and timetables.
-7. Tests that do not require shunting.
+Implemented for the line record, assignment, vanilla order types, save companion, line manager window, per-stop departure and platform data, and timetable decisions. Movement of a vehicle on a line advances through that line and reverses at the end of a point-to-point line. Platform choices are stored; they are not yet forced onto the track pathfinder.
 
 Specs: `docs/mods/SHARED_LINES.md`, `docs/mods/TIMETABLES.md`.
 
@@ -67,10 +46,12 @@ Specs: `docs/mods/SHARED_LINES.md`, `docs/mods/TIMETABLES.md`.
 
 ## Phase 7 — Reservations and signals
 
-1. Reservation map keyed by track piece, direction, and owner.
-2. Conflict test for junctions, crossovers, parallel tracks, and pushed wagons.
-3. Path signals as an extra signal mode. Block signals stay the default.
-4. Deadlock detection that stops and reports instead of freezing.
+Implemented ahead of the save container, using the `.osignals` companion (D20). Spec: `docs/mods/PATH_SIGNALS.md`.
+
+1. Reservation holds keyed by track piece and owner. Implemented.
+2. Conflict test for junctions, crossings, and parallel tracks. Implemented with quarter-tile clearance. Pushed wagons wait for consists.
+3. Path and chain flags on the normal signal, combined with the existing one-way and two-way buttons. Block signals stay the default. Implemented.
+4. Deadlock detection that stops and reports instead of freezing. Not implemented; trains waiting for a path retry every 16 ticks.
 
 ## Phase 8 — Shunting
 

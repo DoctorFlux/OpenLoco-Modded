@@ -8,6 +8,7 @@
 #include "Graphics/Colour.h"
 #include "Graphics/DrawingContext.h"
 #include "Graphics/Gfx.h"
+#include "Graphics/TextRenderer.h"
 #include "Graphics/ImageIds.h"
 #include "Input.h"
 #include "Jukebox.h"
@@ -71,6 +72,7 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
         vehicles_menu,
         stations_menu,
         towns_menu,
+        lines_menu,
     };
 
     namespace Widx
@@ -92,6 +94,7 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
         constexpr WidgetId kVehiclesMenu{ "vehicles_menu" };
         constexpr WidgetId kStationsMenu{ "stations_menu" };
         constexpr WidgetId kTownsMenu{ "towns_menu" };
+        constexpr WidgetId kLinesMenu{ "lines_menu" };
     }
 
     static constexpr auto _widgets = makeWidgets(
@@ -114,7 +117,8 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
 
         Widgets::ImageButtonAlt(Widx::kVehiclesMenu, { 490, 0 }, { 30, 28 }, WindowColour::quaternary),
         Widgets::ImageButtonAlt(Widx::kStationsMenu, { 520, 0 }, { 30, 28 }, WindowColour::quaternary),
-        Widgets::ImageButtonAlt(Widx::kTownsMenu, { 460, 0 }, { 30, 28 }, WindowColour::quaternary)
+        Widgets::ImageButtonAlt(Widx::kTownsMenu, { 460, 0 }, { 30, 28 }, WindowColour::quaternary),
+        Widgets::ImageButtonAlt(Widx::kLinesMenu, { 550, 0 }, { 30, 28 }, WindowColour::quaternary, Widget::kContentNull, StringIds::line_manager_caption)
 
     );
 
@@ -1327,6 +1331,14 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
         }
     }
 
+    static void onMouseUp([[maybe_unused]] Window& self, [[maybe_unused]] WidgetIndex_t widgetIndex, const WidgetId id)
+    {
+        if (id == Widx::kLinesMenu)
+        {
+            LineManager::open();
+        }
+    }
+
     static void onMouseHover(Window& self, WidgetIndex_t widgetIndex, const WidgetId id)
     {
         if (Config::get().toolbarAutoMenu)
@@ -1508,6 +1520,17 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
 
         drawTabs(self, drawingCtx);
 
+        if (!self.widgets[widx::lines_menu].hidden)
+        {
+            auto tr = Gfx::TextRenderer(drawingCtx);
+            const auto& widget = self.widgets[widx::lines_menu];
+            const auto origin = Ui::Point{
+                static_cast<int16_t>(self.x + widget.left + (widget.width() / 2)),
+                static_cast<int16_t>(self.y + widget.top + 8),
+            };
+            tr.drawStringCentred(origin, AdvancedColour(Colour::white), StringIds::line_manager_button);
+        }
+
         const auto companyColour = CompanyManager::getPlayerCompanyColour();
         const auto defaultRoadObjectId = getGameState().defaultRoadObjectId;
 
@@ -1632,7 +1655,7 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
         x += 11;
         x = leftAlignButtons(self, x, { widx::terraform_menu, widx::railroad_menu, widx::road_menu, widx::port_menu, widx::build_vehicles_menu });
         x += 11;
-        x = leftAlignButtons(self, x, { widx::vehicles_menu, widx::stations_menu, widx::towns_menu });
+        x = leftAlignButtons(self, x, { widx::vehicles_menu, widx::stations_menu, widx::towns_menu, widx::lines_menu });
     }
 
     static void justifyToolbar(Window& self)
@@ -1653,7 +1676,7 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
 
         // Right-hand side
         x = std::max(640, Ui::width()) - 1;
-        x = rightAlignButtons(self, x, { widx::towns_menu, widx::stations_menu, widx::vehicles_menu });
+        x = rightAlignButtons(self, x, { widx::towns_menu, widx::stations_menu, widx::vehicles_menu, widx::lines_menu });
         x -= 11;
         x = rightAlignButtons(self, x, { widx::build_vehicles_menu, widx::port_menu, widx::road_menu, widx::railroad_menu, widx::terraform_menu });
     }
@@ -1682,6 +1705,7 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
         self.widgets[widx::vehicles_menu].hidden = isEditor;
         self.widgets[widx::stations_menu].hidden = isEditor;
         self.widgets[widx::towns_menu].hidden = isEditor && !isLandscapeEditor;
+        self.widgets[widx::lines_menu].hidden = isEditor;
 
         const auto* interface = ObjectManager::get<InterfaceSkinObject>();
         if (!Audio::isAudioEnabled())
@@ -1728,6 +1752,7 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
         self.widgets[widx::build_vehicles_menu].image = Gfx::recolour(interface->img + InterfaceSkin::ImageIds::toolbar_empty_opaque);
 
         self.widgets[widx::vehicles_menu].image = Gfx::recolour(interface->img + InterfaceSkin::ImageIds::toolbar_empty_opaque);
+        self.widgets[widx::lines_menu].image = Gfx::recolour(interface->img + InterfaceSkin::ImageIds::toolbar_empty_opaque);
         self.widgets[widx::stations_menu].image = Gfx::recolour(interface->img + InterfaceSkin::ImageIds::toolbar_stations);
 
         if (_defaultTownObjectId == 0)
@@ -1759,6 +1784,7 @@ namespace OpenLoco::Ui::Windows::ToolbarTop
     }
 
     static constexpr WindowEventList kEvents = {
+        .onMouseUp = onMouseUp,
         .onResize = onResize,
         .onMouseHover = onMouseHover,
         .onMouseDown = onMouseDown,

@@ -18,6 +18,7 @@ namespace OpenLoco::GameCommands
             , trackObjType(regs.ebp & 0xFF)
             , sides((regs.edi >> 16) & 0xC000)
             , step((regs.ecx >> 16) & 0xFF)
+            , kind((regs.ebp >> 8) & 0x3)
         {
         }
 
@@ -29,6 +30,7 @@ namespace OpenLoco::GameCommands
         uint8_t trackObjType;
         uint16_t sides;
         uint8_t step = 1;
+        uint8_t kind = 0; // Signals::SignalKind
 
         explicit operator registers() const
         {
@@ -39,7 +41,7 @@ namespace OpenLoco::GameCommands
             regs.dl = trackId;
             regs.dh = index;
             regs.edi = pos.z | (type << 16) | ((sides & 0xC000) << 16);
-            regs.ebp = trackObjType;
+            regs.ebp = trackObjType | ((kind & 0x3) << 8);
             return regs;
         }
     };

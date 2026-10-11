@@ -2,6 +2,7 @@
 #include "Audio/Audio.h"
 #include "Config.h"
 #include "Date.h"
+#include "Lines/Line.h"
 #include "Economy/Economy.h"
 #include "Effects/Effect.h"
 #include "Effects/SmokeEffect.h"
@@ -35,6 +36,7 @@
 #include "Random.h"
 #include "Scenario/ScenarioManager.h"
 #include "SceneManager.h"
+#include "Signals/PathSignals.h"
 #include "Tutorial.h"
 #include "Ui/WindowManager.h"
 #include "Vehicles/OrderManager.h"
@@ -422,7 +424,7 @@ namespace OpenLoco::Vehicles
             }
             auto newReliability = front.reliability;
             auto* vehObj = ObjectManager::get<VehicleObject>(front.objectId);
-            newReliability -= vehObj->obsolete <= getCurrentYear() ? kReliabilityLossPerDayObsolete : kReliabilityLossPerDay;
+            newReliability -= isAtOrPastObsoleteYear(getCurrentYear(), vehObj->obsolete) ? kReliabilityLossPerDayObsolete : kReliabilityLossPerDay;
             newReliability = std::max<uint16_t>(newReliability, 100);
             front.reliability = newReliability;
         }
@@ -1626,6 +1628,12 @@ namespace OpenLoco::Vehicles
             }
 
             status = Status::waitingAtSignal;
+
+            // Waiting for a path reservation: never pass at danger or turn around automatically.
+            if (flags & Signals::kPathWaitFlag)
+            {
+                return true;
+            }
 
             if (!Config::get().trainsReverseAtSignals)
             {
@@ -3587,6 +3595,10 @@ namespace OpenLoco::Vehicles
                 }
             }
         }
+        if (Lines::holdForTimetable(enumValue(id), currentOrder, enumValue(stationId)))
+        {
+            return true;
+        }
         return false;
     }
 
@@ -4026,6 +4038,8 @@ namespace OpenLoco::Vehicles
         veh1.trackAndDirection = veh2.trackAndDirection;
         veh1.subPosition = veh2.subPosition;
         veh1.moveTo(veh2.position);
+
+        Signals::rebuildTrainHolds(*this);
     }
 
     // 0x004AA625
@@ -4429,6 +4443,43 @@ namespace OpenLoco::Vehicles
         setSignalState(targetPos, tad, targetTrackType, lightStateFlags);
     }
 
+    // Same colours as a block signal: red on the signal the head passes, yellow then
+    // the following state on the signals behind it.
+    static void applyPassedSignalColours(const World::Pos3& signalPos, uint16_t connection, const World::Pos3& trainPos, VehicleHead& head)
+    {
+        if ((connection & World::Track::AdditionalTaDFlags::hasSignal) == 0)
+        {
+            return;
+        }
+
+        if (head.var_5C == 0)
+        {
+            TrackAndDirection::_TrackAndDirection tad{ 0, 0 };
+            tad._data = connection & World::Track::AdditionalTaDFlags::basicTaDMask;
+            setSignalState(signalPos, tad, head.trackType, 1);
+        }
+
+        uint8_t edi = 2;
+        auto reversePos = trainPos;
+        auto routings = RoutingManager::RingView(head.routingHandle);
+        for (auto iter3 = routings.begin(); RoutingManager::getRouting(*iter3) != RoutingManager::kAllocatedButFreeRouting; --iter3)
+        {
+            const auto reverseRouting = RoutingManager::getRouting(*iter3);
+            if (*iter3 != *routings.begin())
+            {
+                auto& trackSize = World::TrackData::getUnkTrack(reverseRouting & World::Track::AdditionalTaDFlags::basicTaDMask);
+                reversePos -= trackSize.pos;
+            }
+            if (reverseRouting & World::Track::AdditionalTaDFlags::hasSignal)
+            {
+                auto reverseTad = TrackAndDirection::_TrackAndDirection{ 0, 0 };
+                reverseTad._data = reverseRouting & World::Track::AdditionalTaDFlags::basicTaDMask;
+                setSignalState(reversePos, reverseTad, head.trackType, edi);
+                edi = std::min(edi + 1, 3);
+            }
+        }
+    }
+
     // 0x004ACEF1
     static Sub4ACEE7Result sub_4ACEF1(VehicleHead& head, uint32_t unk1, uint32_t var_113612C, bool isPlaceDown)
     {
@@ -4546,11 +4597,30 @@ namespace OpenLoco::Vehicles
 
         auto routings = RoutingManager::RingView(head.routingHandle);
         uint16_t connection = tc.connections[0];
+
+        const bool pathLogic = head.var_52 != 1 && !isPlaceDown && Signals::isRailLogicActive();
+        const auto reservedConnection = pathLogic ? Signals::reservedConnectionAt(head, nextPos, tc) : std::nullopt;
+        bool pathApproved = reservedConnection.has_value();
+
         if (tc.connections.size() > 1)
         {
-            if (head.var_52 == 1)
+            if (reservedConnection)
+            {
+                connection = *reservedConnection;
+            }
+            else if (head.var_52 == 1)
             {
                 connection = trackLongestPathing(head, nextPos, tc, requiredMods, queryMods);
+            }
+            else if (pathLogic && Signals::isInPathMode(enumValue(head.id)))
+            {
+                const auto reserved = Signals::reserveFrom(head, nextPos, tc, Signals::ReserveStart::extend);
+                if (!reserved)
+                {
+                    return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
+                }
+                connection = *reserved;
+                pathApproved = true;
             }
             else
             {
@@ -4604,97 +4674,140 @@ namespace OpenLoco::Vehicles
                 leaveLevelCrossing(nextPos, tad, true);
             }
 
-            if (connection & World::Track::AdditionalTaDFlags::hasSignal)
+            const auto entry = (pathLogic && (connection & World::Track::AdditionalTaDFlags::hasSignal)) ? Signals::classifyEntry(nextPos, connection) : Signals::EntryInfo{};
+            const bool specialFacing = entry.hasFacingSignal && entry.kind != Signals::SignalKind::none;
+
+            if (pathLogic && specialFacing)
+            {
+                if (!reservedConnection)
+                {
+                    if (head.var_5C != 0 && !Signals::pieceHeldByProtectedOther(head, nextPos, connection))
+                    {
+                        Signals::setPathMode(enumValue(head.id), false);
+                    }
+                    else
+                    {
+                        const auto start = Signals::isChainSignal(entry.kind) ? Signals::ReserveStart::chainSignal : Signals::ReserveStart::pathSignal;
+                        const auto reserved = Signals::reserveFrom(head, nextPos, tc, start);
+                        if (!reserved)
+                        {
+                            train.veh1->var_48 &= ~Flags48::passSignal;
+                            return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
+                        }
+                        connection = *reserved;
+                    }
+                    pathApproved = true;
+                }
+
+                TrackAndDirection::_TrackAndDirection passedTad{ 0, 0 };
+                passedTad._data = connection & World::Track::AdditionalTaDFlags::basicTaDMask;
+                setReverseSignalOccupiedInBlock(nextPos, passedTad, head.owner, head.trackType);
+                applyPassedSignalColours(nextPos, connection, pos, head);
+            }
+            else if (connection & World::Track::AdditionalTaDFlags::hasSignal)
             {
                 // 0x004AD3A3
 
                 TrackAndDirection::_TrackAndDirection tad{ 0, 0 };
                 tad._data = connection & World::Track::AdditionalTaDFlags::basicTaDMask;
-                const auto keySignalStateFlags = isPlaceDown ? (SignalStateFlags::occupied)
-                                                             : (SignalStateFlags::occupied | SignalStateFlags::occupiedOneWay | SignalStateFlags::blockedNoRoute);
-                const auto signalState = getSignalState(nextPos, tad, head.trackType, 0U) & keySignalStateFlags;
+                if (!(pathLogic && reservedConnection))
+                {
+                    const auto keySignalStateFlags = isPlaceDown ? (SignalStateFlags::occupied)
+                                                                 : (SignalStateFlags::occupied | SignalStateFlags::occupiedOneWay | SignalStateFlags::blockedNoRoute);
+                    const auto signalState = getSignalState(nextPos, tad, head.trackType, 0U) & keySignalStateFlags;
 
-                if ((signalState & SignalStateFlags::blockedNoRoute) != SignalStateFlags::none)
-                {
-                    return Sub4ACEE7Result{ 2, 0, StationId::null };
-                }
-                else if ((signalState & SignalStateFlags::occupied) != SignalStateFlags::none)
-                {
-                    // 0x004AD3F8
-                    const auto reverseSignalState = getSignalState(nextPos, tad, head.trackType, 1U << 31);
-                    _vehicleMangled_113623B = enumValue(reverseSignalState);
-                    if (head.var_5C == 0)
+                    if ((signalState & SignalStateFlags::blockedNoRoute) != SignalStateFlags::none)
                     {
-                        train.veh1->var_48 &= ~Flags48::passSignal;
-                        return Sub4ACEE7Result{ 3, enumValue(reverseSignalState), StationId::null };
+                        return Sub4ACEE7Result{ 2, 0, StationId::null };
                     }
-                }
-                else
-                {
-                    // 0x004AD469
-                    if ((train.veh1->var_48 & Flags48::passSignal) != Flags48::none)
+                    else if ((signalState & SignalStateFlags::occupied) != SignalStateFlags::none)
                     {
-                        train.veh1->var_48 &= ~Flags48::passSignal;
-                        if (isBlockOccupied(nextPos, tad, head.owner, head.trackType))
+                        // 0x004AD3F8
+                        const auto reverseSignalState = getSignalState(nextPos, tad, head.trackType, 1U << 31);
+                        _vehicleMangled_113623B = enumValue(reverseSignalState);
+                        if (head.var_5C == 0)
                         {
-                            setSignalState(nextPos, tad, head.trackType, 8);
-                            return Sub4ACEE7Result{ 3, _vehicleMangled_113623B, StationId::null };
+                            train.veh1->var_48 &= ~Flags48::passSignal;
+                            return Sub4ACEE7Result{ 3, enumValue(reverseSignalState), StationId::null };
                         }
                     }
-
-                    if ((signalState & SignalStateFlags::occupiedOneWay) != SignalStateFlags::none)
+                    else
                     {
-                        // 0x004AD490
-                        if (train.veh1->var_52 != 0)
+                        // 0x004AD469
+                        if ((train.veh1->var_48 & Flags48::passSignal) != Flags48::none)
                         {
-                            _vehicleMangled_113623B = _vehicleMangled_113623B | (1U << 7);
-                            train.veh1->var_52--;
-
-                            return Sub4ACEE7Result{ 3, _vehicleMangled_113623B, StationId::null };
-                        }
-                        else
-                        {
-                            if (!(sub_4A2A77(nextPos, tad, head.owner, head.trackType) & ((1U << 0) | (1U << 1))))
+                            train.veh1->var_48 &= ~Flags48::passSignal;
+                            if (isBlockOccupied(nextPos, tad, head.owner, head.trackType))
                             {
-                                _vehicleMangled_113623B = _vehicleMangled_113623B | (1U << 7);
-                                train.veh1->var_52 = 55;
-
+                                setSignalState(nextPos, tad, head.trackType, 8);
                                 return Sub4ACEE7Result{ 3, _vehicleMangled_113623B, StationId::null };
                             }
                         }
+
+                        if ((signalState & SignalStateFlags::occupiedOneWay) != SignalStateFlags::none)
+                        {
+                            // 0x004AD490
+                            if (train.veh1->var_52 != 0)
+                            {
+                                _vehicleMangled_113623B = _vehicleMangled_113623B | (1U << 7);
+                                train.veh1->var_52--;
+
+                                return Sub4ACEE7Result{ 3, _vehicleMangled_113623B, StationId::null };
+                            }
+                            else
+                            {
+                                if (!(sub_4A2A77(nextPos, tad, head.owner, head.trackType) & ((1U << 0) | (1U << 1))))
+                                {
+                                    _vehicleMangled_113623B = _vehicleMangled_113623B | (1U << 7);
+                                    train.veh1->var_52 = 55;
+
+                                    return Sub4ACEE7Result{ 3, _vehicleMangled_113623B, StationId::null };
+                                }
+                            }
+                        }
+                    }
+
+                    if (pathLogic && Signals::blockHasForeignPath(head, nextPos, connection))
+                    {
+                        return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
                     }
                 }
                 // 0x004AD4B1
 
                 setReverseSignalOccupiedInBlock(nextPos, tad, head.owner, head.trackType);
-                if (head.var_5C == 0)
+                applyPassedSignalColours(nextPos, connection, pos, head);
+                if (pathLogic)
                 {
-                    setSignalState(nextPos, tad, head.trackType, 1);
-                }
-                uint8_t edi = 2;
-                auto reversePos = pos;
-                for (auto iter3 = routings.begin(); RoutingManager::getRouting(*iter3) != RoutingManager::kAllocatedButFreeRouting; --iter3)
-                {
-                    const auto reverseRouting = RoutingManager::getRouting(*iter3);
-                    if (*iter3 != *routings.begin())
-                    {
-                        auto& trackSize = World::TrackData::getUnkTrack(reverseRouting & World::Track::AdditionalTaDFlags::basicTaDMask);
-                        reversePos -= trackSize.pos;
-                    }
-                    if (reverseRouting & World::Track::AdditionalTaDFlags::hasSignal)
-                    {
-                        auto reverseTad = TrackAndDirection::_TrackAndDirection{ 0, 0 };
-                        reverseTad._data = reverseRouting & World::Track::AdditionalTaDFlags::basicTaDMask;
-                        setSignalState(reversePos, reverseTad, head.trackType, edi);
-                        edi = std::min(edi + 1, 3);
-                    }
+                    Signals::onPassedBlockSignal(head);
                 }
             }
         }
+
+        if (pathLogic && !pathApproved)
+        {
+            if (Signals::pieceHeldByProtectedOther(head, nextPos, connection))
+            {
+                return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
+            }
+            if (Signals::isInPathMode(enumValue(head.id)))
+            {
+                const auto reserved = Signals::reserveFrom(head, nextPos, tc, Signals::ReserveStart::extend);
+                if (!reserved)
+                {
+                    return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
+                }
+                if ((*reserved & World::Track::AdditionalTaDFlags::basicTaDMask) != (connection & World::Track::AdditionalTaDFlags::basicTaDMask))
+                {
+                    connection = static_cast<uint16_t>(*reserved | (connection & (1U << 14)));
+                }
+            }
+        }
+
         // 0x004AD5F1
         // Mostly the same as ROAD but with track equivalent functions
         const auto& nextHandle = *++(routings.begin());
         RoutingManager::setRouting(nextHandle, connection);
+        Signals::onHeadEntersPiece(head, nextPos, connection);
 
         if (head.var_52 == 1)
         {
@@ -6228,6 +6341,8 @@ namespace OpenLoco::Vehicles
         subPosition = veh1.subPosition;
         trackAndDirection = veh1.trackAndDirection;
         moveTo(veh1.position);
+
+        Signals::rebuildTrainHolds(*this);
     }
 
     static StationId tryFindStationAt(VehicleBogie* bogie)
@@ -6660,6 +6775,7 @@ namespace OpenLoco::Vehicles
         train.veh1->targetSpeed = 0_mph;
         train.veh2->currentSpeed = 0_mph;
         updateTrainProperties();
+        Signals::rebuildTrainHolds(*this);
     }
 
     // 0x004BADE4
@@ -7113,6 +7229,8 @@ namespace OpenLoco::Vehicles
 
         // Make the current journey not count for updateLastJourneyAverageSpeed
         breakdownFlags &= ~BreakdownFlags::journeyStarted;
+
+        Signals::rebuildTrainHolds(*this);
     }
 
     // 0x004C3BA6

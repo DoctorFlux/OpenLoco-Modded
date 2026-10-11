@@ -756,7 +756,7 @@ namespace OpenLoco::World::MapGenerator
                 continue;
             }
 
-            if (getCurrentYear() < industryObj->designedYear || getCurrentYear() >= industryObj->obsoleteYear)
+            if (getCurrentYear() < industryObj->designedYear || isAtOrPastObsoleteYear(getCurrentYear(), industryObj->obsoleteYear))
             {
                 continue;
             }
@@ -807,7 +807,7 @@ namespace OpenLoco::World::MapGenerator
             updateProgress(currentProgress);
 
             // Check if industry is available at present
-            if (getCurrentYear() < industryObj->designedYear || getCurrentYear() >= industryObj->obsoleteYear)
+            if (getCurrentYear() < industryObj->designedYear || isAtOrPastObsoleteYear(getCurrentYear(), industryObj->obsoleteYear))
             {
                 continue;
             }

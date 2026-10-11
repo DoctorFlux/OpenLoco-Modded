@@ -2,6 +2,7 @@
 #include "Audio/Audio.h"
 #include "Config.h"
 #include "Date.h"
+#include "Economy/Currency.h"
 #include "Economy/Economy.h"
 #include "Effects/EffectsManager.h"
 #include "Environment.h"
@@ -23,6 +24,7 @@
 #include "Scenario/ScenarioManager.h"
 #include "Scenario/ScenarioOptions.h"
 #include "SceneManager.h"
+#include "Signals/PathSignals.h"
 #include "Ui/WindowManager.h"
 #include "Vehicles/VehicleManager.h"
 #include "World/CompanyManager.h"
@@ -220,6 +222,18 @@ namespace OpenLoco::Scenes::GameScene
         ScenarioManager::setScenarioTicks2(ScenarioManager::getScenarioTicks2() + 1);
         Network::processGameCommands(ScenarioManager::getScenarioTicks());
 
+        if (Config::get().infiniteMoney)
+        {
+            if (auto* company = CompanyManager::getPlayerCompany())
+            {
+                constexpr int64_t kPlentyOfCash = 2000000000;
+                if (company->cash.asInt64() < kPlentyOfCash)
+                {
+                    company->cash = currency48_t(kPlentyOfCash);
+                }
+            }
+        }
+
         recordTickStartPrng();
         World::TileManager::defragmentTilePeriodic();
 
@@ -232,6 +246,7 @@ namespace OpenLoco::Scenes::GameScene
         TownManager::tick();
         IndustryManager::tick();
         VehicleManager::tick();
+        Signals::tick();
         StationManager::tick();
         EffectsManager::tick();
         CompanyManager::tick();

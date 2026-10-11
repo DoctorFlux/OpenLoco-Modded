@@ -10,7 +10,9 @@ Advanced controls stay off the main toolbar. A player who has not installed a mo
 
 | Window | Opens from | Shows |
 | --- | --- | --- |
-| Mod manager | Title or options | Installed mods, enable state, version, dependencies, errors, log tail |
+| Mod manager | Removed | The title-screen Mods button and the mod manager window are gone |
+| Line manager | Click the in-game top toolbar Lines button, or Options > Miscellaneous | Normal window colours. Orders tab with numbered orders, slots, and Local/Express. Vehicles tab can add or buy a vehicle. The vehicle route tab keeps the normal order list and has a Line button |
+| Gameplay options | Options > Miscellaneous | Existing disable-breakdowns checkbox. Added no obsolescence, infinite money, and a calendar speed dropdown (Normal, Slow, Frozen). These are engine settings in `openloco.yml`, not installable mods |
 | Mod config | Mod manager | Settings declared by the mod schema |
 | Shared lines | Vehicle or a lines button | Line name, mode, stops, assigned vehicles, status |
 | Timetable | A line | Interval, dwell, targets, lateness |
@@ -19,8 +21,8 @@ Advanced controls stay off the main toolbar. A player who has not installed a mo
 | Yard controller | A configured yard | Track roles, programs, job queue |
 | Consist | A train | Order of vehicles, couplers, which end is powered |
 | Wagon requests | A freight line or yard | Open requests and assigned jobs |
-| Path signal | Signal window extension | Path mode versus block mode |
-| Reservation debug | Optional overlay | Reserved and occupied pieces, owner, direction |
+| Path signal | Signal tab checkboxes in rail construction | Path and chain checks on the normal signal, plus the existing one-way and two-way buttons. Arrows: white two-way path, yellow one-way path, red/blue/green chain aspect |
+| Reservation viewer | Train window main tab | One pressed button shows that train's reserved path on the map |
 | Passenger demand | Station | Groups waiting, destinations, connections |
 | Cargo demand | Industry and station | Supply, demand, waiting loads |
 | World generation | Scenario editor | Size, town spacing, industry density, terrain |

@@ -438,6 +438,16 @@ namespace OpenLoco::Ui::Windows
         Window* open();
     }
 
+    namespace LineManager
+    {
+        Window* open();
+    }
+
+    namespace LineSchemes
+    {
+        Window* open(uint16_t lineId);
+    }
+
     namespace TitleVersion
     {
         Window* open();

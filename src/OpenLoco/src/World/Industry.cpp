@@ -402,7 +402,7 @@ namespace OpenLoco
     {
         auto* indObj = getObject();
         // isObsolete or isTooLowProduction
-        return (getCurrentYear() > indObj->obsoleteYear && prng.randNext(0xFFFF) < 102)
+        return (isPastObsoleteYear(getCurrentYear(), indObj->obsoleteYear) && prng.randNext(0xFFFF) < 102)
             || (indObj->monthlyClosureChance != 0 && indObj->monthlyClosureChance > prng.randNext(0xFFFF));
     }
 

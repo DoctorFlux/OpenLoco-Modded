@@ -5,9 +5,7 @@ Hard dependencies are required to activate. Optional integrations add behaviour 
 ```
 Engine foundation
     |
-    +-- Mod loader (src/Modding)
-            |
-            +-- Programmable logic
+    +-- Programmable logic
             |
             +-- Shared lines
             |       +-- Timetables

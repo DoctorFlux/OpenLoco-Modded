@@ -8,11 +8,11 @@ alwaysApply: true
 Read `AGENTS.md`, `docs/MASTER_PLAN.md`, and `docs/DEVELOPMENT_STATUS.md` before changing code.
 
 - Preserve vanilla Locomotion behaviour. New systems are opt-in.
-- Engine code is shared. Gameplay features belong to mods and must use documented APIs.
+- Shared lines, timetables, and path and chain signals live in the game. Do not add a mod loader.
 - Do not mutate simulation state outside validated commands.
 - Do not load native mod DLLs. Do not give scripts filesystem, process, or network access.
 - Do not commit original Locomotion assets or edit the Steam install or `%APPDATA%\OpenLoco` saves.
 - Keep SV5/SC5 import working. Do not invent a save format that fights upstream NSF. See `docs/UPSTREAM_TRACKING.md`.
-- Verify claims against the source. This tree has no mod loader in the game loop, no NSF, and no NOF.
+- Verify claims against the source. This tree has no mod loader, no NSF, and no NOF.
 - A feature is not complete until tests or an in-game check are recorded in `docs/DEVELOPMENT_STATUS.md`.
 - After the task, update the status, decisions, and the next actionable step.

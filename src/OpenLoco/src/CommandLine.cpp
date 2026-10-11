@@ -306,8 +306,7 @@ namespace OpenLoco
                           .registerOption("--intro")
                           .registerOption("--log_levels", 1)
                           .registerOption("--all", "-a")
-                          .registerOption("--locomotion_path", 1)
-                          .registerOption("--mods_path", 1);
+                          .registerOption("--locomotion_path", 1);
 
         if (!parser.parse())
         {
@@ -353,10 +352,6 @@ namespace OpenLoco
                 options.ticks = parser.getArg<int32_t>(2);
                 options.path2 = parser.getArg(3);
             }
-            else if (firstArg == "mods")
-            {
-                options.action = CommandLineAction::mods;
-            }
             else if (firstArg == "compare")
             {
                 options.action = CommandLineAction::compare;
@@ -398,10 +393,6 @@ namespace OpenLoco
         if (parser.hasOption("--locomotion_path"))
         {
             options.locomotionDataPath = parser.getArg("--locomotion_path");
-        }
-        if (parser.hasOption("--mods_path"))
-        {
-            options.modsPath = parser.getArg("--mods_path");
         }
 
         return options;

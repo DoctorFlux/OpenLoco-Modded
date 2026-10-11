@@ -16,7 +16,7 @@ This fork is the OpenLoco Advanced Modding Framework. The baseline is upstream O
 
 - Inspect the code before naming an API, plugin system, or save format. Do not invent one that already exists, and do not pretend one exists when it does not.
 - Keep original Locomotion gameplay and presentation working. New behaviour is opt-in.
-- Put shared mechanics in the engine. Put gameplay features behind the modding API. Do not hardcode one mod into the engine.
+- Put shared lines, timetables, and path and chain signals in the game. Do not add a mod loader.
 - Game-state changes go through validated commands. Do not mutate simulation state from UI or script code.
 - Do not load untrusted native DLLs. Scripts, when a language is chosen, get no filesystem, process, or network access.
 - Do not bundle original Locomotion assets. Do not modify `D:\SteamLibrary\steamapps\common\Locomotion` or player saves in `%APPDATA%\OpenLoco`.

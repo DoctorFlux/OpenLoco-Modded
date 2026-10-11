@@ -202,6 +202,23 @@ namespace OpenLoco::Config
 
         // Cheats
         _config.breakdownsDisabled = config["breakdowns_disabled"].as<bool>(false);
+        _config.obsoleteDisabled = config["obsolete_disabled"].as<bool>(false);
+        _config.infiniteMoney = config["infinite_money"].as<bool>(false);
+        {
+            const auto speed = config["calendar_speed"].as<std::string>("normal");
+            if (speed == "slow")
+            {
+                _config.calendarSpeed = CalendarSpeed::slow;
+            }
+            else if (speed == "frozen")
+            {
+                _config.calendarSpeed = CalendarSpeed::frozen;
+            }
+            else
+            {
+                _config.calendarSpeed = CalendarSpeed::normal;
+            }
+        }
         _config.buildLockedVehicles = config["buildLockedVehicles"].as<bool>(false);
         _config.cheatsMenuEnabled = config["cheats_menu_enabled"].as<bool>(false);
         _config.companyAIDisabled = config["companyAIDisabled"].as<bool>(false);
@@ -342,6 +359,20 @@ namespace OpenLoco::Config
 
         // Cheats
         node["breakdowns_disabled"] = _config.breakdownsDisabled;
+        node["obsolete_disabled"] = _config.obsoleteDisabled;
+        node["infinite_money"] = _config.infiniteMoney;
+        switch (_config.calendarSpeed)
+        {
+            case CalendarSpeed::slow:
+                node["calendar_speed"] = "slow";
+                break;
+            case CalendarSpeed::frozen:
+                node["calendar_speed"] = "frozen";
+                break;
+            case CalendarSpeed::normal:
+                node["calendar_speed"] = "normal";
+                break;
+        }
         node["buildLockedVehicles"] = _config.buildLockedVehicles;
         node["cheats_menu_enabled"] = _config.cheatsMenuEnabled;
         node["companyAIDisabled"] = _config.companyAIDisabled;

@@ -31,6 +31,7 @@
 #include "Graphics/TextRenderer.h"
 #include "Input.h"
 #include "LabelFrame.h"
+#include "Lines/Line.h"
 #include "Localisation/FormatArguments.hpp"
 #include "Localisation/Formatting.h"
 #include "Localisation/StringIds.h"
@@ -52,6 +53,7 @@
 #include "Objects/TrackObject.h"
 #include "Objects/WaterObject.h"
 #include "SceneManager.h"
+#include "Signals/PathSignals.h"
 #include "Ui/Dropdown.h"
 #include "Ui/ScrollView.h"
 #include "Ui/ToolManager.h"
@@ -88,7 +90,10 @@
 #include <OpenLoco/Math/Trigonometry.hpp>
 #include <OpenLoco/Utility/LookupTable.hpp>
 #include <sfl/static_vector.hpp>
+#include <cstring>
 #include <sstream>
+#include <string>
+#include <vector>
 
 using namespace OpenLoco::World;
 using namespace OpenLoco::Literals;
@@ -344,7 +349,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             orderDelete,
             orderUp,
             orderDown,
-            orderReverse
+            orderReverse,
+            lineAssign,
         };
 
         namespace Widx
@@ -359,6 +365,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             constexpr WidgetId kOrderUp{ "orderUp" };
             constexpr WidgetId kOrderDown{ "orderDown" };
             constexpr WidgetId kOrderReverse{ "orderReverse" };
+            constexpr WidgetId kLineAssign{ "lineAssign" };
         }
 
         constexpr uint64_t holdableWidgets = 0;
@@ -377,7 +384,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             Widgets::ImageButton(Widx::kOrderDelete, { 240, 116 }, { 24, 24 }, WindowColour::secondary, ImageIds::route_delete, StringIds::tooltip_route_delete_order),
             Widgets::ImageButton(Widx::kOrderUp, { 240, 140 }, { 24, 12 }, WindowColour::secondary, ImageIds::red_arrow_up, StringIds::tooltip_route_move_order_up),
             Widgets::ImageButton(Widx::kOrderDown, { 240, 152 }, { 24, 12 }, WindowColour::secondary, ImageIds::red_arrow_down, StringIds::tooltip_route_move_order_down),
-            Widgets::ImageButton(Widx::kOrderReverse, { 240, 164 }, { 24, 24 }, WindowColour::secondary, ImageIds::construction_right_turnaround, StringIds::reverseOrderTableTooltip)
+            Widgets::ImageButton(Widx::kOrderReverse, { 240, 164 }, { 24, 24 }, WindowColour::secondary, ImageIds::construction_right_turnaround, StringIds::reverseOrderTableTooltip),
+            Widgets::Button(Widx::kLineAssign, { 168, 44 }, { 72, 12 }, WindowColour::secondary, StringIds::line_assign_button)
 
         );
     }
@@ -404,6 +412,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             passSignal = 14,
             changeDirection = 15,
             centreViewport = 16,
+            showReservedPath = 17,
         };
 
         namespace Widx
@@ -416,6 +425,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             constexpr WidgetId kPassSignal{ "passSignal" };
             constexpr WidgetId kChangeDirection{ "changeDirection" };
             constexpr WidgetId kCentreViewport{ "centreViewport" };
+            constexpr WidgetId kShowReservedPath{ "show_reserved_path" };
         }
 
         static constexpr auto widgets = makeWidgets(
@@ -427,11 +437,12 @@ namespace OpenLoco::Ui::Windows::Vehicle
             Widgets::ImageButton(Widx::kPickup, { 240, 68 }, { 24, 24 }, WindowColour::secondary, ImageIds::null, StringIds::tooltip_remove_from_track),
             Widgets::ImageButton(Widx::kPassSignal, { 240, 92 }, { 24, 24 }, WindowColour::secondary, ImageIds::pass_signal, StringIds::tooltip_pass_signal_at_danger),
             Widgets::ImageButton(Widx::kChangeDirection, { 240, 116 }, { 24, 24 }, WindowColour::secondary, ImageIds::construction_right_turnaround, StringIds::tooltip_change_direction),
-            Widgets::ImageButton(Widx::kCentreViewport, { 0, 0 }, { 24, 24 }, WindowColour::secondary, ImageIds::centre_viewport, StringIds::move_main_view_to_show_this)
+            Widgets::ImageButton(Widx::kCentreViewport, { 0, 0 }, { 24, 24 }, WindowColour::secondary, ImageIds::centre_viewport, StringIds::move_main_view_to_show_this),
+            Widgets::ImageButton(Widx::kShowReservedPath, { 0, 0 }, { 24, 24 }, WindowColour::secondary, ImageIds::show_station_catchment, StringIds::tooltip_show_reserved_path)
 
         );
 
-        constexpr uint64_t interactiveWidgets = (1 << widx::stopStart) | (1 << widx::pickup) | (1 << widx::passSignal) | (1 << widx::changeDirection) | (1 << widx::centreViewport);
+        constexpr uint64_t interactiveWidgets = (1 << widx::stopStart) | (1 << widx::pickup) | (1 << widx::passSignal) | (1 << widx::changeDirection) | (1 << widx::centreViewport) | (1 << widx::showReservedPath);
         constexpr uint64_t holdableWidgets = 1 << widx::speedControl;
 
         // 0x004B5D82
@@ -664,6 +675,25 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
                     GameCommands::setErrorTitle(StringIds::cant_pass_signal_at_danger);
                     GameCommands::doCommand(args, GameCommands::Flags::apply);
+                    break;
+                }
+                case Widx::kShowReservedPath:
+                {
+                    auto* head = Common::getVehicle(self);
+                    if (head == nullptr || head->mode != TransportMode::rail)
+                    {
+                        break;
+                    }
+                    const auto headId = enumValue(head->id);
+                    if (Signals::reservationView() == headId)
+                    {
+                        Signals::setReservationView(Signals::kNoReservationView);
+                    }
+                    else
+                    {
+                        Signals::setReservationView(headId);
+                    }
+                    WindowManager::invalidate(WindowType::vehicle);
                     break;
                 }
             }
@@ -962,6 +992,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
             if (head->mode != TransportMode::rail)
             {
                 self.widgets[widx::passSignal].hidden = true;
+                self.widgets[widx::showReservedPath].hidden = true;
+            }
+            else
+            {
+                self.widgets[widx::showReservedPath].hidden = false;
             }
 
             if (head->mode == TransportMode::air || head->mode == TransportMode::water)
@@ -992,7 +1027,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
             if (head->tileX == -1)
             {
-                self.disabledWidgets |= (1 << widx::stopStart) | (1 << widx::passSignal) | (1 << widx::changeDirection) | (1 << widx::centreViewport);
+                self.disabledWidgets |= (1 << widx::stopStart) | (1 << widx::passSignal) | (1 << widx::changeDirection) | (1 << widx::centreViewport) | (1 << widx::showReservedPath);
                 if (ToolManager::isToolActive(WindowType::vehicle, self.number))
                 {
                     self.disabledWidgets &= ~(1 << widx::changeDirection); //???
@@ -1093,6 +1128,16 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.widgets[widx::centreViewport].bottom = self.widgets[widx::viewport].bottom - 1;
             self.widgets[widx::centreViewport].left = self.widgets[widx::viewport].right - 1 - 23;
             self.widgets[widx::centreViewport].top = self.widgets[widx::viewport].bottom - 1 - 23;
+
+            self.widgets[widx::showReservedPath].right = self.widgets[widx::centreViewport].left - 1;
+            self.widgets[widx::showReservedPath].left = self.widgets[widx::showReservedPath].right - 23;
+            self.widgets[widx::showReservedPath].bottom = self.widgets[widx::centreViewport].bottom;
+            self.widgets[widx::showReservedPath].top = self.widgets[widx::centreViewport].top;
+            self.activatedWidgets &= ~(1ULL << widx::showReservedPath);
+            if (head->mode == TransportMode::rail && Signals::reservationView() == enumValue(head->id))
+            {
+                self.activatedWidgets |= (1ULL << widx::showReservedPath);
+            }
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
         }
 
@@ -1820,6 +1865,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 args.head = veh->id;
 
                 GameCommands::doCommand(args, GameCommands::Flags::apply);
+                Lines::noteVehiclePainted(enumValue(head->id));
                 self.invalidate();
             }
         }
@@ -1863,6 +1909,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
             }
 
             GameCommands::doCommand(args, GameCommands::Flags::apply);
+            if (auto* head = Common::getVehicle(self))
+            {
+                Lines::noteVehiclePainted(enumValue(head->id));
+            }
             self.invalidate();
         }
 
@@ -2673,6 +2723,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         }
 
         static constexpr WindowEventList kEvents = {
+            .onClose = Common::onClose,
             .onMouseUp = onMouseUp,
             .onMouseDown = onMouseDown,
             .onDropdown = onDropdown,
@@ -2869,6 +2920,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         }
 
         static constexpr WindowEventList kEvents = {
+            .onClose = Common::onClose,
             .onMouseUp = onMouseUp,
             .onUpdate = onUpdate,
             .textInput = Common::textInput,
@@ -2891,12 +2943,12 @@ namespace OpenLoco::Ui::Windows::Vehicle
         }
 
         // 0x004B509B
+        static void clearLineNameStrings();
+
         static void close(Window& self)
         {
-            if (ToolManager::isToolActive(self.type, self.number))
-            {
-                ToolManager::toolCancel();
-            }
+            clearLineNameStrings();
+            Common::onClose(self);
         }
 
         static void orderDeleteCommand(Vehicles::VehicleHead* const head, const uint32_t orderOffset)
@@ -3002,6 +3054,149 @@ namespace OpenLoco::Ui::Windows::Vehicle
             return false;
         }
 
+        static std::vector<int32_t> _lineChoices;
+        static std::vector<StringId> _lineNameStrings;
+        static std::string _lineButtonLabel;
+
+        static void clearLineNameStrings()
+        {
+            for (const auto id : _lineNameStrings)
+            {
+                if (StringManager::isUserString(id))
+                {
+                    StringManager::emptyUserString(id);
+                }
+            }
+            _lineNameStrings.clear();
+        }
+
+        static StringId allocateLineName(const std::string& name)
+        {
+            char buffer[StringManager::kUserStringSize]{};
+            std::strncpy(buffer, name.c_str(), StringManager::kUserStringSize - 1);
+            const auto id = StringManager::userStringAllocate(buffer, false);
+            if (id != StringIds::empty)
+            {
+                _lineNameStrings.push_back(id);
+            }
+            return id;
+        }
+
+        static void refreshLineOrders(Vehicles::VehicleHead& head)
+        {
+            Vehicles::OrderManager::generateNumDisplayFrames(&head);
+            WindowManager::invalidate(WindowType::lineManager);
+            WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
+        }
+
+        static bool insertLineOrder(Window& self, Vehicles::VehicleHead& head, const Vehicles::Order& order)
+        {
+            const auto* line = Lines::lineForVehicle(enumValue(head.id));
+            if (line == nullptr)
+            {
+                return false;
+            }
+            const auto lineId = line->id;
+            const auto before = line->orders.size();
+            size_t index = before;
+            if (self.orderTableIndex >= 0 && static_cast<size_t>(self.orderTableIndex) <= before)
+            {
+                index = static_cast<size_t>(self.orderTableIndex);
+            }
+            if (!Lines::insertOrder(lineId, index, Lines::fromVehicleOrder(order)).ok)
+            {
+                return true;
+            }
+            const auto* updated = Lines::findLine(lineId);
+            if (self.orderTableIndex != -1 && updated != nullptr && updated->orders.size() > before)
+            {
+                self.orderTableIndex++;
+            }
+            refreshLineOrders(head);
+            return true;
+        }
+
+        static bool deleteLineOrder(Vehicles::VehicleHead& head, const int16_t orderId)
+        {
+            const auto* line = Lines::lineForVehicle(enumValue(head.id));
+            if (line == nullptr)
+            {
+                return false;
+            }
+            if (!line->orders.empty())
+            {
+                const auto index = orderId < 0 || static_cast<size_t>(orderId) >= line->orders.size() ? line->orders.size() - 1 : static_cast<size_t>(orderId);
+                Lines::removeOrder(line->id, index);
+            }
+            refreshLineOrders(head);
+            return true;
+        }
+
+        static bool moveLineOrder(Vehicles::VehicleHead& head, const int16_t orderId, const int delta, int16_t& selected)
+        {
+            const auto* line = Lines::lineForVehicle(enumValue(head.id));
+            if (line == nullptr)
+            {
+                return false;
+            }
+            if (orderId >= 0 && Lines::moveOrder(line->id, static_cast<size_t>(orderId), delta).ok)
+            {
+                selected = static_cast<int16_t>(selected + delta);
+            }
+            refreshLineOrders(head);
+            return true;
+        }
+
+        static bool reverseLineOrders(Vehicles::VehicleHead& head)
+        {
+            const auto* line = Lines::lineForVehicle(enumValue(head.id));
+            if (line == nullptr)
+            {
+                return false;
+            }
+            Lines::reverseOrders(line->id);
+            refreshLineOrders(head);
+            return true;
+        }
+
+        static void lineAssignMouseDown(Window& self, const WidgetIndex_t widgetIndex)
+        {
+            auto* head = Common::getVehicle(self);
+            if (head == nullptr)
+            {
+                return;
+            }
+            clearLineNameStrings();
+            _lineChoices.clear();
+            _lineChoices.push_back(-1);
+            Dropdown::add(0, StringIds::line_private_orders);
+            auto index = 1;
+            int32_t current = -1;
+            if (const auto* assigned = Lines::lineForVehicle(enumValue(head->id)))
+            {
+                current = assigned->id;
+            }
+            auto selected = 0;
+            for (const auto& line : Lines::allLines())
+            {
+                if (!Lines::lineAcceptsVehicle(line, head->vehicleType, head->mode))
+                {
+                    continue;
+                }
+                _lineChoices.push_back(line.id);
+                if (line.id == current)
+                {
+                    selected = index;
+                }
+                const auto name = allocateLineName(line.name);
+                Dropdown::add(index, name == StringIds::empty ? StringIds::empty : name);
+                index++;
+            }
+            const auto& widget = self.widgets[widgetIndex];
+            Dropdown::showText(self.x + widget.left, self.y + widget.top, widget.width(), widget.height(), self.getColour(WindowColour::secondary), index, 0);
+            Dropdown::setItemSelected(selected);
+        }
+
         // 0x004B4B43
         static void onMouseUp(Window& self, const WidgetIndex_t widgetIndex, const WidgetId id)
         {
@@ -3027,6 +3222,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Widx::kOrderDelete:
                 {
+                    if (deleteLineOrder(*head, self.orderTableIndex))
+                    {
+                        break;
+                    }
 
                     onOrderDelete(head, self.orderTableIndex);
                     if (self.orderTableIndex == -1)
@@ -3089,6 +3288,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 }
                 case Widx::kOrderUp:
+                    if (moveLineOrder(*head, self.orderTableIndex, -1, self.orderTableIndex))
+                    {
+                        break;
+                    }
                     if (onOrderMove(head, self.orderTableIndex, orderUpCommand))
                     {
                         if (self.orderTableIndex <= 0)
@@ -3099,6 +3302,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     }
                     break;
                 case Widx::kOrderDown:
+                    if (moveLineOrder(*head, self.orderTableIndex, 1, self.orderTableIndex))
+                    {
+                        break;
+                    }
                     if (onOrderMove(head, self.orderTableIndex, orderDownCommand))
                     {
                         if (self.orderTableIndex < 0)
@@ -3114,7 +3321,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Widx::kOrderReverse:
                 {
-                    orderReverseCommand(head);
+                    if (!reverseLineOrders(*head))
+                    {
+                        orderReverseCommand(head);
+                    }
                     break;
                 }
             }
@@ -3164,6 +3374,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 case Widx::kOrderWait:
                     createOrderDropdown(self, i, StringIds::orders_wait_for_full_load_of2);
                     break;
+                case Widx::kLineAssign:
+                    lineAssignMouseDown(self, i);
+                    break;
             }
         }
 
@@ -3175,6 +3388,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
         {
             auto head = Common::getVehicle(self);
             if (head == nullptr)
+            {
+                return;
+            }
+            if (insertLineOrder(self, *head, order))
             {
                 return;
             }
@@ -3232,6 +3449,30 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 {
                     Vehicles::OrderWaitFor wait(Dropdown::getItemArgument(item, 3));
                     addNewOrder(self, wait);
+                    break;
+                }
+                case Widx::kLineAssign:
+                {
+                    auto* head = Common::getVehicle(self);
+                    if (head == nullptr || item < 0 || static_cast<size_t>(item) >= _lineChoices.size())
+                    {
+                        return;
+                    }
+                    const auto choice = _lineChoices[static_cast<size_t>(item)];
+                    if (choice >= 0)
+                    {
+                        const auto* chosen = Lines::findLine(static_cast<uint16_t>(choice));
+                        if (chosen == nullptr || !Lines::lineAcceptsVehicle(*chosen, head->vehicleType, head->mode))
+                        {
+                            return;
+                        }
+                        Lines::assignVehicle(static_cast<uint16_t>(choice), enumValue(head->id), head->mode);
+                    }
+                    else
+                    {
+                        Lines::unassignVehicle(enumValue(head->id));
+                    }
+                    refreshLineOrders(*head);
                     break;
                 }
             }
@@ -3884,9 +4125,25 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 self.disabledWidgets &= ~(1 << widx::expressMode | 1 << widx::localMode);
             }
 
-            self.widgets[widx::expressMode].right = self.widgets[widx::routeList].right;
-            self.widgets[widx::expressMode].left = (self.widgets[widx::expressMode].right - 3) / 2 + 3;
+            self.widgets[widx::lineAssign].right = self.widgets[widx::routeList].right;
+            self.widgets[widx::lineAssign].left = self.widgets[widx::lineAssign].right - 74;
+            self.widgets[widx::lineAssign].top = self.widgets[widx::localMode].top;
+            self.widgets[widx::lineAssign].bottom = self.widgets[widx::localMode].bottom;
+            self.widgets[widx::lineAssign].hidden = isControllingCompany;
+            self.widgets[widx::expressMode].right = self.widgets[widx::lineAssign].left - 2;
+            self.widgets[widx::expressMode].left = (self.widgets[widx::expressMode].right + 3) / 2;
             self.widgets[widx::localMode].right = self.widgets[widx::expressMode].left - 1;
+            if (const auto* assigned = Lines::lineForVehicle(enumValue(head->id)))
+            {
+                _lineButtonLabel = assigned->name;
+                self.widgets[widx::lineAssign].text = StringIds::line_name_raw;
+                FormatArguments args(self.widgets[widx::lineAssign].textArgs);
+                args.push(_lineButtonLabel.c_str());
+            }
+            else
+            {
+                self.widgets[widx::lineAssign].text = StringIds::line_assign_button;
+            }
 
             self.disabledWidgets |= (1 << widx::orderUp) | (1 << widx::orderDown);
             if (self.orderTableIndex != -1)
@@ -4208,6 +4465,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
             if (ToolManager::isToolActive(WindowType::vehicle, self.number))
             {
                 ToolManager::toolCancel();
+            }
+            if (Signals::reservationView() == static_cast<uint16_t>(self.number))
+            {
+                Signals::setReservationView(Signals::kNoReservationView);
             }
         }
 

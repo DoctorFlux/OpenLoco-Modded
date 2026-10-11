@@ -6,6 +6,7 @@
 #include "Graphics/SoftwareDrawingEngine.h"
 #include "Graphics/TextRenderer.h"
 #include "Input.h"
+#include "Lines/Line.h"
 #include "Localisation/FormatArguments.hpp"
 #include "Localisation/Formatting.h"
 #include "Map/MapSelection.h"
@@ -214,6 +215,10 @@ namespace OpenLoco::Ui
             sess.drawStringStructs(columnDrawingCtx);
             drawRoutingNumbers(columnDrawingCtx, zoom);
         });
+
+        Gfx::SoftwareDrawingContext routeCtx;
+        routeCtx.pushRenderTarget(zoomViewRt);
+        Lines::drawRouteStrokes(routeCtx, zoom, static_cast<uint8_t>(options.rotation));
     }
 
     // 0x004CA444

@@ -45,6 +45,13 @@ namespace OpenLoco::Config
         transparent,
     };
 
+    enum class CalendarSpeed : uint8_t
+    {
+        normal,
+        slow,
+        frozen,
+    };
+
     struct Resolution
     {
         int32_t width{};
@@ -194,6 +201,9 @@ namespace OpenLoco::Config
         bool exportObjectsWithSaves = true;
 
         bool breakdownsDisabled = false;
+        bool obsoleteDisabled = false;
+        bool infiniteMoney = false;
+        CalendarSpeed calendarSpeed = CalendarSpeed::normal;
         bool buildLockedVehicles = false;
         bool cheatsMenuEnabled = false;
         bool companyAIDisabled = false;

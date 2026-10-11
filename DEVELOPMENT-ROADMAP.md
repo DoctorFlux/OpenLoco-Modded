@@ -2,7 +2,7 @@
 
 This file maps the OpenLoco systems at `e71abfb3`. It is not the project plan. The plan, status, and feature specs are in `docs/`. If this file and `docs/` disagree about sequencing, `docs/ROADMAP.md` wins.
 
-The current tree started as unmodified OpenLoco. `src/Modding` is a manifest loader only. It is not called by the game.
+The current tree started as unmodified OpenLoco. The mod loader and Hello World sample have been removed.
 
 Shared lines, timetables, conditional orders, path signals, locomotive run-around, and passenger destinations are not in the source. Vanilla orders, two-sided block signals, consist coupling, and an exact-match SV5/SC5 save are.
 

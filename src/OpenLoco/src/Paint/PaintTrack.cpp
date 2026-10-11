@@ -1,4 +1,5 @@
 #include "Paint/PaintTrack.h"
+#include "Entities/EntityManager.h"
 #include "Graphics/Colour.h"
 #include "Graphics/RenderTarget.h"
 #include "Logging.h"
@@ -10,9 +11,12 @@
 #include "Paint/PaintTileDecorations.h"
 #include "Paint/PaintTrackAdditionsData.h"
 #include "Paint/PaintTrackData.h"
+#include "Lines/Line.h"
+#include "Signals/PathSignals.h"
 #include "Ui.h"
 #include "Ui/ViewportInteraction.h"
 #include "Ui/WindowManager.h"
+#include "Vehicles/VehicleHead.h"
 #include "Viewport.hpp"
 #include "World/CompanyManager.h"
 #include <OpenLoco/Core/Numerics.hpp>
@@ -282,6 +286,48 @@ namespace OpenLoco::Paint
 
         TrackPaintCommon trackSession{ baseTrackImageColour.withIndex(trackObj->image), baseTrackImageColour, trackObj->tunnel };
 
+        const auto paintReservedOverlay = [&](const TrackPaintPiece& tpp) {
+            if (session.getZoom() > ZoomLevel::half || elTrack.isGhost() || elTrack.isAiAllocated())
+            {
+                return;
+            }
+            const bool arrowView = (session.getViewFlags() & Ui::ViewportFlags::one_way_direction_arrows) != Ui::ViewportFlags::none;
+            const bool viewer = Signals::reservationView() != Signals::kNoReservationView;
+            if (!arrowView && !viewer)
+            {
+                return;
+            }
+            const auto tilePos = session.getUnkPosition();
+            const auto piece = Signals::pieceFromElement(World::Pos3{ tilePos.x, tilePos.y, elTrack.baseHeight() }, elTrack.rotation(), elTrack.trackId(), elTrack.sequenceIndex());
+            uint16_t owner = Signals::kNoReservationView;
+            if (arrowView)
+            {
+                if (const auto arrow = Signals::reservationArrowAt(piece))
+                {
+                    owner = arrow->owner;
+                }
+            }
+            if (owner == Signals::kNoReservationView && viewer && Signals::viewedTravelSide(piece))
+            {
+                owner = Signals::reservationView();
+            }
+            if (owner == Signals::kNoReservationView)
+            {
+                return;
+            }
+            auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(owner));
+            if (head == nullptr)
+            {
+                return;
+            }
+            const auto glass = Colours::getTranslucent(CompanyManager::getCompanyColour(head->owner), 0);
+            const auto railPart = tpp.isMergeable ? 2 : 0;
+            const auto heightOffset = World::Pos3{ 0, 0, static_cast<coord_t>(elTrack.baseHeight() + 1) };
+            session.setItemType(Ui::ViewportInteraction::InteractionItem::noInteraction);
+            const auto image = ImageId(trackObj->image + tpp.imageIndexOffsets[rotation][railPart]).withTranslucency(glass);
+            session.addToPlotListAsParent(image, heightOffset, tpp.boundingBoxOffsets[rotation] + heightOffset, tpp.boundingBoxSizes[rotation]);
+        };
+
         if (!session.skipTrackRoadSurfaces())
         {
             if (elTrack.trackId() < kTrackPaintParts.size() && elTrack.sequenceIndex() < kTrackPaintParts[elTrack.trackId()].size())
@@ -289,6 +335,7 @@ namespace OpenLoco::Paint
                 auto& parts = kTrackPaintParts[elTrack.trackId()];
                 auto& tpp = parts[elTrack.sequenceIndex()];
                 paintTrackPP(session, elTrack, trackSession, rotation, tpp);
+                paintReservedOverlay(tpp);
             }
             else
             {

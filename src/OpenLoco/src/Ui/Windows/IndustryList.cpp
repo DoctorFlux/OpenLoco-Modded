@@ -1203,7 +1203,7 @@ namespace OpenLoco::Ui::Windows::IndustryList
                     {
                         continue;
                     }
-                    if (getCurrentYear() > industryObj->obsoleteYear)
+                    if (isPastObsoleteYear(getCurrentYear(), industryObj->obsoleteYear))
                     {
                         continue;
                     }

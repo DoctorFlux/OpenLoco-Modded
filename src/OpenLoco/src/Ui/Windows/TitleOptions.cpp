@@ -12,11 +12,12 @@
 
 namespace OpenLoco::Ui::Windows::TitleOptions
 {
+    static constexpr Ui::Size kButtonSize = { 60, 15 };
     static constexpr Ui::Size kWindowSize = { 60, 15 };
 
     enum widx
     {
-        options_button
+        options_button,
     };
 
     namespace Widx
@@ -25,7 +26,7 @@ namespace OpenLoco::Ui::Windows::TitleOptions
     }
 
     static constexpr auto _widgets = makeWidgets(
-        Widgets::ImageButton(Widx::kOptionsButton, { 0, 0 }, kWindowSize, WindowColour::secondary)
+        Widgets::ImageButton(Widx::kOptionsButton, { 0, 0 }, kButtonSize, WindowColour::secondary)
 
     );
 
@@ -57,14 +58,10 @@ namespace OpenLoco::Ui::Windows::TitleOptions
         window.draw(drawingCtx);
 
         int16_t x = window.width / 2;
-        int16_t y = window.widgets[widx::options_button].top + 2;
-        Ui::Point origin = { x, y };
-
         auto argsBuf = FormatArgumentsBuffer{};
         auto args = FormatArguments{ argsBuf };
         args.push(StringIds::options);
-
-        tr.drawStringCentredWrapped(origin, window.width, Colour::white, StringIds::outlined_wcolour2_stringid, args);
+        tr.drawStringCentredWrapped({ x, static_cast<int16_t>(window.widgets[widx::options_button].top + 2) }, window.width, Colour::white, StringIds::outlined_wcolour2_stringid, args);
     }
 
     static void onMouseUp([[maybe_unused]] Window& window, [[maybe_unused]] WidgetIndex_t widgetIndex, const WidgetId id)

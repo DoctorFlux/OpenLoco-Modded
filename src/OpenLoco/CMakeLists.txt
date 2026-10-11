@@ -295,7 +295,13 @@ set(OLOCO_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Widgets/Wt3Widget.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Window.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/WindowManager.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Lines/Line.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Lines/LinePath.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Signals/PathSearch.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Signals/PathSignals.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Signals/PathSignalsWorld.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Windows/About.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Windows/LineManager.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Windows/AboutMusic.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Windows/BuildVehicle.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Windows/Cheats.cpp"
@@ -752,6 +758,7 @@ set(public_link_libraries
     ZLIB::ZLIB # This shouldn't be required but vcpkg seems to not map the dependencies correctly for png static
     PNG::PNG
     $<$<PLATFORM_ID:Windows>:winmm>
+    $<$<PLATFORM_ID:Windows>:ole32>
     $<$<PLATFORM_ID:Windows>:ws2_32>
     $<$<PLATFORM_ID:Windows>:Resources>
     $<$<BOOL:${MINGW}>:imm32>
@@ -773,6 +780,9 @@ set(private_compile_definitions
 
 set(test_files
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/TileManagerTests.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/GameplayOptionsTests.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/LineTests.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/PathSignalTests.cpp"
 )
 
 loco_add_library(OpenLoco STATIC

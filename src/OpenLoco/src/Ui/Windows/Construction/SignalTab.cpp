@@ -13,6 +13,7 @@
 #include "Objects/TrackObject.h"
 #include "Objects/TrainSignalObject.h"
 #include "Scenario/ScenarioConstruction.h"
+#include "Signals/PathSignals.h"
 #include "Ui/Dropdown.h"
 #include "Ui/ToolManager.h"
 #include "Ui/ViewportInteraction.h"
@@ -23,6 +24,7 @@
 #include "Ui/Widgets/LabelWidget.h"
 #include "Ui/Widgets/StepperWidget.h"
 #include "Ui/Windows/Construction/Construction.h"
+#include <algorithm>
 
 using namespace OpenLoco::World;
 using namespace OpenLoco::World::TileManager;
@@ -30,7 +32,7 @@ using namespace OpenLoco::World::TileManager;
 namespace OpenLoco::Ui::Windows::Construction::Signal
 {
     constexpr int32_t kWidth = 156;
-    constexpr int32_t kHeight = 222;
+    constexpr int32_t kHeight = 238;
     constexpr int32_t kSpacing = 4;
     constexpr int32_t kImageButtonSize = 40;
     constexpr int32_t kStepperWidth = 48;
@@ -38,11 +40,13 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
     static constexpr auto widgets = makeWidgets(
         Common::makeCommonWidgets(kWidth, kHeight, StringIds::stringid_2),
         Widgets::dropdownWidgets(Widx::kSignal, Widx::kSignalDropdown, { kSpacing, 45 }, { kWidth - (kSpacing * 2), 12 }, WindowColour::secondary, Widget::kContentNull, StringIds::tooltip_select_signal_type),
-        Widgets::ImageButton(Widx::kBothDirections, { ((kWidth - (kSpacing * 2)) / 2) - kSpacing - kImageButtonSize, 110 }, { kImageButtonSize, kImageButtonSize }, WindowColour::secondary, Widget::kContentNull, StringIds::tooltip_signal_both_directions),
-        Widgets::ImageButton(Widx::kSingleDirection, { ((kWidth - (kSpacing * 2)) / 2) + kSpacing, 110 }, { kImageButtonSize, kImageButtonSize }, WindowColour::secondary, Widget::kContentNull, StringIds::tooltip_signal_single_direction),
-        Widgets::Checkbox(Widx::kAutoMode, { kSpacing, 166 }, { kWidth - (kSpacing * 2), 12 }, WindowColour::secondary, StringIds::signal_placement_repeat, StringIds::signal_placement_repeat_tooltip),
-        Widgets::Label(Widx::kStepLabel, { kSpacing, 182 }, { kWidth - (kSpacing * 2), 13 }, WindowColour::secondary, ContentAlign::left, StringIds::signal_placement_step_size),
-        Widgets::stepperWidgets(Widx::kStepValue, Widx::kStepDecrease, Widx::kStepIncrease, { kWidth - kSpacing - kStepperWidth, 182 }, { kStepperWidth, 12 }, WindowColour::secondary, StringIds::uint16_raw, StringIds::tooltip_select_signal_type)
+        Widgets::ImageButton(Widx::kBothDirections, { ((kWidth - (kSpacing * 2)) / 2) - kSpacing - kImageButtonSize, 126 }, { kImageButtonSize, kImageButtonSize }, WindowColour::secondary, Widget::kContentNull, StringIds::tooltip_signal_both_directions),
+        Widgets::ImageButton(Widx::kSingleDirection, { ((kWidth - (kSpacing * 2)) / 2) + kSpacing, 126 }, { kImageButtonSize, kImageButtonSize }, WindowColour::secondary, Widget::kContentNull, StringIds::tooltip_signal_single_direction),
+        Widgets::Checkbox(Widx::kAutoMode, { kSpacing, 182 }, { kWidth - (kSpacing * 2), 12 }, WindowColour::secondary, StringIds::signal_placement_repeat, StringIds::signal_placement_repeat_tooltip),
+        Widgets::Label(Widx::kStepLabel, { kSpacing, 198 }, { kWidth - (kSpacing * 2), 13 }, WindowColour::secondary, ContentAlign::left, StringIds::signal_placement_step_size),
+        Widgets::stepperWidgets(Widx::kStepValue, Widx::kStepDecrease, Widx::kStepIncrease, { kWidth - kSpacing - kStepperWidth, 198 }, { kStepperWidth, 12 }, WindowColour::secondary, StringIds::uint16_raw, StringIds::tooltip_select_signal_type),
+        Widgets::Checkbox(Widx::kPathSignal, { kSpacing, 59 }, { kWidth - (kSpacing * 2), 12 }, WindowColour::secondary, StringIds::signal_kind_path, StringIds::tooltip_signal_path),
+        Widgets::Checkbox(Widx::kChainSignal, { kSpacing, 73 }, { kWidth - (kSpacing * 2), 12 }, WindowColour::secondary, StringIds::signal_kind_chain, StringIds::tooltip_signal_chain)
         // cost of signal placement is drawn at the bottom of the window as the last widget
 
     );
@@ -71,8 +75,22 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
                 break;
 
             case Widx::kAutoMode:
+            {
                 auto& cState = getConstructionState();
                 cState.repeatedSignalMode = !cState.repeatedSignalMode;
+                self.invalidate();
+                break;
+            }
+
+            case Widx::kPathSignal:
+                getConstructionState().signalKind ^= static_cast<uint8_t>(Signals::SignalKind::path);
+                removeSignalGhost();
+                self.invalidate();
+                break;
+
+            case Widx::kChainSignal:
+                getConstructionState().signalKind ^= static_cast<uint8_t>(Signals::SignalKind::chain);
+                removeSignalGhost();
                 self.invalidate();
                 break;
         }
@@ -206,6 +224,7 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
         args.index = elTrack->sequenceIndex();
         args.trackObjType = elTrack->trackObjectId();
         args.step = cState.repeatedSignalMode ? cState.signalPlacementStepSize : 0;
+        args.kind = cState.signalKind;
 
         if (isBothDirectons)
         {
@@ -234,6 +253,7 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
             cState.signalGhostSides = args.sides;
             cState.signalGhostTrackObjId = args.trackObjType;
             cState.signalGhostStep = args.step;
+            cState.signalGhostKind = args.kind;
         }
         return res;
     }
@@ -291,7 +311,8 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
                 && cState.signalGhostTileIndex == placementArgs->index
                 && cState.signalGhostSides == placementArgs->sides
                 && cState.signalGhostTrackObjId == placementArgs->trackObjType
-                && cState.signalGhostStep == placementArgs->step)
+                && cState.signalGhostStep == placementArgs->step
+                && cState.signalGhostKind == placementArgs->kind)
             {
                 return;
             }
@@ -359,6 +380,23 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
         auto trainSignalObject = ObjectManager::get<TrainSignalObject>(cState.lastSelectedSignal);
         self.widgets[widx::signal].text = trainSignalObject->name;
 
+        if ((cState.signalKind & static_cast<uint8_t>(Signals::SignalKind::path)) != 0)
+        {
+            self.activatedWidgets |= (1ULL << widx::path_signal);
+        }
+        else
+        {
+            self.activatedWidgets &= ~(1ULL << widx::path_signal);
+        }
+        if ((cState.signalKind & static_cast<uint8_t>(Signals::SignalKind::chain)) != 0)
+        {
+            self.activatedWidgets |= (1ULL << widx::chain_signal);
+        }
+        else
+        {
+            self.activatedWidgets &= ~(1ULL << widx::chain_signal);
+        }
+
         if (cState.repeatedSignalMode)
         {
             self.activatedWidgets |= (1 << widx::auto_mode);
@@ -396,7 +434,7 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
             FormatArguments args{};
             args.push(trainSignalObject->description);
 
-            tr.drawStringLeftWrapped({ 3, 63 }, 130, Colour::black, StringIds::signal_black, args);
+            tr.drawStringLeftWrapped({ 3, 90 }, 130, Colour::black, StringIds::signal_black, args);
         }
 
         auto baseImageId = trainSignalObject->image;

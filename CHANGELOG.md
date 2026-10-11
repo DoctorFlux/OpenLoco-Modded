@@ -10,6 +10,15 @@
 - Fix: [#4063] Incorrect vehicle speed calculation (vanilla bug).
 - Fix: [#4063] Town expansion does not raise/lower certain land corners (vanilla bug).
 
+26.09-modded.1 (2026-10-11)
+------------------------------------------------------------------------
+- Feature: Shared lines give many vehicles one order list, with a map path, a stop diagram, and colour schemes for steam, diesel, electric, multiple units, passenger vehicles, freight vehicles, buses, trucks, aircraft, and ships. One vehicle can keep its own paint.
+- Feature: Timetables and distance-based spacing hold a vehicle when the one ahead is closer than an even share of the line.
+- Feature: Path and chain signals are checkboxes on the normal signal and use the same green, red, and yellow as block signals.
+- Feature: Options can turn off obsolescence, keep money topped up, and slow or freeze the calendar.
+- Change: Lines, timetables, and path signals are stored beside the save, so original SV5 and SC5 files stay importable. Chris Sawyer's Locomotion is still required to play.
+- Removed: The mod loader, title-screen Mods window, and Hello World sample. These features are part of the game.
+
 26.09 (2026-09-18)
 ------------------------------------------------------------------------
 - Feature: [#3942] Added a tooltip to show the drag dimensions when using area selection tools.

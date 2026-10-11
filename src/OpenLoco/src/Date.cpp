@@ -1,4 +1,5 @@
 #include "Date.h"
+#include "Config.h"
 #include "GameState.h"
 
 #include <limits>
@@ -75,19 +76,56 @@ namespace OpenLoco
         getGameState().dayCounter = progression;
     }
 
+    uint16_t calendarDayIncrement()
+    {
+        switch (Config::get().calendarSpeed)
+        {
+            case Config::CalendarSpeed::frozen:
+                return 0;
+            case Config::CalendarSpeed::slow:
+                return 170;
+            case Config::CalendarSpeed::normal:
+                return 682;
+        }
+        return 682;
+    }
+
+    bool isPastObsoleteYear(const uint16_t currentYear, const uint16_t obsoleteYear)
+    {
+        if (Config::get().obsoleteDisabled)
+        {
+            return false;
+        }
+        return currentYear > obsoleteYear;
+    }
+
+    bool isAtOrPastObsoleteYear(const uint16_t currentYear, const uint16_t obsoleteYear)
+    {
+        if (Config::get().obsoleteDisabled)
+        {
+            return false;
+        }
+        return currentYear >= obsoleteYear;
+    }
+
     bool updateDayCounter()
     {
-        bool result = false;
-        constexpr uint16_t kIncrement = 682; // Results in a day length of ~96.09 updates (~2.4 seconds).
+        const auto increment = calendarDayIncrement();
+        if (increment == 0)
+        {
+            return false;
+        }
 
-        // Check if counter is going to wrap
-        if (getGameState().dayCounter + kIncrement > std::numeric_limits<uint16_t>::max())
+        bool result = false;
+
+        // Check if counter is going to wrap. 682 results in a day length of ~96.09 updates (~2.4 seconds).
+        if (getGameState().dayCounter + increment > std::numeric_limits<uint16_t>::max())
         {
             getGameState().currentDay++;
             result = true;
         }
 
-        getGameState().dayCounter += kIncrement;
+        getGameState().dayCounter += increment;
         return result;
     }
 

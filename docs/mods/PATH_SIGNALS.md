@@ -1,35 +1,73 @@
-# Path signals and reservations
+# Path signals, chain signals, and reservations
 
-Not implemented. Block signals stay the default.
+Implemented in the engine. Block signals stay the default, and a save with no companion file behaves as before.
 
-## What exists
+## Signal types
 
-`Routing.cpp` finds the next signal and treats the section as occupied or clear. Each vehicle holds up to 64 routing words (`kMaxRoutingsPerVehicle`). `TrainSignalObject` has side and lights, not a path-signal flag. `CompanyAiPathfinding.cpp` is for building track, not for train reservations.
+The Signal tab keeps the normal signal object and the existing both-directions and single-direction buttons. Path and chain are checkboxes on that signal, so any combination is allowed. The flag byte is sent in the `createSignal` and `createSignalsAuto` commands (`ebp` bits 8–9), so repeat placement and the network command stream carry it.
 
-## Reservation model
+- **Neither checkbox**: a block signal. One direction places one side; both directions place both sides.
+- **Path**: red at rest. A train arriving at it reserves a path to the next safe waiting point. If every piece is free, the signal turns green for that train and the train follows that path through junctions. Otherwise the train waits and retries every 16 ticks.
+- **Chain**: uses the same reservation, but keeps looking through chain signals, including a signal that has both checkboxes, and through the exit signal. Through a path exit it reserves to that signal's next safe waiting point. Through a block exit it reserves that whole block, and refuses an exit block that is already occupied. The chain aspect is red when its block is busy or every exit is red, blue when some exits are red, and green when all are clear. A train only waits at a blue chain signal when its own exit is red, because that is when its reservation fails.
+- **Both checkboxes**: a path signal that also looks ahead. Facing one starts a chain search, and the path flag still turns the signal clear while it is reserved and red after the train passes.
 
-A reservation is a set of track pieces plus direction, owner (vehicle or wagon group), and a release condition (tail passed, job cancelled, timeout).
+One direction is the single-direction button. A train that meets the back of a signal is blocked. Both directions places a signal facing each way, so each direction meets the front of its own signal.
 
-Two reservations conflict when their pieces overlap in a way the geometry says cannot be occupied together. Parallel tracks do not conflict. A crossover does. A wagon standing on a piece conflicts with every reservation of that piece.
+A safe waiting point is the next path, chain, or block signal facing the train, the end of the destination platform, a dead end, or 64 pieces of unsignalled track.
 
-The check uses track connectivity from `Map/Track`, not a single block bit. Block signals remain a coarser mode: they reserve the whole section as they do now.
+## Reservations
 
-## Required behaviour
+`src/OpenLoco/src/Signals/PathSignals.cpp` holds the reservation state. A reservation is separate from the 64-slot routing ring, so its length is not limited by the ring.
 
-- A move is refused when the path conflicts.
-- Push and reverse reserve the path in the travel direction, including the length of the consist.
-- Parked wagon groups own their pieces.
-- Release happens when the tail clears, or when the command is cancelled.
-- Shunting signals are a signal object mode that allows a reserved shunt path without opening the main block.
-- Priority can preempt only a reservation that is itself waiting, never one that a train is already on.
-- Deadlock detection reports the involved ids and breaks the lowest-priority waiting reservation.
+- A piece key is direction independent: the sequence 0 origin, rotation, and track id.
+- Holds are either a pending path or occupied track. Every rail train holds the pieces in its routing ring. The head adds a piece when it writes the next routing, and the tail releases a piece when it leaves.
+- Two pieces conflict when they share a tile at overlapping heights with overlapping quarter-tile clearance from `TrackData::getTrackPiece`. Switches and crossings conflict; parallel track does not.
+- A reservation is all or nothing.
+- A train in path mode protects the track it stands on and the path ahead. A train that has not passed a path or chain signal holds its track without protection, so vanilla trains keep vanilla rules among themselves.
+- Reverse, lookahead collapse, pick-up, and placing a train rebuild its holds from the routing ring and drop its pending path. Selling a train releases everything.
+- A hold whose train no longer exists or no longer lists the piece is dropped when another train meets it, and every 512 ticks.
 
-## Integration
+## Pathfinding
 
-Existing signal windows gain a mode. Automatic signal placement is unchanged for block mode. Path mode is opt-in per signal.
+`PathSearch` is an A* over an abstract track graph. The game adapter uses `getTrackConnections`, the signal types, the holds, and a vehicle scan of the piece's tiles.
 
-Longer than 64 reserved pieces requires the save container, because the routing ring is inside `S5::GameState`.
+- The target is the current order: any piece reporting the order's station, or the waypoint piece in either direction.
+- Cost is `unkWeighting` per piece. The heuristic is the vanilla distance metric.
+- Before the reservation end, held or occupied pieces are impassable. After it, they only add a penalty.
+- The search stops after 4096 expansions. If the target is not found, the train reserves to the free safe waiting point closest to the target. A train with no orders reserves to the nearest free safe waiting point.
+
+## Train integration
+
+All decisions run in `sub_4ACEF1` before `setRouting`, so a refused move uses the existing stop at the end of the current piece. A path wait returns status 3 with flag bit 6. That wait never passes at danger, never takes the manual-control pass, and never reverses on a timeout.
+
+- A train with a pending path follows it at junctions.
+- A vanilla train will not enter a piece that a path-mode train holds, and will not pass a block signal into a block that holds another train's path.
+- The player's pass-signal button still lets a train past a path signal, but never into a piece another train has reserved.
+- Vanilla aspect writes skip path and chain heads. Their posts are recomputed every 8 ticks from claims; see Display.
+- Shared-line trains reserve toward their current order, which already comes from the line.
+
+## Display
+
+Plain block signals keep OpenLoco's own look. OpenLoco's train head runs ahead of the train and sets the route. A block signal goes to state 1 (red) when the head routes into its piece, and back to 0 (green) when the last wagon leaves it, the train reverses, or it is lifted.
+
+Path, chain, and combined signals use those same vanilla writes. They stay green while the line is clear. The head passing one sets it red, and sets the signals behind it yellow and then the next vanilla state, including path and chain posts. The last wagon leaving, a reverse, or a lift sets the post back to green. Nothing repaints them from the reservation. A train waiting for a path does not turn the post yellow.
+
+Junction route indicators use vanilla `updateJunctionSignalLights`. They light when the head takes the junction after the signal. On a path signal that is right after it reserves. On special signals, the lit lights are cleared where vanilla state 0 would clear them: when the last wagon leaves the piece, when the tail is lifted, and when the train's lookahead is discarded or reversed. The housing bits stay.
+
+The reservation stays on each piece until the tail, the last wagon, leaves that piece. The head entering a piece does not drop it.
+
+`paintSignalSide` draws the game's one-way arrow sprite beside each signal only while the viewport's one-way arrow view is on. The arrow colour is the signal combination: block is muted green or grey, chain is blue or dark blue, path is white or yellow, and path plus chain is green or orange. The second colour in each pair is the one-direction signal.
+
+That same view, and the train window path button, draw the reserved path as a light transparent copy of the rail sprite only, in the train's company colour, from the tail through the path ahead. Closing the train window turns the button off.
+
+## Save
+
+`<save>.SV5.osignals`, text, `OSIGNALS 3`: the signal flags and each train's path mode and pending path. Version 3 has the same layout as version 2. Builds that wrote version 2 could leave route-indicator lights on special signals, so loading a version 2 file clears the lights on every special side once (`Signals::onCompanionLoaded`). The next train through a junction lights the correct housing again. Version 1 files still load: block `0` is ignored, path `1` and the old one-way path `2` become the path flag, and chain `3` becomes the chain flag. One-way is which sides were built, so an old one-way path that was stored only as a kind is a path signal on the sides that exist. Track a train stands on is rebuilt from its routing ring after load. A save without the file loads with block signals only. The file is written and read from the path-based save and load in `src/OpenLoco/src/S5/S5.cpp`, next to the lines companion. Network stream saves do not carry it. The reservation viewer is not saved.
+
+## Not implemented
+
+OpenTTD entry, exit, and combo pre-signals as separate types. Path plus chain is the two checkboxes together. Road vehicles are unchanged. Platform choice is not forced.
 
 ## Tests
 
-Junction, crossover, parallel tracks, sorting yard, reverse, and two non-conflicting trains in one signal area. Plus a conflict that must not be entered.
+`PathSignalTests`: registry, side and piece round trip, crossing and parallel conflicts, all-or-nothing reservation, protected and unprotected holds, chain aspects, the claim post rule for path and chain signals, two-state proceed as green, each train's last claim, path and chain flags together, companion version 1 migration and the version 2 light repair, the reservation viewer piece set, companion version 3 round trip and bad files, and search cases for a junction with a blocked branch, the stop before the next signal, chain continuation through a path exit, path-plus-chain look-ahead, a chain with an occupied exit block, a chain with one open exit, a one-way signal from behind, and the no-orders fallback.

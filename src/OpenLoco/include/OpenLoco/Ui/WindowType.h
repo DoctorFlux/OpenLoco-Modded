@@ -70,6 +70,8 @@ namespace OpenLoco::Ui
         objectLoadError = 60,
 
         debug = 61,
+        lineManager = 63,
+        lineColourSchemes = 64,
 
         undefined = 255
     };

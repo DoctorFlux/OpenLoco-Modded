@@ -36,6 +36,7 @@
 #include "Scenario/ScenarioObjective.h"
 #include "Scenario/ScenarioOptions.h"
 #include "SceneManager.h"
+#include "Signals/PathSignals.h"
 #include "Title.h"
 #include "Ui/WindowManager.h"
 #include "Ui/Windows/Construction/Construction.h"
@@ -215,6 +216,7 @@ namespace OpenLoco::Scenario
         StationManager::reset();
 
         Vehicles::RoutingManager::resetRoutingTable();
+        Signals::reset();
         Vehicles::OrderManager::reset();
         Ui::Windows::Terraform::resetDefaultObjectIds();
         sub_43C8FD();

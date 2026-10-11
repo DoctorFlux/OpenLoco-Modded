@@ -7,6 +7,8 @@
 #include "Entities/EntityManager.h"
 #include "Game.h"
 #include "GameState.h"
+#include "Lines/Line.h"
+#include "Signals/PathSignals.h"
 #include "GameStateFlags.h"
 #include "Gui.h"
 #include "Localisation/Formatting.h"
@@ -446,7 +448,14 @@ namespace OpenLoco::S5
     bool exportGameStateToFile(const fs::path& path, SaveFlags flags)
     {
         FileStream fs(path, StreamMode::write);
-        return exportGameStateToFile(fs, flags);
+        const bool saved = exportGameStateToFile(fs, flags);
+        if (saved)
+        {
+            Lines::saveCompanion(path);
+            Signals::prepareForSave();
+            Signals::saveCompanion(path);
+        }
+        return saved;
     }
 
     bool exportGameStateToFile(Stream& stream, SaveFlags flags)
@@ -709,7 +718,14 @@ namespace OpenLoco::S5
     bool importSaveToGameState(const fs::path& path, LoadFlags flags)
     {
         FileStream fs(path, StreamMode::read);
-        return importSaveToGameState(fs, flags);
+        const bool loaded = importSaveToGameState(fs, flags);
+        if (loaded)
+        {
+            Lines::loadCompanion(path);
+            Signals::loadCompanion(path);
+            Signals::onCompanionLoaded();
+        }
+        return loaded;
     }
 
     bool importSaveToGameState(Stream& stream, LoadFlags flags)
@@ -935,6 +951,7 @@ namespace OpenLoco::S5
             if (hasLoadFlags(flags, LoadFlags::scenario))
             {
                 dst.var_014A = 0;
+                Signals::reset();
                 Ui::ProgressBar::end();
                 return true;
             }
@@ -995,6 +1012,7 @@ namespace OpenLoco::S5
                 SceneManager::resetSceneAge();
             }
 
+            Signals::onGameLoaded();
             return true;
         }
         catch (const LoadException& e)

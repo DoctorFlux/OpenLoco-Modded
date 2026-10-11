@@ -60,6 +60,9 @@ namespace OpenLoco
      * @returns true if the counter wraps indicating a new day.
      */
     bool updateDayCounter();
+    uint16_t calendarDayIncrement();
+    bool isPastObsoleteYear(uint16_t currentYear, uint16_t obsoleteYear);
+    bool isAtOrPastObsoleteYear(uint16_t currentYear, uint16_t obsoleteYear);
     Date calcDate(uint32_t totalDays);
     uint32_t calcDays(Date date);
 
