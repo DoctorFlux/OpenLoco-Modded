@@ -126,3 +126,5 @@ Phase 4 is implemented on `codex/block-logic-programming` and remains TESTING un
 Phase 4 includes actual multi-row blocks in the vehicle Route, shared-line Orders and Rules windows; simultaneous current-program/next-destination feedback; Else/Else if; Forever repeats and Break. Native acceptance remains user-run before completing this milestone.
 
 Rules uses MakeCode-style shapes inside native windows (D34), with explicit inside slots that grow route sections. Classic order lists without blocks keep their existing presentation. Latest Phase 4 fixes remain in TESTING for user manual recheck.
+
+Phase 4 also distinguishes Before travelling decisions from physical On arrival decisions. Waits use normal movement/braking to reach their boundary before the clock starts; arrival choices stay fixed through cargo handling, and next-trip checks observe the vehicle after loading. Current future-stop facts support look-ahead choices without adding predictions. User acceptance now includes the When control, waypoint braking and save/reload during approach (D36/D37).

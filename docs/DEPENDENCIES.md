@@ -68,3 +68,5 @@ Private rules need only vanilla orders and vehicle state. Shared rules bind to L
 Else chains, Forever repeats and Break need no additional subsystem. Break validates its enclosing Repeat; the shared editor layout and OrderManager display-frame refresh serve private and shared order lists. Existing save companions and packed orders keep their versions.
 
 Container drops and MakeCode-style shapes use the existing rules model, command validation and native DrawingContext. They add no external editor dependency. Explicit membership lives only in commands; stable expanded bounds use the existing rules companion.
+
+Arrival timing uses native land routing handles/subpositions and distance-based braking, native ship deceleration and airport arrival, plus the existing station cargo lifecycle. Planner waypoint/route-through progression is not physical arrival. Before-travel checks read the same current cargo/platform/timetable/vehicle data, with next-trip checks deferred until loading is complete. No prediction service is added. The optional v1 PHASES extension preserves per-vehicle approach and arrival decisions after line loading (D36/D37).

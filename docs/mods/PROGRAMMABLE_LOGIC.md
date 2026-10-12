@@ -118,6 +118,14 @@ All three windows show two separate footer lines: the current program block/row 
 
 ## How a vehicle runs the blocks
 
+Select an executable block and click **When**. Choose **Before travelling**, **On arrival**, or Automatic. Automatic uses Before travelling for If/Else if/Else, Repeat and standalone Break, On arrival for Wait until, and the parent branch's timing for Skip/Go to/conditional Break. Group remains a name and bracket rather than an executable decision. All three views include the effective timing in the block sentence; the When control reuses the previous Name slot, so it adds no overlapping controls.
+
+Before travelling reads the current state before choosing the next trip. For example, test cargo waiting at Mill before heading there, then skip Mill and its waypoints if there is no cargo. These are current facts about a named future stop; no forecast of cargo, occupancy or timetable arrival time is calculated. On arrival physically visits the section's first routable row before evaluating. A failed arrival If can skip the remaining rows; it cannot undo the stop already visited. A cargo-only section uses the preceding routable row, including wrap-around. An arrival action can divert or break a loop after reaching that anchor. Subsequent iterations need a fresh physical visit for their arrival checks.
+
+Wait until normally holds at the last stop/route-through/waypoint in its section. The land route planner stops extending the route at that point; the physical train or road vehicle catches up using the existing distance-based braking pipeline. Speed is not set to zero by the rule guard. Only when the physical front reaches the planner's routing position and stops does the wait start its timeout. Ships use their existing gradual deceleration at waypoint targets; aircraft retain their normal airport arrival. Before-travel Wait holds at the previous safe route boundary before entering its section; if the land planner has reached that boundary ahead of the physical vehicle, it finishes braking there before starting the clock.
+
+At a station, arrival checks run before loading/unloading changes their inputs, and branch choices remain fixed through the section. Cargo handling continues during station waits. Decisions for the next trip are deferred until loading completes, so a vehicle-full check before departure sees the loaded vehicle. Wait and unfinished decisions retain their current boundary and prevent travel toward a new unselected destination. Planner progression is explicitly separate from physical arrival; merely planning past a waypoint does not satisfy an arrival check.
+
 When a vehicle is ready for the next order, the runner looks at the blocks on that order and on any group that contains it. The runner then chooses the next order. Movement, loading, unloading, and pathfinding stay the vanilla ones. Go to does not teleport. Skip does not remove the row.
 
 The host runs at most 256 block steps for one vehicle on one tick. A decision that needs more steps waits until the next tick. Wait until arms the check and stops spending steps until the next tick. While a vehicle waits at a station, cargo still loads and unloads, as it does for a timetable hold. A wait on a waypoint holds on that waypoint.
@@ -141,6 +149,8 @@ Shunting, cargo demand, and passenger destinations add sentences and actions to 
 ## Save
 
 Rules are not written into `S5::GameState`. The implemented file is `<save>.SV5.orules`, beside the lines and signals companions, version 1.
+
+An optional `PHASES 1` extension to the v1 companion records block timing and resumable physical-approach/arrival state. Legacy companions without this extension still load with Automatic timing. If a legacy land wait was armed while its route-planning head was ahead of the physical front, loading restores the approach and starts a fresh timeout after reaching the point. Malformed phase data is rejected before attachment. Builds predating the extension reject the extra data; keep the checkpoint's saves separate from feature-branch disposable saves. The packed save and existing lines/signals versions remain unchanged.
 
 A save with no rules file loads with no blocks. Orders and lines still load. Deleting a vehicle drops its private rules in that same command, so a reused vehicle id does not inherit them. Line rules are keyed by line id. Private rules are keyed by the vehicle head id, the same kind of id the lines companion already stores.
 

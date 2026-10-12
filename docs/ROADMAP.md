@@ -26,6 +26,8 @@ Status: **TESTING** on `codex/block-logic-programming`. Model, runtime, native e
 
 The phase is done when a vehicle and a shared line can both run the blocks, including a group of stops and waypoints, from the Rules window. A runner with no window, or a window that only edits one of the two lists, is not this phase.
 
+Arrival timing is implemented: When selects Before travelling/On arrival; waits finish native physical braking at their stop/waypoint before arming, arrival checks latch before cargo transfers, and next-trip checks run after loading. Current future-stop facts can drive advance skips/diversions. The optional v1 PHASES extension resumes approaches and arrival decisions. Next concrete task remains user manual acceptance, now including braking/arrival timing and save/reload during approach; do not proceed to Phase 5 yet.
+
 1. Block list, checks the game can already answer, If/Else if/Else, Skip, Go to, finite/Forever Repeat, Break, and the 256-step budget. Tests load the blocks from memory.
 2. Run those blocks on a vehicle's own orders, and run the same blocks on a shared line. Each vehicle on a line keeps its own repeat count and wait.
 3. Rules window. Its own window, drag and drop inside it, placed so it does not cover the line window, the vehicle window, or schemes.
