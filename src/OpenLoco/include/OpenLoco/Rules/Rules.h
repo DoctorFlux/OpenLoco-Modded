@@ -193,6 +193,7 @@ namespace OpenLoco::Rules
     uint16_t timetableOrder(uint16_t vehicle, uint16_t vanillaOffset);
     bool canStopAt(uint16_t vehicle, uint16_t station);
     std::string vehicleStatus(uint16_t vehicle);
+    const Runtime* runtimeForVehicle(uint16_t vehicle);
     bool saveCompanion(const std::filesystem::path& savePath);
     bool loadCompanion(const std::filesystem::path& savePath);
     std::filesystem::path companionPath(const std::filesystem::path& savePath);

@@ -994,3 +994,118 @@ TEST_F(GameRulesFixture, companionNumbersDoNotDependOnTheGameLocale)
     file.close();
     std::filesystem::remove(companionPath(path));
 }
+
+TEST(RulesTests, growingAnIfAlsoGrowsItsActionsAndSameSectionOtherwise)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 1)));
+    auto action = section(p, Kind::skip, 1, 1);
+    action.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, action));
+    auto fallback = section(p, Kind::otherwise, 1, 1);
+    fallback.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, fallback));
+    Edit resize;
+    resize.kind = EditKind::updateBlock;
+    resize.block = p.blocks[0];
+    resize.block.last = p.rows[3].key;
+    ASSERT_TRUE(edit(p, resize));
+    for (const auto& block : p.blocks)
+    {
+        EXPECT_EQ(block.last, p.rows[3].key);
+    }
+    Runtime runner;
+    EXPECT_EQ(next(p, runner, 0, yes).order, p.rows[0].key);
+    EXPECT_EQ(next(p, runner, 0, yes).order, p.rows[4].key);
+}
+TEST(RulesTests, resizeRejectsCrossingBracketsWithoutChangingAnything)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 1)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 2, 4)));
+    const auto before = p;
+    Edit resize;
+    resize.kind = EditKind::updateBlock;
+    resize.block = p.blocks[0];
+    resize.block.last = p.rows[2].key;
+    EXPECT_FALSE(edit(p, resize));
+    EXPECT_EQ(p, before);
+}
+TEST(RulesTests, executionFeedbackUsesLatchedBranchesAndCurrentRows)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 3)));
+    Runtime runtime;
+    EXPECT_EQ(blockFeedback(p, &runtime, p.blocks[0].id), Feedback::idle);
+    next(p, runtime, 0, yes);
+    next(p, runtime, 0, yes);
+    EXPECT_EQ(blockFeedback(p, &runtime, p.blocks[0].id), Feedback::passed);
+    EXPECT_TRUE(blockIsCurrent(p, &runtime, p.blocks[0].id));
+    const auto row = orderFeedback(p, &runtime, 1);
+    EXPECT_TRUE(row.current);
+    EXPECT_EQ(row.state, Feedback::passed);
+    EXPECT_NE(row.sentence.find("If"), std::string::npos);
+    EXPECT_NE(row.sentence.find("[2-4]"), std::string::npos);
+    Runtime failed;
+    next(p, failed, 0, no);
+    next(p, failed, 0, no);
+    EXPECT_EQ(blockFeedback(p, &failed, p.blocks[0].id), Feedback::failed);
+    EXPECT_FALSE(blockIsCurrent(p, &failed, p.blocks[0].id));
+    ++p.revision;
+    EXPECT_EQ(blockFeedback(p, &runtime, p.blocks[0].id), Feedback::idle);
+    EXPECT_FALSE(orderFeedback(p, &runtime, 1).current);
+}
+TEST(RulesTests, waitFeedbackPersistsAndTurnsGreenWhenItPasses)
+{
+    auto p = route();
+    auto wait = section(p, Kind::waitUntil, 0, 0);
+    wait.number = 2;
+    ASSERT_TRUE(add(p, wait));
+    Runtime runtime;
+    next(p, runtime, 0, no);
+    EXPECT_EQ(next(p, runtime, 0, no).kind, RunKind::waiting);
+    EXPECT_EQ(blockFeedback(p, &runtime, p.blocks[0].id), Feedback::failed);
+    EXPECT_TRUE(validRuntime(p, runtime));
+    EXPECT_EQ(next(p, runtime, 1, yes).kind, RunKind::order);
+    EXPECT_EQ(blockFeedback(p, &runtime, p.blocks[0].id), Feedback::passed);
+    EXPECT_TRUE(validRuntime(p, runtime));
+}
+TEST(RulesTests, normalOrderDraggingProducesAnEditAndCancelsStaleOrOutsideDrops)
+{
+    auto p = route();
+    const Owner owner{ OwnerKind::vehicle, 24 };
+    OrderDrag drag;
+    drag.begin(owner, p, 2, 10, 20);
+    drag.motion(10, 40);
+    const auto move = drag.finish(owner, p, p.rows.size());
+    ASSERT_TRUE(move);
+    auto original = p.rows[2].key;
+    ASSERT_TRUE(edit(p, *move));
+    EXPECT_EQ(p.rows.back().key, original);
+    drag.begin(owner, p, 0, 0, 0);
+    drag.motion(0, 20);
+    EXPECT_FALSE(drag.finish(owner, p, {}));
+    drag.begin(owner, p, 0, 0, 0);
+    drag.motion(0, 20);
+    ++p.revision;
+    EXPECT_FALSE(drag.finish(owner, p, 2));
+    drag.begin(owner, p, 0, 0, 0);
+    drag.motion(0, 20);
+    EXPECT_FALSE(drag.finish({ OwnerKind::line, 3 }, p, 2));
+    drag.begin(owner, p, 0, 0, 0);
+    drag.motion(0, 20);
+    drag.cancel();
+    EXPECT_FALSE(drag.finish(owner, p, 2));
+}
+TEST(RulesTests, ordinaryRowGeometryOnlyExpandsWhenRulesExist)
+{
+    auto p = route();
+    EXPECT_EQ(orderRowHeight(&p), 10);
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
+    EXPECT_EQ(orderRowHeight(&p), 20);
+    const auto layout = editorLayout(360, 240);
+    const auto width = (360 - 10) / 6;
+    EXPECT_GT(width - 3, 50);
+    EXPECT_LT(layout.canvasBottom, layout.controlsTop);
+    EXPECT_LT(layout.controlsTop + 43, layout.binTop);
+}

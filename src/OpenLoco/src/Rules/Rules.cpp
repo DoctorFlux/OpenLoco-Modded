@@ -183,7 +183,27 @@ namespace OpenLoco::Rules
                 {
                     return { false, "Block no longer exists" };
                 }
+                const auto old = *it;
                 *it = command.block;
+                // Branch actions and same-section Otherwise stay attached when their enclosing bracket grows.
+                std::set<Key> resized{ old.id };
+                for (auto& child : p.blocks)
+                {
+                    if (child.parent == old.id && (action(child.kind) || (child.kind == Kind::otherwise && child.first == old.first && child.last == old.last)))
+                    {
+                        child.first = command.block.first;
+                        child.last = command.block.last;
+                        resized.insert(child.id);
+                    }
+                }
+                for (auto& child : p.blocks)
+                {
+                    if (action(child.kind) && resized.contains(child.parent))
+                    {
+                        child.first = command.block.first;
+                        child.last = command.block.last;
+                    }
+                }
                 break;
             }
             case EditKind::removeBlock:
@@ -561,10 +581,15 @@ namespace OpenLoco::Rules
                 case Op::otherwise:
                 {
                     auto result = r.prechecked.contains(b->id) ? CheckResult{ true, r.prechecked[b->id], {} }
-                        : instruction.op == Op::check                ? evaluateBlock(*b, evaluate)
-                                                                     : CheckResult{ true, !r.branches.contains(b->parent) || !r.branches[b->parent], {} };
+                        : instruction.op == Op::check          ? evaluateBlock(*b, evaluate)
+                                                               : CheckResult{ true, !r.branches.contains(b->parent) || !r.branches[b->parent], {} };
                     for (const auto& child : p.blocks)
-                        if (child.parent == b->id && child.kind == Kind::goTo && !child.enabled) result = { false, false, "Go to destination is missing" };
+                    {
+                        if (child.parent == b->id && child.kind == Kind::goTo && !child.enabled)
+                        {
+                            result = { false, false, "Go to destination is missing" };
+                        }
+                    }
                     r.prechecked.erase(b->id);
                     r.branches[b->id] = result.available && result.passed;
                     if (!result.available)
@@ -611,6 +636,7 @@ namespace OpenLoco::Rules
                 case Op::wait:
                 {
                     const auto result = evaluateBlock(*b, evaluate);
+                    r.branches[b->id] = result.available && result.passed;
                     if (result.available && result.passed)
                     {
                         r.waiting = 0;
@@ -706,7 +732,7 @@ namespace OpenLoco::Rules
         for (auto [key, passed] : r.branches)
         {
             const auto* b = blockById(p, key);
-            if (!b || (b->kind != Kind::ifBlock && b->kind != Kind::otherwise))
+            if (!b || (b->kind != Kind::ifBlock && b->kind != Kind::otherwise && b->kind != Kind::waitUntil))
             {
                 return false;
             }

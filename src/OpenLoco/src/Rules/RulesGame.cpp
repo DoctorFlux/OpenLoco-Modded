@@ -809,6 +809,16 @@ namespace OpenLoco::Rules
         }
         return !select(*head, *p, run, false);
     }
+    const Runtime* runtimeForVehicle(uint16_t vehicle)
+    {
+        const auto it = vehicles.find(vehicle);
+        if (it == vehicles.end() || it->second.owner != ownerForVehicle(vehicle))
+        {
+            return nullptr;
+        }
+        const auto* program = find(it->second.owner);
+        return program && it->second.runtime.revision == program->revision ? &it->second.runtime : nullptr;
+    }
     std::string vehicleStatus(uint16_t vehicle)
     {
         const auto it = vehicles.find(vehicle);

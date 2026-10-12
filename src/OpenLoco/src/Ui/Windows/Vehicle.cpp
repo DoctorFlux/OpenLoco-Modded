@@ -373,7 +373,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
         }
 
         constexpr uint64_t holdableWidgets = 0;
-        constexpr auto lineHeight = 10;
+        static Rules::OrderDrag orderDrag;
+        static int16_t routeRowHeight(const Window& window)
+        {
+            return Rules::orderRowHeight(Rules::find(Rules::ownerForVehicle(window.number)));
+        }
 
         static constexpr auto widgets = makeWidgets(
             Common::makeCommonWidgets(265, 189, StringIds::title_vehicle_route),
@@ -2971,6 +2975,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
         static void close(Window& self)
         {
+            orderDrag.cancel();
             clearLineNameStrings();
             Common::onClose(self);
         }
@@ -3513,6 +3518,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.callPrepareDraw();
 
             WindowManager::invalidateWidget(WindowType::vehicle, self.number, 8);
+            self.updateScrollWidgets();
+            if (routeRowHeight(self) > 10)
+            {
+                self.invalidate();
+            }
 
             if (!WindowManager::isInFront(&self))
             {
@@ -3924,10 +3934,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 return;
             }
             auto table = getOrderTable(head);
-            scrollHeight = lineHeight * std::distance(table.begin(), table.end());
+            scrollHeight = routeRowHeight(self) * std::distance(table.begin(), table.end());
 
             // Space for the 'end of orders' item
-            scrollHeight += lineHeight;
+            scrollHeight += routeRowHeight(self);
         }
 
         static void scrollMouseDown(Window& self, [[maybe_unused]] const int16_t x, const int16_t y, [[maybe_unused]] const uint8_t scrollIndex)
@@ -3937,7 +3947,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             {
                 return;
             }
-            int16_t item = y / lineHeight;
+            int16_t item = y / routeRowHeight(self);
             Vehicles::Order* selectedOrder = getOrderTable(head).atIndex(item);
             if (selectedOrder == nullptr)
             {
@@ -3974,6 +3984,13 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 return;
             }
 
+            orderDrag.begin(Rules::ownerForVehicle(self.number), Rules::snapshot(Rules::ownerForVehicle(self.number)), item, x, y);
+            if (routeRowHeight(self) > 10 && y % routeRowHeight(self) >= 10 && selectedOrder)
+            {
+                orderDrag.cancel();
+                RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number, static_cast<size_t>(item));
+                return;
+            }
             if (item != self.orderTableIndex)
             {
                 self.orderTableIndex = item;
@@ -4025,11 +4042,42 @@ namespace OpenLoco::Ui::Windows::Vehicle
             }
         }
 
+        static void scrollMouseDrag(Window& self, int16_t x, int16_t y, uint8_t)
+        {
+            orderDrag.motion(x, y);
+            self.invalidate();
+        }
+        static void scrollMouseUp(Window& self, int16_t screenX, int16_t screenY, uint8_t)
+        {
+            const auto& view = self.widgets[widx::routeList];
+            std::optional<size_t> destination;
+            if (WindowManager::findAt(screenX, screenY) == &self && screenX >= self.x + view.left && screenX < self.x + view.right - 12 && screenY >= self.y + view.top && screenY <= self.y + view.bottom)
+            {
+                destination = static_cast<size_t>(std::max<int>(0, screenY - self.y - view.top - 1 + self.scrollAreas[0].contentOffsetY) / routeRowHeight(self));
+            }
+            const auto owner = Rules::ownerForVehicle(self.number);
+            if (const auto edit = orderDrag.finish(owner, Rules::snapshot(owner), destination))
+            {
+                Rules::submit(owner, *edit);
+                self.updateScrollWidgets();
+                self.invalidate();
+            }
+        }
         // 0x004B530C
+        static bool keyUp(Window& self, uint32_t, uint32_t key)
+        {
+            if (key != 27 || !orderDrag.active)
+            {
+                return false;
+            }
+            orderDrag.cancel();
+            self.invalidate();
+            return true;
+        }
         static void scrollMouseOver(Window& self, [[maybe_unused]] const int16_t x, const int16_t y, [[maybe_unused]] const uint8_t scrollIndex)
         {
             self.flags &= ~WindowFlags::notScrollView;
-            auto item = y / lineHeight;
+            auto item = y / routeRowHeight(self);
             if (self.rowHover != item)
             {
                 self.rowHover = item;
@@ -4190,11 +4238,33 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.draw(drawingCtx);
             Common::drawTabs(self, drawingCtx);
 
-            if (ToolManager::isToolActive(WindowType::vehicle, self.number))
+            if (Rules::orderRowHeight(Rules::find(Rules::ownerForVehicle(self.number))) > 10)
+            {
+                auto status = Rules::vehicleStatus(self.number);
+                status.insert(status.begin(), static_cast<char>(ControlCodes::Colour::black));
+                tr.setCurrentFont(Gfx::Font::medium_bold);
+                tr.clipString(self.width - 14, status.data());
+                tr.drawString({ 3, static_cast<int16_t>(self.height - 13) }, Colour::black, status.c_str());
+            }
+            else if (ToolManager::isToolActive(WindowType::vehicle, self.number))
             {
                 // Location at bottom left edge of window
                 auto loc = Point(3, self.height - 13);
                 tr.drawStringLeftClipped(loc, self.width - 14, Colour::black, StringIds::route_click_on_waypoint);
+            }
+            if (orderDrag.active && orderDrag.moved && orderDrag.owner == Rules::ownerForVehicle(self.number))
+            {
+                const auto mouse = Input::getMouseLocation();
+                const auto width = static_cast<int16_t>(std::min<int>(180, self.width - 8));
+                const auto x = static_cast<int16_t>(std::clamp<int>(mouse.x - self.x + 10, 4, self.width - width - 4));
+                const auto y = static_cast<int16_t>(std::clamp<int>(mouse.y - self.y + 12, 15, self.height - 12));
+                const auto program = Rules::snapshot(orderDrag.owner);
+                const auto type = orderDrag.row < program.rows.size() ? program.rows[orderDrag.row].raw & 7 : 0;
+                Rules::drawOrderFeedback(drawingCtx, x, y, width, { std::string(type == 3 ? "Move waypoint row " : type < 3 ? "Move stop row "
+                                                                                                                            : "Move order row ")
+                                                                        + std::to_string(orderDrag.row + 1),
+                                                                    Rules::Feedback::idle,
+                                                                    true });
             }
         }
 
@@ -4325,7 +4395,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             int16_t orderNumber = 1;
             for (auto& order : getOrderTable(head))
             {
-                int16_t y = rowNum * lineHeight;
+                int16_t y = rowNum * routeRowHeight(self);
                 auto strFormat = StringIds::black_stringid;
                 if (self.orderTableIndex == rowNum)
                 {
@@ -4370,26 +4440,40 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     tr.drawStringLeft(point, Colour::black, StringIds::orders_current_order);
                 }
 
+                if (const auto* program = Rules::find(Rules::ownerForVehicle(self.number)); program && !program->blocks.empty() && static_cast<size_t>(rowNum) < program->rows.size())
+                {
+                    Rules::drawOrderFeedback(drawingCtx, 8, y + 10, self.widgets[widx::routeList].width() - 22, Rules::orderFeedback(*program, Rules::runtimeForVehicle(self.number), rowNum));
+                }
                 rowNum++;
             }
 
             // Output the end of orders
-            Ui::Point loc = { 8, static_cast<int16_t>(rowNum * lineHeight) };
+            Ui::Point loc = { 8, static_cast<int16_t>(rowNum * routeRowHeight(self)) };
             auto strFormat = StringIds::black_stringid;
             if (self.orderTableIndex == rowNum)
             {
-                drawingCtx.fillRect(0, loc.y, self.width, loc.y + lineHeight, PaletteIndex::black0, Gfx::RectFlags::none);
+                drawingCtx.fillRect(0, loc.y, self.width, loc.y + routeRowHeight(self), PaletteIndex::black0, Gfx::RectFlags::none);
                 strFormat = StringIds::white_stringid;
             }
             if (self.rowHover == rowNum)
             {
                 strFormat = StringIds::wcolour2_stringid;
-                drawingCtx.fillRect(0, loc.y, self.width, loc.y + lineHeight, enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
+                drawingCtx.fillRect(0, loc.y, self.width, loc.y + routeRowHeight(self), enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
             }
 
             loc.y -= 1;
             auto args = FormatArguments::common(orderString[0]);
             tr.drawStringLeft(loc, Colour::black, strFormat, args);
+            if (orderDrag.active && orderDrag.moved && orderDrag.owner == Rules::ownerForVehicle(self.number))
+            {
+                const auto mouse = Input::getMouseLocation();
+                const auto destination = static_cast<size_t>(std::max<int>(0, mouse.y - self.y - self.widgets[widx::routeList].top - 1 + self.scrollAreas[0].contentOffsetY) / routeRowHeight(self));
+                auto preview = orderDrag;
+                if (WindowManager::findAt(mouse.x, mouse.y) == &self && preview.finish(orderDrag.owner, Rules::snapshot(orderDrag.owner), destination))
+                {
+                    drawingCtx.fillRect(0, static_cast<int16_t>(destination * routeRowHeight(self)), self.widgets[widx::routeList].width() - 14, static_cast<int16_t>(destination * routeRowHeight(self) + 1), PaletteIndex::black0, Gfx::RectFlags::none);
+                }
+            }
         }
 
         static constexpr WindowEventList kEvents = {
@@ -4405,7 +4489,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
             .toolCursor = toolCursor,
             .getScrollSize = getScrollSize,
             .scrollMouseDown = scrollMouseDown,
+            .scrollMouseDrag = scrollMouseDrag,
             .scrollMouseOver = scrollMouseOver,
+            .scrollMouseUp = scrollMouseUp,
             .textInput = Common::textInput,
             .viewportRotate = createViewport,
             .tooltip = tooltip,
@@ -4413,6 +4499,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             .prepareDraw = prepareDraw,
             .draw = draw,
             .drawScroll = drawScroll,
+            .keyUp = keyUp,
         };
 
         static const WindowEventList& getEvents()
