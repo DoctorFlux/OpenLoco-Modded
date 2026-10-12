@@ -20,7 +20,7 @@ The January 2026 development post says NSF is planned to raise map and other lim
 1. Keep the SV5 importer byte-compatible for `0x62262`.
 2. When extended state is required, write a new file. Never replace the source SV5.
 3. Design that file as a versioned chunk container that can later be renamed or wrapped if upstream NSF lands. The chunk names used by mods stay stable even if the outer envelope changes.
-4. Reject a sidecar as the long-term authority. A sidecar can be separated from the save and will desync. A short-lived debug dump is allowed if it is clearly not loaded as truth. Companions exist by user request until the container lands: `<save>.SV5.olines` for shared lines and `<save>.SV5.osignals` for signal types and pending reservations (D20). Block rules will use `<save>.SV5.orules` when they are implemented (D26). That file is not written yet.
+4. Reject a sidecar as the long-term authority. A sidecar can be separated from the save and will desync. A short-lived debug dump is allowed if it is clearly not loaded as truth. Companions exist by user request until the container lands: `<save>.SV5.olines` for shared lines and `<save>.SV5.osignals` for signal types and pending reservations (D20). Block rules write version 1 `<save>.SV5.orules` (D26/D27). The lines and signals companion versions and packed S5 state are unchanged.
 5. Old-format export is optional and only legal when every live feature can be represented in SV5. Parked-wagon jobs, block rules, and larger maps cannot.
 
 ## Proposed container, not implemented
@@ -49,4 +49,8 @@ Rules:
 - Load a file whose mod is not installed and surface the missing id.
 - Migration from schema 1 to 2 for a sample mod.
 
-Until those tests exist, no gameplay feature may write save data.
+Until those tests exist, no gameplay feature may write the proposed container. Approved `.olines`, `.osignals`, and `.orules` companions are the temporary exceptions described above.
+
+## Rules companion v1 (implemented, TESTING)
+
+Rules load after lines, validate owner identity and exact order contents, and store keyed rows, blocks and independent resumable vehicle execution. Missing files clear rules; malformed files warn and are rejected. Mismatched owners are skipped with a named warning. Saving writes `.orules.tmp` and replaces the companion only after successful serialization and close. Numbers use the classic locale regardless of the game display locale. A write or replacement failure fails the save operation. Switching saves and new-game order reset clear stale rules. External renames/copies must preserve all matching companion names. This is the approved temporary companion exception, not an NSF/NOF implementation.

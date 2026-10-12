@@ -53,21 +53,14 @@ Engine foundation
 | Cargo demand | Shunting. Requests are ignored if no yard mod is installed. |
 | Vanilla SV5 play | The whole framework |
 
-## Activation rules
+## Package activation
 
-Implemented for in-memory manifests:
-
-- Duplicate ids fail.
-- A missing hard dependency fails.
-- A missing optional dependency is allowed.
-- A present optional dependency is ordered first.
-- A listed conflict that is also present fails.
-- Cycles fail.
-- An incompatible `engineApiVersion` fails at discovery.
-- Any error clears the load order.
-
-Not implemented: enable flags, per-save required mods, version ranges beyond API compatibility, or loading from `.olmod` zips.
+The original in-memory manifest/loader implementation was removed (D23). There are no active manifest, enable-flag, directory-loader, or `.olmod` activation rules. The dependencies above describe native subsystem requirements and future feature gating.
 
 ## Engine capabilities
 
-Mods name capabilities they need (`logic`, `lines`, `reservations`, `consists`, `cargo-routing`, `extended-save`, `extended-objects`, `large-world`). The loader currently stores the strings and does not check them against the engine. That check is a later milestone, before any gameplay mod is activated.
+Mods name capabilities they need (`logic`, `lines`, `reservations`, `consists`, `cargo-routing`, `extended-save`, `extended-objects`, `large-world`). The loader was removed by D23. These are subsystem dependency names, not an implemented package activation API.
+
+## Implemented block-rule dependencies
+
+Private rules need only vanilla orders and vehicle state. Shared rules bind to Lines and load after its companion. Late/on-time checks require a matching timetable slot. Platform-free checks require a rail list and connected station tracks; physical occupied holds include wagons, while reservations are ignored. Missing check data is unavailable and selects Otherwise. No destination or consist subsystem is required; those later blocks stay hidden.

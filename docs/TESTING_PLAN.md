@@ -46,3 +46,13 @@ For logic, reservations, and jobs, run the same command list twice and compare t
 ## Status
 
 On 2026-10-10, `ctest --test-dir build/windows -C Debug -R "ActivationTests|ManifestTests|DependenciesTests|DiscoveryTests"` passed 22 tests and failed 0. `OpenLoco.exe mods --mods_path` then logged `Hello World from openloco.sample.hello` and exited 0. Symlink skipping is implemented and not covered by an automated test. Zip loading is not implemented.
+
+## Block-rules implementation (2026-10-12, TESTING)
+
+The native Rules subsystem is implemented on `codex/block-logic-programming`. See `mods/PROGRAMMABLE_LOGIC.md` for current controls, limits, runtime and companion behavior; see `DEVELOPMENT_STATUS.md` for actual verification and remaining manual checks. Geometry supports 600x360 and compact 360x240, with a pinned palette, scrolling list, section grips, bracket dragging, deletion bin, and mouse-following dragged-item label. Commands validate before simulation mutation. No map tool is claimed by Rules dragging.
+
+Run reconfigured Debug and Release builds and serial full CTest suites. Rules tests cover validation, ownership, section edits, cargo thresholds, compartment fullness, branch/Otherwise, nested repeats, budget pauses, timeouts, shared counters, platform geometry/wagon occupation/self exclusion, companion corruption/mismatch/reused IDs, cloning and detachment. Native mouse interaction and physical route/cargo behavior still require the isolated in-game matrix; unit tests alone do not complete that matrix.
+
+Current results: Debug and Release each passed **251/251**, including 48 rules tests, after Windows reconfiguration (2026-10-12). Use serial CTest; parallel runs can trip the existing timer timing assertion. Native GUI checks use the isolated profile documented in `README-LOCAL-SETUP.md`. Do not operate its mouse while the user is playing. Record each manual acceptance row from `DEVELOPMENT_STATUS.md`, including pending physical skip/diversion, waypoint waits, continued station cargo handling, complete section drag/cancellation/bin, save/reload and the multi-train Schemes/Own check. Passing unit tests does not clear those rows.
+
+Additional regression coverage checks growing a branch with actions and paired Otherwise, atomic crossing rejection, latched green/red feedback, wait feedback and valid saved state, stale/foreign/outside/Escape drag cancellation, and consistent optional normal-list row expansion. Latest native controls are tested manually by the user. Do not launch or operate the game automatically for these checks; provide the built executables and record feedback without claiming those manual checks have passed.

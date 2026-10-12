@@ -34,9 +34,17 @@ The Rules button sits on the vehicle window and the line window. The Rules windo
 - Destructive actions (discard mod state, delete a yard) name the save file they will write. They never overwrite the original SV5.
 - Disable buttons that do not apply to the transport mode. Ships do not get coupler controls.
 - Words on a block are the words in the tooltip.
-- The Rules window is placed beside the window that opened it. If that spot would cover the line window, the vehicle window, or schemes, it moves until it no longer covers them.
+- The Rules window is placed beside the window that opened it. If that spot would cover the line window, the vehicle window, or schemes, it tries below and left, then compact sizing. If they still cannot fit, normal movable overlap is permitted (D29).
 - The vehicle route column already holds unload, wait, skip, delete, up, down, and reverse. The line orders tab already holds Local, Express, Loop, the timetable slot, and auto spacing. Rules does not take those widgets.
 
-## Not built yet
+## Current build
 
-The Rules window is specified and has no widgets in the game. The mod manager described in older notes is gone.
+Rules has native widgets and is in TESTING. The mod manager described in older notes is gone.
+
+## Block-rules implementation (2026-10-12, TESTING)
+
+The native Rules subsystem is implemented on `codex/block-logic-programming`. See `mods/PROGRAMMABLE_LOGIC.md` for current controls, limits, runtime and companion behavior; see `DEVELOPMENT_STATUS.md` for actual verification and remaining manual checks. Geometry supports 600x360 and compact 360x240, with a pinned palette, scrolling list, section grips, bracket dragging, deletion bin, and mouse-following dragged-item label. Commands validate before simulation mutation. No map tool is claimed by Rules dragging.
+
+Cargo checks offer simple has/no-cargo presets, a Stop selector, a Cargo selector and quantity comparisons. Vehicle boolean checks disable numeric controls. Wait has separate Value and Minutes; Repeat uses Times. Block sentences wrap; controls fit every supported size. Valid drops use the model validator before showing a position. Escape and outside drops cancel, and the footer reports faults or current execution. The manual matrix remains in `DEVELOPMENT_STATUS.md`.
+
+Rule sections now resize with First row/Last row and the selected bracket's end grip. The vehicle Route and line Orders tabs show a clipped second rule line only when blocks exist. Clicking it opens that section in Rules. Stops/waypoints drag directly in those lists as well as Rules; previews, valid insertion positions and outside/Escape cancellation use validated model edits. Recorded true/false conditions render green/red; active markers show program progress. A line's footer identifies the vehicle whose independent execution is shown. The clock occupies free space next to Schemes rather than drawing over its button. These latest controls await user-run in-game checks.

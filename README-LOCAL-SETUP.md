@@ -103,3 +103,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\launch.ps1
 ```
 
 In Cursor, the **OpenLoco Debug** launch configuration debugs the Debug build against the same Steam folder.
+
+## Isolated game verification
+
+`--user_path` overrides the complete user root before logging starts. Ordinary launches retain the existing user directory. For disposable Rules checks use `build/block-rules-qa`, with a copied SV5 and its companions; never use original player saves as the test target.
+
+```powershell
+build/windows/Debug/OpenLoco.exe "D:\Users\GitHub\OpenLoco-Modded\build\block-rules-qa\save\Rules-test.SV5" --user_path "D:\Users\GitHub\OpenLoco-Modded\build\block-rules-qa" --locomotion_path "D:\SteamLibrary\steamapps\common\Locomotion"
+```
+
+Rules development is on `codex/block-logic-programming`. `v26.09-modded.1` remains the checkpoint; master is unchanged. Assets and disposable verification saves stay outside commits.
+
+For manual block-rule checks, restart with the newly built executable. Existing running instances keep their old code. Rules sections resize using First row/Last row or the end grip; the normal Route/Orders tabs show compact rule summaries and progress, and support stop/waypoint dragging. User-run verification keeps this feature in TESTING until recorded.

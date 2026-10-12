@@ -74,3 +74,11 @@ No new per-tick full-map scan without a budget. Path searches, logic steps, and 
 ## Build
 
 Windows: `cmake --preset windows`, then `windows-debug` or `windows-release`. Tests: `ctest --test-dir build/windows -C <Config>`. Details: `README-LOCAL-SETUP.md`.
+
+## Block rules (implemented, TESTING)
+
+`Rules/Rules.cpp` owns pure validation, atomic keyed edits, compilation and the bounded runner. `RulesGame.cpp` binds owner references to Lines/private order tables, submits validated mutations, evaluates live checks, manages independent per-vehicle execution and writes v1 companions. `Platforms.cpp` groups connected station track pieces and reads physical occupation, including wagons and excluding self. `Editor.cpp` supplies geometry; `RulesWindow.cpp` renders native widgets and submits edits. Native scroll release is separate from map-tool input.
+
+Existing insert/delete/move/reverse/station-removal commands preserve stable keys and group references. Vehicle station/cargo/route-through/waypoint boundaries call the runner; loading continues during station waits. Assignment, detachment, clone and deletion update definitions and reset or clear execution as appropriate. A list without blocks uses existing vanilla progression. See `mods/PROGRAMMABLE_LOGIC.md` for limits and persistence, and `DEVELOPMENT_STATUS.md` for verification.
+
+The Editor helpers now share read-only execution feedback, conditional colours, normal-list row geometry and cancellable drag proposals. `runtimeForVehicle` exposes a const runtime only when owner and revision match. Window code does not re-evaluate checks. Resizing a branch propagates its section to attached actions and paired Otherwise before validating. Normal vehicle/line order tabs use the same helpers and submit commands; rule-summary clicks focus the corresponding section in Rules.

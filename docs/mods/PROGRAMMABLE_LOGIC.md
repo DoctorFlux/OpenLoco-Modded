@@ -1,6 +1,6 @@
 # Block rules
 
-Specified, not implemented. This is the contract for the next milestone after release `v26.09-modded.1`.
+Implemented on `codex/block-logic-programming`; status **TESTING**. Release `v26.09-modded.1` remains the rollback checkpoint. Required manual acceptance checks are tracked in `DEVELOPMENT_STATUS.md`.
 
 The player drags blocks onto an order list, in the style of Microsoft MakeCode. The words on the blocks are short enough for a child to read. There is no text language, no Lua, and no WebAssembly. Decision D26.
 
@@ -56,7 +56,7 @@ Checks in the first palette, because the game can already answer them:
 
 - Cargo waiting at a named stop on this list is more than, less than, or the same as a number
 - This vehicle is full, empty, or has space
-- The platform at a named stop on this list is free. This uses the same station occupancy the timetable already uses
+- The platform at a named stop on this list is free. This reads physical occupation of connected station track pieces, including wagons, excluding the evaluating train. Reservations alone are not occupation; it does not select a platform
 - This vehicle is late, or on time, at a stop that has a timetable slot
 - The year is before or after a chosen year
 
@@ -108,9 +108,9 @@ The window shows the vehicle name, or the line name when the vehicle is on a lin
 
 Dragging stays inside this window. A block cannot be dropped on the map, the line list, the vehicle route list, or another window. Adding a stop by clicking the map stays the tool on the vehicle route and the line orders tab.
 
-The plain order lists do not grow new buttons. Their row layout stays as it is. The brackets are drawn in the Rules window.
+The normal vehicle and shared-line order tabs retain their existing controls. A list with blocks adds a compact, clipped summary below each order, showing its enclosing rules and row range. Clicking that summary opens Rules at the section. Both normal lists support validated stop/waypoint dragging, with a pointer preview and valid-position marker. Lists without blocks keep their original row height. Full brackets and block editing remain in Rules (D30).
 
-The window is placed with its left edge against the right edge of the window that opened it, and with the same top. If that rectangle would cover the line window, the vehicle window, or the schemes window, it moves down, then left, until it no longer covers them or it meets the screen edge. It is a separate window, not a panel drawn on top of those lists.
+The window is placed with its left edge against the right edge of the window that opened it, and with the same top. If that rectangle would cover the line window, the vehicle window, or the schemes window, it moves down, then left, with compact sizing if necessary. If related windows still cannot fit, normal movable overlap is allowed (D29). It is a separate window, not a panel drawn on top of those lists.
 
 The footer has one line of status for the vehicle currently selected: the block it is on, the wait it is in, or the last fault. There is no second inspector window.
 
@@ -138,7 +138,7 @@ Shunting, cargo demand, and passenger destinations add sentences and actions to 
 
 ## Save
 
-Rules are not written into `S5::GameState`. The planned file is `<save>.SV5.orules`, beside the lines and signals companions, version 1. It is not written yet.
+Rules are not written into `S5::GameState`. The implemented file is `<save>.SV5.orules`, beside the lines and signals companions, version 1.
 
 A save with no rules file loads with no blocks. Orders and lines still load. Deleting a vehicle drops its private rules in that same command, so a reused vehicle id does not inherit them. Line rules are keyed by line id. Private rules are keyed by the vehicle head id, the same kind of id the lines companion already stores.
 
@@ -148,6 +148,28 @@ A running list with no blocks is unchanged.
 
 Before the window: a list with no blocks advances as it does now. Cargo below a number skips a group of two stops and one waypoint. Cargo at that number visits the group. A full vehicle goes to a named stop on the same list. Repeat 2 runs a group twice and then the following order, and the next visit starts at 2 again. Two vehicles on one line share the blocks and keep separate counts. An unavailable late check takes Otherwise. A repeat with no number, a fifth nested C-shape, and a Go to on another list are refused. The 256-step budget pauses until the next tick. The same inputs produce the same next order.
 
-With the window: the Rules button uses the empty vehicle tab slot and the empty line-window slot described above. Opening it does not cover the line window, the vehicle window, or schemes. Dragging a block does not change the map tool. An in-game check is required for the drag and the placement. A unit test does not replace that check.
+With the window: the Rules button uses the empty vehicle tab slot and the empty line-window slot described above. Opening it avoids the line window, the vehicle window, and schemes when screen space permits, with compact sizing and normal overlap fallback. Dragging a block does not change the map tool. An in-game check is required for the drag and the placement. A unit test does not replace that check.
 
 The companion round-trips a group on a line and a group on a private vehicle. A missing rules file leaves the orders in place.
+
+## Implemented editor and runtime
+
+The native Rules window opens from the vehicle tab gap or the line window's R button. An assigned vehicle identifies the shared line being edited. The palette stays visible while the list scrolls. Drag row bodies to select consecutive rows, then drag their left grip to move them. Drag a bracket header to move its whole section. A label follows the pointer with the block sentence or section being moved; a line marks the proposed insertion. Drop on the bin to delete. Escape, closure, and outside drops cancel without submitting an edit. Native scroll release handling is separate from map tools.
+
+"This stop has cargo" and "This stop has no cargo" are simple presets for selected cargo quantity greater than zero and equal to zero. Cargo waiting also supports below/equal/above a numeric threshold. Select Stop and Cargo explicitly. Vehicle full checks every usable compartment, rather than comparing summed quantities. Wait's Value is the comparison threshold; Minutes is its separate timeout. Repeat uses Times. An unavailable station, cargo, platform, or timetable slot reports a reason and follows Otherwise.
+
+Otherwise can wrap the same rows as an If containing Skip or Go to, or a later section. Branch decisions persist through that section; Repeat starts fresh on a new visit. Station waits keep cargo handling active. Wait timeout uses 40 simulation ticks per minute and continues with "time limit reached." A 256-step pause holds physical progression and resumes the decision next tick. Ordinary lists bypass the runner.
+
+The model lives in `Rules/Rules.cpp`, game bindings and companions in `Rules/RulesGame.cpp`, platform queries in `Rules/Platforms.cpp`, geometry in `Rules/Editor.cpp`, and native widgets in `Ui/Windows/RulesWindow.cpp`. UI edits submit validated commands; row references use stable keys. Existing vanilla edits update those keys. Deleted Go to destinations disable the action; choosing a new destination repairs it. Structural changes reset pending execution at a safe boundary while preserving the reached order for timetable decisions.
+
+Bounds are 256 block records, four enclosing control blocks, Repeat 1-20, Wait 1-1440 minutes, and the existing 63-row order limit. Companion parsing additionally limits 2048 owners and 256 MiB. Platform identities use canonical connected-track anchors.
+
+Rules v1 uses `<save>.SV5.orules` (`ORULES 1` header), after `.olines` load. It stores exact keyed order contents, owner identity, block definitions, and independent vehicle cursors, repeat counters, branch choices, waits, and pending evaluation. Missing companions clear rules. Corruption or identity/order mismatch warns without attaching incorrect definitions. Writes use a temporary companion and atomic replacement; failed writes fail the save operation. The packed Order and S5 state and existing companion versions remain unchanged. Keep all companions beside their matching save.
+
+## Section resizing and program feedback (2026-10-12)
+
+Select a bracket, then set First row/Last row or drag its small end grip to another row. This expands If, Otherwise, Repeat, Wait and Group across multiple stops, waypoints and cargo instructions. Skip/Go to and a same-section Otherwise follow the resized parent atomically. Crossing sections or invalid boundaries reject the complete edit. End remains outside the section. Existing consecutive-row selection remains available for creating a whole section in one drag.
+
+Green means the runner's last recorded check passed; red means it failed or was unavailable. Wait stays red while its check is false and turns green on passing. These are read-only views of decisions, not new evaluations. An active marker and current-order arrow show where the selected vehicle is executing. Edits clear stale decisions. A shared-line view identifies the vehicle used for progress (the related route-tool vehicle, otherwise its first assigned vehicle); each vehicle still has independent counters and waits, visible in its own window.
+
+Normal order tabs use 20-pixel rows for lists with blocks, with selection/hit testing/scrolling based on that same height; otherwise they keep 10-pixel rows. Rule summaries clip within the list. The line clock moved to free space beside Schemes so it no longer draws over that button. Full physical behavior and the new native interactions are for the user's manual acceptance; no additional automated game mouse input is required.

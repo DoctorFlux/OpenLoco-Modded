@@ -22,7 +22,7 @@ Specs: `docs/mods/SHARED_LINES.md`, `docs/mods/TIMETABLES.md`.
 
 ## Phase 4 — Block rules
 
-Release `v26.09-modded.1` is the checkpoint before this phase. Spec: `docs/mods/PROGRAMMABLE_LOGIC.md`.
+Status: **TESTING** on `codex/block-logic-programming`. Model, runtime, native editor and v1 persistence are implemented. Finish the user-run manual acceptance checks before proceeding to Phase 5. The normal order tabs now show rule summaries, progress and conditional colours; blocks resize across multiple rows, and both normal lists accept validated order dragging. Release `v26.09-modded.1` is the checkpoint before this phase. Spec: `docs/mods/PROGRAMMABLE_LOGIC.md`.
 
 The phase is done when a vehicle and a shared line can both run the blocks, including a group of stops and waypoints, from the Rules window. A runner with no window, or a window that only edits one of the two lists, is not this phase.
 
@@ -80,11 +80,11 @@ After NSF/NOF direction is rechecked: raise caps, variable map sizes, generation
 
 ## Phase 12 — Release
 
-Profile large maps, package `.olmod` files, write install instructions, and keep original assets out of the artifacts.
+Profile delivered features, build native release artifacts, write setup instructions, and keep original assets out of the artifacts. No loader or `.olmod` packaging is part of the current scope.
 
 ## Parallel work that is safe now
 
-- Documentation and loader tests.
+- Documentation and block-rule tests.
 - Block-rule tests that do not touch `GameState`.
 - Line and timetable data-model tests in memory.
 - Upstream tracking when OpenLoco publishes NSF or NOF notes.
