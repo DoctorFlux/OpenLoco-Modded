@@ -1,12 +1,15 @@
+#include "Entities/EntityManager.h"
 #include "Lines/Line.h"
+#include "Rules/Rules.h"
+#include "Vehicles/Vehicle2.h"
+#include "Vehicles/VehicleHead.h"
 
-#include "Viewport.hpp"
 #include "Graphics/Colour.h"
 #include "Graphics/DrawingContext.h"
 #include "Graphics/Gfx.h"
+#include "Graphics/ImageIds.h"
 #include "Graphics/TextRenderer.h"
 #include "Localisation/Formatting.h"
-#include "Objects/CargoObject.h"
 #include "Map/RoadElement.h"
 #include "Map/SurfaceElement.h"
 #include "Map/TileManager.h"
@@ -14,11 +17,12 @@
 #include "Map/Track/Track.h"
 #include "Map/Track/TrackData.h"
 #include "Map/TrackElement.h"
-#include "Graphics/ImageIds.h"
+#include "Objects/CargoObject.h"
 #include "Objects/ObjectManager.h"
 #include "Objects/RoadObject.h"
 #include "Vehicles/Orders.h"
 #include "Vehicles/Vehicle.h"
+#include "Viewport.hpp"
 #include "World/CompanyManager.h"
 #include "World/Station.h"
 #include "World/StationManager.h"
@@ -27,6 +31,7 @@
 #include <array>
 #include <cmath>
 #include <deque>
+#include <map>
 #include <queue>
 #include <sstream>
 #include <unordered_map>
@@ -122,6 +127,7 @@ namespace OpenLoco::Lines
             int32_t tileX = 0;
             int32_t tileY = 0;
             bool breakBefore = false;
+            uint64_t piece = 0;
         };
 
         struct Traversal
@@ -174,6 +180,40 @@ namespace OpenLoco::Lines
         bool _showSelected = false;
         bool _showAll = false;
         bool _dirty = true;
+        uint16_t _previewVehicle = UINT16_MAX;
+        uint32_t _viewUpdates = 0;
+        uint16_t _pollCursor = 0, _buildCursor = 0;
+        constexpr size_t kMaxCachedLegs = 128, kMaxCachedUnits = 131072;
+        constexpr size_t kMaxLegPoints = 32768;
+        struct LegKey
+        {
+            uint16_t line = 0;
+            uint64_t from = 0, to = 0;
+            auto operator<=>(const LegKey&) const = default;
+        };
+        struct CachedLeg
+        {
+            std::vector<RoutePoint> points;
+            std::unordered_set<uint64_t> pieces;
+            uint32_t used = 0;
+            bool limited = false;
+        };
+        struct LivePlan
+        {
+            uint16_t vehicle = UINT16_MAX;
+            std::vector<LegKey> legs;
+            Rules::RoutePreview preview;
+            bool refresh = true;
+        };
+        std::map<LegKey, CachedLeg> _legCache;
+        std::map<uint16_t, LivePlan> _livePlans;
+        std::unordered_map<uint64_t, Overlay> _liveOverlay;
+        std::vector<ShownRoute> _liveRoutes;
+        std::unordered_set<uint64_t>* _recordingPieces = nullptr;
+        uint64_t _pointPiece = 0;
+        uint32_t _cacheClock = 0;
+        size_t _cachedUnits = 0;
+        RouteViewStats _viewStats;
 
         bool numberedStop(Vehicles::OrderType type)
         {
@@ -196,7 +236,11 @@ namespace OpenLoco::Lines
             {
                 return;
             }
-            RoutePoint point{ x, y, z, x & ~31, y & ~31, _breakNext };
+            if (_recordingPieces && _recording->size() >= kMaxLegPoints)
+            {
+                return;
+            }
+            RoutePoint point{ x, y, z, x & ~31, y & ~31, _breakNext, _pointPiece };
             _breakNext = false;
             if (!_recording->empty() && !point.breakBefore)
             {
@@ -212,6 +256,14 @@ namespace OpenLoco::Lines
         void remember(const PieceKey& key, uint8_t colour, bool selected)
         {
             const auto packed = packKey(key);
+            if (_recordingPieces)
+            {
+                if (_recordingPieces->size() < kMaxLegPoints)
+                {
+                    _recordingPieces->insert(packed);
+                }
+                return;
+            }
             const auto found = _overlay.find(packed);
             if (found == _overlay.end() || (selected && !found->second.selected))
             {
@@ -353,6 +405,7 @@ namespace OpenLoco::Lines
                 findPlacementOrigin(start, pieceId, rotation, road, origin);
             }
             const Traversal traversal{ _recordingLine, origin.x, origin.y, origin.z, static_cast<uint16_t>(plain & ~(1U << 2)) };
+            _pointPiece = (uint64_t{ 1 } << 63) | packKey({ origin.x, origin.y, static_cast<uint8_t>(origin.z / World::kSmallZStep), pieceId, rotation, road ? kKindRoad : kKindTrack });
             if (!_usedTraversals.insert(traversal).second)
             {
                 _breakNext = true;
@@ -395,6 +448,7 @@ namespace OpenLoco::Lines
 
         void rememberSurface(const World::Pos2& pos, uint8_t colour, bool selected)
         {
+            _pointPiece = 0;
             remember({ pos.x & ~31, pos.y & ~31, 0, 0, 0, kKindSurface }, colour, selected);
             addRoutePoint((pos.x & ~31) + 16, (pos.y & ~31) + 16, 16);
         }
@@ -1004,6 +1058,53 @@ namespace OpenLoco::Lines
             }
         }
 
+        void searchLeg(const Line& line, const StopMark& from, const StopMark& to, bool selected)
+        {
+            const auto company = from.station ? StationManager::get(static_cast<StationId>(from.stationId)) != nullptr ? StationManager::get(static_cast<StationId>(from.stationId))->owner : CompanyManager::getControllingId() : CompanyManager::getControllingId();
+            const auto kinds = line.kinds == kEveryLineKind ? from.kinds : line.kinds;
+            const auto air = (kinds & LineKind::air) != LineKind::none && (kinds & (LineKind::rail | LineKind::road | LineKind::tram | LineKind::water)) == LineKind::none;
+            const auto water = (kinds & LineKind::water) != LineKind::none && (kinds & (LineKind::rail | LineKind::road | LineKind::tram | LineKind::air)) == LineKind::none;
+            const auto untyped = kinds == LineKind::none || kinds == kEveryLineKind;
+            if (air || (untyped && line.mode == TransportMode::air))
+            {
+                searchAir(from, to, line.colour, selected);
+            }
+            else if (water || (untyped && line.mode == TransportMode::water))
+            {
+                searchWater(from, to, line.colour, selected);
+            }
+            else if ((kinds & (LineKind::road | LineKind::tram)) != LineKind::none || (untyped && line.mode == TransportMode::road))
+            {
+                const auto roadKinds = kinds == LineKind::none ? kEveryLineKind : kinds;
+                searchTrack(from, to, company, 0, true, roadKinds, line.colour, selected);
+            }
+            else
+            {
+                uint8_t trackObjectId = 0xFF;
+                for (const auto& tilePos : from.tiles)
+                {
+                    auto tile = World::TileManager::get(tilePos);
+                    if (tile.isNull())
+                    {
+                        continue;
+                    }
+                    for (auto& entry : tile)
+                    {
+                        if (auto* element = entry.as<World::TrackElement>(); element != nullptr && !element->isGhost())
+                        {
+                            trackObjectId = element->trackObjectId();
+                            break;
+                        }
+                    }
+                    if (trackObjectId != 0xFF)
+                    {
+                        break;
+                    }
+                }
+                searchTrack(from, to, company, trackObjectId, false, kinds, line.colour, selected);
+            }
+        }
+
         void buildLine(const Line& line, bool selected)
         {
             std::vector<StopMark> stops;
@@ -1027,49 +1128,7 @@ namespace OpenLoco::Lines
             {
                 const auto& from = stops[legs[i].fromStop];
                 const auto& to = stops[legs[i].toStop];
-                const auto company = from.station ? StationManager::get(static_cast<StationId>(from.stationId)) != nullptr ? StationManager::get(static_cast<StationId>(from.stationId))->owner : CompanyManager::getControllingId() : CompanyManager::getControllingId();
-                const auto kinds = line.kinds == kEveryLineKind ? from.kinds : line.kinds;
-                const auto air = (kinds & LineKind::air) != LineKind::none && (kinds & (LineKind::rail | LineKind::road | LineKind::tram | LineKind::water)) == LineKind::none;
-                const auto water = (kinds & LineKind::water) != LineKind::none && (kinds & (LineKind::rail | LineKind::road | LineKind::tram | LineKind::air)) == LineKind::none;
-                const auto untyped = kinds == LineKind::none || kinds == kEveryLineKind;
-                if (air || (untyped && line.mode == TransportMode::air))
-                {
-                    searchAir(from, to, line.colour, selected);
-                }
-                else if (water || (untyped && line.mode == TransportMode::water))
-                {
-                    searchWater(from, to, line.colour, selected);
-                }
-                else if ((kinds & (LineKind::road | LineKind::tram)) != LineKind::none || (untyped && line.mode == TransportMode::road))
-                {
-                    const auto roadKinds = kinds == LineKind::none ? kEveryLineKind : kinds;
-                    searchTrack(from, to, company, 0, true, roadKinds, line.colour, selected);
-                }
-                else
-                {
-                uint8_t trackObjectId = 0xFF;
-                for (const auto& tilePos : from.tiles)
-                {
-                    auto tile = World::TileManager::get(tilePos);
-                    if (tile.isNull())
-                    {
-                        continue;
-                    }
-                    for (auto& entry : tile)
-                    {
-                        if (auto* element = entry.as<World::TrackElement>(); element != nullptr && !element->isGhost())
-                        {
-                            trackObjectId = element->trackObjectId();
-                            break;
-                        }
-                    }
-                    if (trackObjectId != 0xFF)
-                    {
-                        break;
-                    }
-                }
-                searchTrack(from, to, company, trackObjectId, false, kinds, line.colour, selected);
-                }
+                searchLeg(line, from, to, selected);
             }
             _recording = nullptr;
             if (route.points.size() >= 2)
@@ -1078,8 +1137,204 @@ namespace OpenLoco::Lines
             }
         }
 
+        uint16_t previewVehicle(const Line& line)
+        {
+            const auto usable = [&](uint16_t id) { return EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(id)) && lineForVehicle(id) == &line; };
+            if (line.id == _selectedLine && usable(_previewVehicle))
+            {
+                return _previewVehicle;
+            }
+            for (const auto id : line.vehicles)
+            {
+                if (usable(id) && EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(id))->isPlaced())
+                {
+                    return id;
+                }
+            }
+            for (const auto id : line.vehicles)
+            {
+                if (usable(id))
+                {
+                    return id;
+                }
+            }
+            return UINT16_MAX;
+        }
+        constexpr uint64_t kVehicleOrigin = uint64_t{ 1 } << 63;
+        std::optional<uint64_t> vehicleOrigin(uint16_t vehicle)
+        {
+            const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+            if (!head || !head->isPlaced())
+            {
+                return {};
+            }
+            const Vehicles::Vehicle train(*head);
+            const auto pos = train.veh2->position;
+            return kVehicleOrigin | static_cast<uint16_t>(pos.x & ~31) | (uint64_t(static_cast<uint16_t>(pos.y & ~31)) << 16) | (uint64_t(static_cast<uint16_t>(pos.z)) << 32);
+        }
+        StopMark legStop(const Line& line, uint64_t raw)
+        {
+            if (!(raw & kVehicleOrigin))
+            {
+                return markStop(fromVehicleOrder(*reinterpret_cast<const Vehicles::Order*>(&raw)));
+            }
+            StopMark mark;
+            mark.centre = { static_cast<coord_t>(raw & 0xFFFF), static_cast<coord_t>((raw >> 16) & 0xFFFF) };
+            mark.height = static_cast<int32_t>((raw >> 32) & 0xFFFF);
+            mark.tiles.push_back(mark.centre);
+            mark.kinds = line.kinds;
+            return mark;
+        }
+        bool refreshPlan(uint16_t id)
+        {
+            const auto* line = findLine(id);
+            const auto* program = Rules::find({ Rules::OwnerKind::line, id });
+            if (!line || !program || program->blocks.empty())
+            {
+                return false;
+            }
+            auto& plan = _livePlans[id];
+            plan.vehicle = previewVehicle(*line);
+            auto preview = Rules::previewLineRoute(id, plan.vehicle);
+            ++_viewStats.rulePolls;
+            std::vector<LegKey> legs;
+            auto previous = vehicleOrigin(plan.vehicle);
+            for (const auto key : preview.orders)
+            {
+                const auto row = Rules::indexOf(*program, key);
+                if (row >= program->rows.size())
+                {
+                    continue;
+                }
+                const auto raw = program->rows[row].raw;
+                if (previous && *previous != raw)
+                {
+                    const LegKey leg{ id, *previous, raw };
+                    if (std::find(legs.begin(), legs.end(), leg) == legs.end())
+                    {
+                        legs.push_back(leg);
+                    }
+                }
+                previous = raw;
+            }
+            const bool changed = legs != plan.legs;
+            plan.legs = std::move(legs);
+            plan.preview = std::move(preview);
+            plan.refresh = false;
+            return changed;
+        }
+        void composeLiveRoutes()
+        {
+            _liveOverlay.clear();
+            _liveRoutes.clear();
+            const auto append = [&](uint16_t id, const LivePlan& plan) {
+                const auto* line = findLine(id);
+                if (!line)
+                {
+                    return;
+                }
+                const bool selected = _showSelected && id == _selectedLine;
+                ShownRoute route{ id, line->colour, {} };
+                std::unordered_set<uint64_t> seenPieces;
+                for (const auto& key : plan.legs)
+                {
+                    const auto it = _legCache.find(key);
+                    if (it == _legCache.end())
+                    {
+                        continue;
+                    }
+                    auto& leg = it->second;
+                    leg.used = ++_cacheClock;
+                    for (const auto piece : leg.pieces)
+                    {
+                        _liveOverlay[piece] = { line->colour, selected };
+                    }
+                    uint64_t piece = 0;
+                    bool duplicate = false, gap = true;
+                    for (auto point : leg.points)
+                    {
+                        if (point.piece && point.piece != piece)
+                        {
+                            piece = point.piece;
+                            duplicate = !seenPieces.insert(piece).second;
+                        }
+                        if (point.piece && duplicate)
+                        {
+                            gap = true;
+                            continue;
+                        }
+                        point.breakBefore |= gap;
+                        gap = false;
+                        route.points.push_back(point);
+                    }
+                }
+                if (route.points.size() >= 2)
+                {
+                    _liveRoutes.push_back(std::move(route));
+                }
+            };
+            for (const auto& [id, plan] : _livePlans)
+            {
+                if (id != _selectedLine)
+                {
+                    append(id, plan);
+                }
+            }
+            if (const auto selected = _livePlans.find(_selectedLine); selected != _livePlans.end())
+            {
+                append(selected->first, selected->second);
+            }
+        }
+        bool buildMissingLeg(uint16_t id)
+        {
+            const auto plan = _livePlans.find(id);
+            const auto* line = findLine(id);
+            if (plan == _livePlans.end() || !line)
+            {
+                return false;
+            }
+            for (const auto& key : plan->second.legs)
+            {
+                if (_legCache.contains(key))
+                {
+                    continue;
+                }
+                CachedLeg leg;
+                _recording = &leg.points;
+                _recordingPieces = &leg.pieces;
+                _recordingLine = id;
+                _usedTraversals.clear();
+                _breakNext = true;
+                _pointPiece = 0;
+                searchLeg(*line, legStop(*line, key.from), legStop(*line, key.to), false);
+                _recording = nullptr;
+                _recordingPieces = nullptr;
+                leg.limited = leg.points.size() >= kMaxLegPoints || leg.pieces.size() >= kMaxLegPoints;
+                leg.used = ++_cacheClock;
+                const auto units = leg.points.size() + leg.pieces.size();
+                while (!_legCache.empty() && (_legCache.size() >= kMaxCachedLegs || _cachedUnits + units > kMaxCachedUnits))
+                {
+                    const auto oldest = std::min_element(_legCache.begin(), _legCache.end(), [](const auto& a, const auto& b) { return a.second.used < b.second.used; });
+                    _cachedUnits -= oldest->second.points.size() + oldest->second.pieces.size();
+                    _legCache.erase(oldest);
+                }
+                _cachedUnits += units;
+                _legCache.emplace(key, std::move(leg));
+                ++_viewStats.pathSearches;
+                return true;
+            }
+            return false;
+        }
+
         void rebuild()
         {
+            _livePlans.clear();
+            _liveOverlay.clear();
+            _liveRoutes.clear();
+            _legCache.clear();
+            _cachedUnits = 0;
+            _viewUpdates = 0;
+            _pollCursor = _buildCursor = 0;
             _overlay.clear();
             _routes.clear();
             _markers.clear();
@@ -1104,7 +1359,11 @@ namespace OpenLoco::Lines
                 {
                     continue;
                 }
-                if (!selected)
+                if (const auto* rules = Rules::find({ Rules::OwnerKind::line, line.id }); rules && !rules->blocks.empty())
+                {
+                    _livePlans.try_emplace(line.id);
+                }
+                else if (!selected)
                 {
                     buildLine(line, false);
                 }
@@ -1113,7 +1372,10 @@ namespace OpenLoco::Lines
             {
                 if (const auto* line = findLine(_selectedLine))
                 {
-                    buildLine(*line, true);
+                    if (!_livePlans.contains(line->id))
+                    {
+                        buildLine(*line, true);
+                    }
                 }
             }
         }
@@ -1124,18 +1386,149 @@ namespace OpenLoco::Lines
         _dirty = true;
     }
 
-    void setRouteView(uint16_t selectedLine, bool showSelected, bool showAll)
+    void setRouteView(uint16_t selectedLine, bool showSelected, bool showAll, uint16_t vehicle)
     {
         if (!_dirty && selectedLine == _selectedLine && showSelected == _showSelected && showAll == _showAll)
         {
+            if (_previewVehicle != vehicle)
+            {
+                _previewVehicle = vehicle;
+                invalidateRuleRouteCache(selectedLine);
+            }
             return;
         }
         _selectedLine = selectedLine;
         _showSelected = showSelected;
         _showAll = showAll;
+        _previewVehicle = vehicle;
         _dirty = false;
         rebuild();
         Gfx::invalidateScreen();
+    }
+
+    void invalidateRuleRouteCache(uint16_t line)
+    {
+        const auto* rules = Rules::find({ Rules::OwnerKind::line, line });
+        if (const auto plan = _livePlans.find(line); plan != _livePlans.end() && rules && !rules->blocks.empty())
+        {
+            plan->second.refresh = true;
+        }
+        else
+        {
+            _dirty = true;
+        }
+    }
+    void updateRouteView()
+    {
+        if (!_showSelected && !_showAll)
+        {
+            return;
+        }
+        if (_dirty)
+        {
+            setRouteView(_selectedLine, _showSelected, _showAll, _previewVehicle);
+        }
+        if (_livePlans.empty())
+        {
+            return;
+        }
+        ++_viewUpdates;
+        bool changed = false;
+        if (const auto selected = _livePlans.find(_selectedLine); selected != _livePlans.end() && (selected->second.refresh || _viewUpdates % 8 == 0))
+        {
+            changed |= refreshPlan(selected->first);
+        }
+        // All-lines mode shares a bounded refresh budget instead of evaluating
+        // every line on every draw. The selected vehicle receives priority.
+        if (_viewUpdates % 2 == 0 || _viewUpdates == 1)
+        {
+            auto next = _livePlans.upper_bound(_pollCursor);
+            for (size_t count = 0; count < _livePlans.size(); ++count)
+            {
+                if (next == _livePlans.end())
+                {
+                    next = _livePlans.begin();
+                }
+                const auto id = next++->first;
+                if (id != _selectedLine)
+                {
+                    _pollCursor = id;
+                    changed |= refreshPlan(id);
+                    break;
+                }
+            }
+        }
+        bool built = _viewUpdates % 2 == 0 && buildMissingLeg(_selectedLine);
+        if (!built)
+        {
+            auto next = _livePlans.upper_bound(_buildCursor);
+            for (size_t count = 0; count < _livePlans.size(); ++count)
+            {
+                if (next == _livePlans.end())
+                {
+                    next = _livePlans.begin();
+                }
+                const auto id = next++->first;
+                if (buildMissingLeg(id))
+                {
+                    _buildCursor = id;
+                    built = true;
+                    break;
+                }
+            }
+        }
+        if (changed || built)
+        {
+            composeLiveRoutes();
+            Gfx::invalidateScreen();
+        }
+    }
+    RouteViewStats routeViewStats()
+    {
+        auto stats = _viewStats;
+        stats.cachedLegs = _legCache.size();
+        stats.cachedUnits = _cachedUnits;
+        for (const auto& [id, plan] : _livePlans)
+        {
+            for (const auto& leg : plan.legs)
+            {
+                stats.pendingLegs += !_legCache.contains(leg);
+            }
+        }
+        return stats;
+    }
+    std::string routePreviewStatus(uint16_t line)
+    {
+        const auto plan = _livePlans.find(line);
+        if (plan == _livePlans.end())
+        {
+            return {};
+        }
+        for (const auto& leg : plan->second.legs)
+        {
+            const auto cached = _legCache.find(leg);
+            if (cached == _legCache.end())
+            {
+                return "Map: building preview";
+            }
+            if (cached->second.limited)
+            {
+                return "Map: preview limit";
+            }
+        }
+        if (plan->second.preview.limited)
+        {
+            return "Map: preview limit";
+        }
+        if (plan->second.preview.waiting)
+        {
+            return "Map: ends at wait";
+        }
+        if (!plan->second.preview.reason.empty())
+        {
+            return "Map: " + plan->second.preview.reason;
+        }
+        return plan->second.vehicle == UINT16_MAX ? "Map: no vehicle; current station checks" : "Map: current choices";
     }
 
     void clearRouteView()
@@ -1148,6 +1541,13 @@ namespace OpenLoco::Lines
         _routes.clear();
         _markers.clear();
         _usedTraversals.clear();
+        _livePlans.clear();
+        _liveOverlay.clear();
+        _liveRoutes.clear();
+        _legCache.clear();
+        _cachedUnits = 0;
+        _viewStats = {};
+        _previewVehicle = UINT16_MAX;
         _breakNext = false;
         _recording = nullptr;
         Gfx::invalidateScreen();
@@ -1222,9 +1622,12 @@ namespace OpenLoco::Lines
     {
         std::vector<uint16_t> lineIds;
         lineIds.reserve(_routes.size());
-        for (const auto& route : _routes)
+        for (const auto* routes : { &_routes, &_liveRoutes })
         {
-            lineIds.push_back(route.lineId);
+            for (const auto& route : *routes)
+            {
+                lineIds.push_back(route.lineId);
+            }
         }
         const auto lanes = countDistinctLines(lineIds.data(), lineIds.size());
         std::sort(lineIds.begin(), lineIds.end());
@@ -1234,22 +1637,25 @@ namespace OpenLoco::Lines
             const auto vp = World::gameToScreen(World::Pos3{ static_cast<coord_t>(x), static_cast<coord_t>(y), static_cast<coord_t>(z) }, rotation);
             return Ui::Point(zoom.applyInversedTo(vp.x), zoom.applyInversedTo(vp.y));
         };
-        for (const auto& route : _routes)
+        for (const auto* routes : { &_routes, &_liveRoutes })
         {
-            const auto found = std::find(lineIds.begin(), lineIds.end(), route.lineId);
-            const auto lane = found == lineIds.end() ? 0 : static_cast<int>(std::distance(lineIds.begin(), found));
-            const auto shift = laneOffsetPixels(lane, lanes);
-            for (size_t i = 1; i < route.points.size(); ++i)
+            for (const auto& route : *routes)
             {
-                const auto& from = route.points[i - 1];
-                const auto& to = route.points[i];
-                if (!strokeContinues(from.x, from.y, to.x, to.y))
+                const auto found = std::find(lineIds.begin(), lineIds.end(), route.lineId);
+                const auto lane = found == lineIds.end() ? 0 : static_cast<int>(std::distance(lineIds.begin(), found));
+                const auto shift = laneOffsetPixels(lane, lanes);
+                for (size_t i = 1; i < route.points.size(); ++i)
                 {
-                    continue;
+                    const auto& from = route.points[i - 1];
+                    const auto& to = route.points[i];
+                    if (to.breakBefore || !strokeContinues(from.x, from.y, to.x, to.y))
+                    {
+                        continue;
+                    }
+                    const auto start = toScreen(from.x, from.y, from.z);
+                    const auto end = toScreen(to.x, to.y, to.z);
+                    drawingCtx.drawLine(Ui::Point(start.x, start.y + shift), Ui::Point(end.x, end.y + shift), Colours::getShade(static_cast<Colour>(route.colour), 6));
                 }
-                const auto start = toScreen(from.x, from.y, from.z);
-                const auto end = toScreen(to.x, to.y, to.z);
-                drawingCtx.drawLine(Ui::Point(start.x, start.y + shift), Ui::Point(end.x, end.y + shift), Colours::getShade(static_cast<Colour>(route.colour), 6));
             }
         }
 
@@ -1274,23 +1680,21 @@ namespace OpenLoco::Lines
         }
     }
 
+    static std::optional<uint8_t> overlayColour(uint64_t key)
+    {
+        const auto base = _overlay.find(key), live = _liveOverlay.find(key);
+        if (live != _liveOverlay.end() && (base == _overlay.end() || live->second.selected || !base->second.selected))
+        {
+            return live->second.colour;
+        }
+        return base == _overlay.end() ? std::nullopt : std::optional<uint8_t>{ base->second.colour };
+    }
     std::optional<uint8_t> routeOverlayColour(int32_t x, int32_t y, uint8_t baseZ, uint8_t pieceId, uint8_t rotation, uint8_t kind)
     {
-        const auto found = _overlay.find(packKey({ x, y, baseZ, pieceId, rotation, kind }));
-        if (found == _overlay.end())
-        {
-            return std::nullopt;
-        }
-        return found->second.colour;
+        return overlayColour(packKey({ x, y, baseZ, pieceId, rotation, kind }));
     }
-
     std::optional<uint8_t> surfaceOverlayColour(int32_t x, int32_t y)
     {
-        const auto found = _overlay.find(packSurface(x, y));
-        if (found == _overlay.end())
-        {
-            return std::nullopt;
-        }
-        return found->second.colour;
+        return overlayColour(packSurface(x, y));
     }
 }

@@ -823,7 +823,7 @@ namespace OpenLoco::Rules
         }
         return std::any_of(p.blocks.begin(), p.blocks.end(), [&](const Block& b) { return b.kind == Kind::waitUntil && timingOf(p, b) == Timing::onArrival && arrivalAnchor(p, b) == r.current; });
     }
-    Decision next(const Program& p, Runtime& r, uint32_t tick, const Evaluate& evaluate, Key arrivalOnly)
+    static Decision nextWithCode(const Program& p, const Code& code, Runtime& r, uint32_t tick, const Evaluate& evaluate, Key arrivalOnly, uint16_t* wraps = nullptr)
     {
         if (p.rows.empty())
         {
@@ -833,7 +833,6 @@ namespace OpenLoco::Rules
         {
             startAt(p, r, r.current);
         }
-        const auto code = compile(p);
         if (r.waiting != 0 && r.budgetTick == tick)
         {
             return { RunKind::waiting, r.current, r.waiting };
@@ -848,6 +847,10 @@ namespace OpenLoco::Rules
             ++r.steps;
             if (r.pc >= code.instructions.size())
             {
+                if (wraps)
+                {
+                    ++*wraps;
+                }
                 r.pc = 0;
                 r.repeats.clear();
                 r.branches.clear();
@@ -1069,6 +1072,72 @@ namespace OpenLoco::Rules
         }
         r.status = "Choosing the next stop...";
         return { RunKind::yielded, r.current, 0 };
+    }
+    Decision next(const Program& p, Runtime& r, uint32_t tick, const Evaluate& evaluate, Key arrivalOnly)
+    {
+        return nextWithCode(p, compile(p), r, tick, evaluate, arrivalOnly);
+    }
+    RoutePreview previewRoute(const Program& p, Runtime runtime, Key committed, uint32_t tick, const Evaluate& evaluate)
+    {
+        RoutePreview preview;
+        if (p.rows.empty())
+        {
+            return preview;
+        }
+        const auto code = compile(p);
+        if (runtime.revision != p.revision)
+        {
+            const auto entry = code.entries.find(runtime.current);
+            runtime = {};
+            runtime.revision = p.revision;
+            runtime.pc = entry == code.entries.end() ? 0 : entry->second;
+            committed = 0;
+        }
+        const auto routable = [&](Key key) { const auto row = indexOf(p, key); return row < p.rows.size() && isRoutable(p.rows[row].raw); };
+        if (routable(committed))
+        {
+            preview.orders.push_back(committed);
+            // Projection assumes reaching each point, while checking only
+            // current facts. It never marks physical arrival on the live run.
+            markArrived(p, runtime, committed);
+        }
+        runtime.budgetTick = tick - 1;
+        uint16_t wraps = 0;
+        while (preview.orders.size() < 64)
+        {
+            const auto decision = nextWithCode(p, code, runtime, tick, evaluate, 0, &wraps);
+            if (decision.kind != RunKind::order)
+            {
+                preview.limited = decision.kind == RunKind::yielded;
+                preview.waiting = decision.kind == RunKind::waiting;
+                preview.reason = runtime.status;
+                break;
+            }
+            if (routable(decision.order))
+            {
+                const bool closed = wraps != 0 && !preview.orders.empty() && decision.order == preview.orders.front();
+                if (preview.orders.empty() || preview.orders.back() != decision.order)
+                {
+                    preview.orders.push_back(decision.order);
+                }
+                markArrived(p, runtime, decision.order);
+                if (closed)
+                {
+                    break;
+                }
+            }
+            if (wraps > 1)
+            {
+                break;
+            }
+        }
+        preview.steps = runtime.steps;
+        preview.limited |= preview.orders.size() == 64;
+        if (preview.reason.empty())
+        {
+            preview.reason = runtime.status;
+        }
+        return preview;
     }
     bool validRuntime(const Program& p, const Runtime& r)
     {

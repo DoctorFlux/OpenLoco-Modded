@@ -185,7 +185,7 @@ namespace OpenLoco::Rules
             return c.compare == Compare::less ? value < c.value : c.compare == Compare::greater ? value > c.value
                                                                                                 : value == c.value;
         }
-        CheckResult evaluate(const Program& p, const Vehicles::VehicleHead& head, const Condition& c)
+        CheckResult evaluate(const Program& p, const Vehicles::VehicleHead* head, const Condition& c)
         {
             using namespace Vehicles;
             if (c.check == Check::year)
@@ -194,7 +194,11 @@ namespace OpenLoco::Rules
             }
             if (c.check == Check::full || c.check == Check::empty || c.check == Check::hasSpace)
             {
-                Vehicle train(head);
+                if (!head)
+                {
+                    return { false, false, "No vehicle selected for this check" };
+                }
+                Vehicle train(*head);
                 uint32_t quantity = 0, capacity = 0;
                 bool allFull = true;
                 bool anySpace = false;
@@ -250,9 +254,9 @@ namespace OpenLoco::Rules
                 {
                     return { false, false, "Platform no longer exists" };
                 }
-                return { true, platformIsFree(*chosen, enumValue(head.id)), {} };
+                return { true, platformIsFree(*chosen, head ? enumValue(head->id) : UINT16_MAX), {} };
             }
-            const auto* line = Lines::lineForVehicle(enumValue(head.id));
+            const auto* line = head ? Lines::lineForVehicle(enumValue(head->id)) : nullptr;
             if (line == nullptr || index >= line->orders.size() || line->orders[index].slots.empty())
             {
                 return { false, false, "This stop has no timetable slot" };
@@ -276,7 +280,7 @@ namespace OpenLoco::Rules
             const auto tick = ScenarioManager::getScenarioTicks();
             for (;;)
             {
-                const auto d = next(p, run.runtime, tick, [&](const Condition& c) { return evaluate(p, head, c); }, arrivalOnly);
+                const auto d = next(p, run.runtime, tick, [&](const Condition& c) { return evaluate(p, &head, c); }, arrivalOnly);
                 if (d.kind != RunKind::order)
                 {
                     run.ready = false;
@@ -482,17 +486,26 @@ namespace OpenLoco::Rules
         }
         Ui::WindowManager::invalidate(Ui::WindowType::lineManager);
         Ui::WindowManager::invalidate(Ui::WindowType::vehicle);
+        if (owner.kind == OwnerKind::line)
+        {
+            Lines::invalidateRuleRouteCache(owner.id);
+        }
         return { true, {} };
     }
     void forget(Owner owner)
     {
         programs.erase(owner);
         std::erase_if(vehicles, [&](const auto& entry) { return entry.second.owner == owner || (owner.kind == OwnerKind::vehicle && entry.first == owner.id); });
+        if (owner.kind == OwnerKind::line)
+        {
+            Lines::invalidateRuleRouteCache(owner.id);
+        }
     }
     void clear()
     {
         programs.clear();
         vehicles.clear();
+        Lines::invalidateRouteCache();
     }
     void assigned(uint16_t vehicle)
     {
@@ -908,7 +921,7 @@ namespace OpenLoco::Rules
             }
             else
             {
-                const auto result = evaluateBranch(*p, run.runtime, b, [&](const Condition& check) { return evaluate(*p, *head, check); });
+                const auto result = evaluateBranch(*p, run.runtime, b, [&](const Condition& check) { return evaluate(*p, head, check); });
                 passed = result.available && result.passed;
                 if (!result.available)
                 {
@@ -953,7 +966,12 @@ namespace OpenLoco::Rules
         if (index < p->rows.size())
         {
             startAt(*p, run.runtime, p->rows[index].key);
+            run.runtime.current = p->rows[index].key;
             run.hasOrder = true;
+        }
+        if (owner.kind == OwnerKind::line)
+        {
+            Lines::invalidateRuleRouteCache(owner.id);
         }
     }
     bool holdAtStation(uint16_t vehicle)
@@ -987,17 +1005,40 @@ namespace OpenLoco::Rules
         const auto* program = find(it->second.owner);
         return program && it->second.runtime.revision == program->revision ? &it->second.runtime : nullptr;
     }
-    Key routeOrderForVehicle(uint16_t vehicle)
+    Key routeOrderForVehicle(uint16_t vehicle, const Program* displayedProgram)
     {
         const auto* p = find(ownerForVehicle(vehicle));
+        if (!p)
+        {
+            p = displayedProgram;
+        }
         const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
         const auto it = vehicles.find(vehicle);
-        if (!head || !p || p->blocks.empty() || it == vehicles.end() || !it->second.hasOrder || !runtimeForVehicle(vehicle))
+        if (!head || !p || p->rows.empty() || (p->blocks.empty() && !displayedProgram))
         {
             return 0;
         }
-        const auto& run = it->second;
         const auto routable = [&](Key key) { const auto row = indexOf(*p, key); return row < p->rows.size() && isRoutable(p->rows[row].raw); };
+        const auto cursor = [&]() {
+            // Before the runner has selected a row (including a manual skip),
+            // retain the vanilla destination and walk past cargo instructions.
+            auto row = rowAtOffset(*p, head->currentOrder);
+            for (size_t count = 0; count < p->rows.size(); ++count)
+            {
+                row %= p->rows.size();
+                if (isRoutable(p->rows[row].raw))
+                {
+                    return p->rows[row].key;
+                }
+                ++row;
+            }
+            return Key{ 0 };
+        };
+        if (it == vehicles.end() || !it->second.hasOrder || !runtimeForVehicle(vehicle))
+        {
+            return cursor();
+        }
+        const auto& run = it->second;
         if (routable(run.approaching))
         {
             return run.approaching;
@@ -1008,7 +1049,47 @@ namespace OpenLoco::Rules
         {
             return run.reachedOrder;
         }
-        return routable(run.runtime.current) ? run.runtime.current : 0;
+        return routable(run.runtime.current) ? run.runtime.current : cursor();
+    }
+    RoutePreview previewLineRoute(uint16_t line, uint16_t vehicle)
+    {
+        const auto* p = find({ OwnerKind::line, line });
+        const auto* record = Lines::findLine(line);
+        if (!p || !record || p->blocks.empty())
+        {
+            return {};
+        }
+        const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+        if (!head || Lines::lineForVehicle(vehicle) != record)
+        {
+            head = nullptr;
+        }
+        Runtime runtime;
+        Key committed = 0;
+        if (const auto it = vehicles.find(vehicle); head && it != vehicles.end() && it->second.owner == Owner{ OwnerKind::line, line } && it->second.runtime.revision == p->revision && it->second.hasOrder)
+        {
+            runtime = it->second.runtime;
+            committed = routeOrderForVehicle(vehicle);
+        }
+        else
+        {
+            const auto row = head ? rowAtOffset(*p, head->currentOrder) : 0;
+            runtime.revision = p->revision - 1;
+            runtime.current = p->rows.empty() ? 0 : p->rows[row < p->rows.size() ? row : 0].key;
+        }
+        // A check may appear on many loop visits. Read it once per projection,
+        // including physical platform occupation and cargo compartments.
+        std::vector<std::pair<Condition, CheckResult>> facts;
+        return previewRoute(*p, std::move(runtime), committed, ScenarioManager::getScenarioTicks(), [&](const Condition& check) {
+            const auto fact = std::find_if(facts.begin(), facts.end(), [&](const auto& entry) { return entry.first == check; });
+            if (fact != facts.end())
+            {
+                return fact->second;
+            }
+            auto result = evaluate(*p, head, check);
+            facts.emplace_back(check, result);
+            return result;
+        });
     }
     std::string vehicleStatus(uint16_t vehicle)
     {

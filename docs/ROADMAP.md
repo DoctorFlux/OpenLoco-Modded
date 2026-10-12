@@ -32,6 +32,8 @@ The route-arrow fix uses a shared read-only committed travel/hold key in all thr
 
 Phase 4 editing now includes clickable fields in all three block views, native value dialogs/dropdowns, paged long selectors, palette clicks and Else/Else-if/removal Actions. Rules defaults to 560x320 with optional Details and the same 360x240 minimum (D39–D41). Final full Debug and Release suites passed 329/329 each. Next concrete task is the user's short direct-editing/compact-layout check followed by the outstanding manual acceptance rows; Phase 4 remains TESTING.
 
+Manual Skip now retains the arrow immediately in Vehicle/Rules (D43). Shared-line Path/All now projects current rule choices without changing simulation, with periodic selected-vehicle fact refresh, one missing leg search per UI update and a bounded geometry cache (D44). The latest full Debug/Release suites each passed 349/349. Next concrete task adds user manual arrow/live-map responsiveness checks to the remaining Phase 4 acceptance rows.
+
 1. Block list, checks the game can already answer, If/Else if/Else, Skip, Go to, finite/Forever Repeat, Break, and the 256-step budget. Tests load the blocks from memory.
 2. Run those blocks on a vehicle's own orders, and run the same blocks on a shared line. Each vehicle on a line keeps its own repeat count and wait.
 3. Rules window. Its own window, drag and drop inside it, placed so it does not cover the line window, the vehicle window, or schemes.

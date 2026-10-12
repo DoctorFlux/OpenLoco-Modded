@@ -1,11 +1,14 @@
 #include <OpenLoco/Date.h>
 #include <OpenLoco/Entities/EntityManager.h>
+#include <OpenLoco/GameCommands/Vehicles/VehicleOrderSkip.h>
 #include <OpenLoco/Graphics/Colour.h>
 #include <OpenLoco/Graphics/RenderTarget.h>
 #include <OpenLoco/Graphics/SoftwareDrawingContext.h>
 #include <OpenLoco/Lines/Line.h>
 #include <OpenLoco/Map/MapSelection.h>
+#include <OpenLoco/Map/RoadElement.h>
 #include <OpenLoco/Map/StationElement.h>
+#include <OpenLoco/Map/SurfaceElement.h>
 #include <OpenLoco/Map/TileManager.h>
 #include <OpenLoco/Map/TrackElement.h>
 #include <OpenLoco/Rules/Editor.h>
@@ -13,10 +16,12 @@
 #include <OpenLoco/Rules/Rules.h>
 #include <OpenLoco/Scenario/ScenarioManager.h>
 #include <OpenLoco/Vehicles/OrderManager.h>
+#include <OpenLoco/Vehicles/Vehicle1.h>
 #include <OpenLoco/Vehicles/Vehicle2.h>
 #include <OpenLoco/Vehicles/VehicleBody.h>
 #include <OpenLoco/Vehicles/VehicleBogie.h>
 #include <OpenLoco/Vehicles/VehicleHead.h>
+#include <OpenLoco/Vehicles/VehicleTail.h>
 #include <OpenLoco/World/CompanyManager.h>
 #include <OpenLoco/World/Station.h>
 #include <OpenLoco/World/StationManager.h>
@@ -2687,7 +2692,7 @@ TEST_F(GameRulesFixture, sharedRouteArrowsUseEachVehiclesIndependentDestination)
     EXPECT_EQ(routeOrderForVehicle(ai), p.rows[1].key);
     EXPECT_EQ(routeOrderForVehicle(bi), p.rows[0].key);
     ASSERT_TRUE(Lines::unassignVehicle(bi).ok);
-    EXPECT_EQ(routeOrderForVehicle(bi), 0U); // Fresh private runtime uses native fallback until prepared.
+    EXPECT_EQ(routeOrderForVehicle(bi), p.rows[0].key); // Fresh private runtime retains its vanilla destination immediately.
     ASSERT_TRUE(prepareVehicle(bi));
     EXPECT_EQ(routeOrderForVehicle(bi), p.rows[0].key);
     EXPECT_EQ(routeOrderForVehicle(ai), p.rows[1].key);
@@ -2719,7 +2724,7 @@ TEST_F(GameRulesFixture, routeArrowKeepsStableKeysAcrossMovesAndFallsBackAfterDe
     e.kind = EditKind::deleteRow;
     e.first = 2;
     ASSERT_TRUE(submit(owner, e));
-    EXPECT_EQ(routeOrderForVehicle(id), 0U);
+    EXPECT_EQ(routeOrderForVehicle(id), find(owner)->rows.front().key);
     EXPECT_EQ(routeOrderForVehicle(UINT16_MAX), 0U);
 }
 
@@ -3227,4 +3232,640 @@ TEST(RulesTests, textDialogInitialValuesKeepFullGroupNamesAndTheCorrectNumericOp
     ASSERT_TRUE(add(p, loop));
     EXPECT_EQ(fieldTextValue(p, p.blocks[2].id, BlockField::repeat, false), "Forever");
     EXPECT_TRUE(fieldTextValue(p, 0, BlockField::name, false).empty());
+}
+
+TEST_F(GameRulesFixture, manualSkipKeepsTheWhiteArrowBeforeTheNextSimulationTick)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    const auto p = snapshot(owner);
+    Edit edit;
+    edit.block = section(p, Kind::group, 0, 2);
+    ASSERT_TRUE(submit(owner, edit));
+    ASSERT_TRUE(prepareVehicle(id));
+    GameCommands::VehicleOrderSkipArgs args;
+    args.head = head->id;
+    auto regs = static_cast<OpenLoco::GameCommands::registers>(args);
+    GameCommands::vehicleOrderSkip(regs, GameCommands::Flags::apply);
+    EXPECT_EQ(head->currentOrder, 2);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[1].key);
+    EXPECT_EQ(routeOrderForVehicle(id, find(owner)), p.rows[1].key);
+    EXPECT_EQ(runtimeForVehicle(id)->current, p.rows[1].key);
+    EXPECT_EQ(runtimeForVehicle(id)->steps, 0);
+    const auto path = std::filesystem::temp_directory_path() / "openloco-manual-skip.SV5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[1].key);
+    std::filesystem::remove(companionPath(path));
+}
+TEST_F(GameRulesFixture, plainRulesArrowsWalkPastCargoAndWrapAfterManualSkips)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Vehicles::OrderUnloadAll unload(0);
+    Vehicles::OrderManager::insertOrder(head, 2, &unload);
+    auto p = snapshot({ OwnerKind::vehicle, id });
+    EXPECT_EQ(routeOrderForVehicle(id, &p), p.rows[0].key);
+    GameCommands::VehicleOrderSkipArgs args;
+    args.head = head->id;
+    auto regs = static_cast<OpenLoco::GameCommands::registers>(args);
+    GameCommands::vehicleOrderSkip(regs, GameCommands::Flags::apply);
+    EXPECT_EQ(head->currentOrder, 2);
+    EXPECT_EQ(routeOrderForVehicle(id, &p), p.rows[2].key);
+    head->currentOrder = head->sizeOfOrderTable - 1;
+    EXPECT_EQ(routeOrderForVehicle(id, &p), p.rows[0].key);
+    EXPECT_EQ(routeOrderForVehicle(UINT16_MAX, &p), 0U);
+    EXPECT_EQ(runtimeForVehicle(id), nullptr);
+}
+TEST_F(GameRulesFixture, manualSkipReleasesWaitAndKeepsSharedArrowsIndependent)
+{
+    using namespace OpenLoco;
+    auto* a = vehicle();
+    auto* b = vehicle();
+    const auto ai = enumValue(a->id), bi = enumValue(b->id);
+    const auto line = Lines::createLine("Skip hold", TransportMode::rail, 2);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, ai, TransportMode::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, bi, TransportMode::rail).ok);
+    const Owner owner{ OwnerKind::line, line.id };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.value = getCurrentYear() + 1;
+    ASSERT_TRUE(submit(owner, e));
+    for (const auto id : { ai, bi })
+    {
+        ASSERT_TRUE(prepareVehicle(id));
+        reached(id);
+        EXPECT_FALSE(prepareVehicle(id));
+        ASSERT_NE(runtimeForVehicle(id)->waiting, 0U);
+    }
+    const auto definitions = *find(owner);
+    GameCommands::VehicleOrderSkipArgs args;
+    args.head = a->id;
+    auto regs = static_cast<OpenLoco::GameCommands::registers>(args);
+    GameCommands::vehicleOrderSkip(regs, GameCommands::Flags::apply);
+    EXPECT_EQ(routeOrderForVehicle(ai), p.rows[1].key);
+    EXPECT_EQ(routeOrderForVehicle(bi), p.rows[0].key);
+    EXPECT_EQ(runtimeForVehicle(ai)->waiting, 0U);
+    EXPECT_NE(runtimeForVehicle(bi)->waiting, 0U);
+    EXPECT_EQ(*find(owner), definitions);
+}
+TEST(RulesTests, routePreviewSkipsStopsAndWaypointUsingCurrentCargoFacts)
+{
+    auto p = route();
+    auto block = section(p, Kind::ifBlock, 1, 3);
+    block.condition.check = Check::cargoWaiting;
+    block.condition.stop = p.rows[1].key;
+    block.condition.value = 8;
+    block.condition.compare = Compare::greater;
+    ASSERT_TRUE(add(p, block));
+    Runtime runtime;
+    for (int quantity : { 7, 8, 9 })
+    {
+        const auto preview = previewRoute(p, runtime, 0, 10, [quantity](const Condition& c) { return CheckResult{ true, quantity > c.value, {} }; });
+        const auto expected = quantity > 8 ? std::vector<Key>{ p.rows[0].key, p.rows[1].key, p.rows[2].key, p.rows[3].key, p.rows[4].key, p.rows[0].key }
+                                           : std::vector<Key>{ p.rows[0].key, p.rows[4].key, p.rows[0].key };
+        EXPECT_EQ(preview.orders, expected);
+        EXPECT_LE(preview.steps, 256);
+        EXPECT_FALSE(preview.limited);
+    }
+    EXPECT_EQ(runtime.current, 0U);
+    EXPECT_TRUE(runtime.branches.empty());
+}
+TEST(RulesTests, routePreviewUsesElseAndPreservesCommittedBranchChoices)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    auto otherwise = section(p, Kind::otherwise, 3, 3);
+    otherwise.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, otherwise));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[1].key);
+    const auto pc = r.pc;
+    const auto preview = previewRoute(p, r, p.rows[1].key, 10, no);
+    EXPECT_EQ(preview.orders[0], p.rows[1].key);
+    EXPECT_EQ(preview.orders[1], p.rows[2].key); // Entered branch remains selected despite changed facts.
+    EXPECT_EQ(preview.orders[2], p.rows[4].key);
+    EXPECT_EQ(r.pc, pc);
+    EXPECT_TRUE(r.branches.at(p.blocks[0].id));
+    const auto fresh = previewRoute(p, {}, 0, 10, no);
+    EXPECT_EQ(fresh.orders, (std::vector<Key>{ p.rows[0].key, p.rows[3].key, p.rows[4].key, p.rows[0].key }));
+}
+TEST(RulesTests, routePreviewHandlesDiversionFiniteRepeatsAndInfiniteBudgetWithoutMutation)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 3)));
+    auto go = section(p, Kind::goTo, 1, 3);
+    go.parent = p.blocks[0].id;
+    go.target = p.rows[4].key;
+    ASSERT_TRUE(add(p, go));
+    EXPECT_EQ(previewRoute(p, {}, 0, 10, yes).orders, (std::vector<Key>{ p.rows[0].key, p.rows[4].key, p.rows[0].key }));
+    p = route();
+    auto loop = section(p, Kind::repeat, 0, 1);
+    loop.number = 20;
+    ASSERT_TRUE(add(p, loop));
+    const auto finite = previewRoute(p, {}, 0, 10, yes);
+    EXPECT_NE(std::find(finite.orders.begin(), finite.orders.end(), p.rows[4].key), finite.orders.end());
+    EXPECT_LE(finite.steps, 256);
+    Edit e;
+    e.kind = EditKind::updateBlock;
+    e.block = p.blocks[0];
+    e.block.number = 0;
+    ASSERT_TRUE(edit(p, e));
+    Runtime runtime;
+    const auto infinite = previewRoute(p, runtime, 0, 10, yes);
+    EXPECT_TRUE(infinite.limited);
+    EXPECT_LE(infinite.orders.size(), 64U);
+    EXPECT_LE(infinite.steps, 256);
+    EXPECT_TRUE(runtime.repeats.empty());
+    EXPECT_EQ(runtime.pc, 0U);
+}
+TEST(RulesTests, routePreviewStopsAtFalseWaitAndResumesOnConditionOrTimeout)
+{
+    auto p = route();
+    auto wait = section(p, Kind::waitUntil, 1, 2);
+    wait.number = 1;
+    ASSERT_TRUE(add(p, wait));
+    const auto held = previewRoute(p, {}, 0, 10, no);
+    EXPECT_TRUE(held.waiting);
+    EXPECT_EQ(held.orders.back(), p.rows[2].key);
+    const auto passing = previewRoute(p, {}, 0, 10, yes);
+    EXPECT_FALSE(passing.waiting);
+    EXPECT_NE(std::find(passing.orders.begin(), passing.orders.end(), p.rows[4].key), passing.orders.end());
+    Runtime run;
+    next(p, run, 0, no);
+    next(p, run, 0, no);
+    next(p, run, 0, no);
+    markArrived(p, run, p.rows[2].key);
+    ASSERT_EQ(next(p, run, 0, no).kind, RunKind::waiting);
+    const auto expired = previewRoute(p, run, p.rows[2].key, 40, no);
+    EXPECT_EQ(expired.orders[1], p.rows[3].key);
+    EXPECT_NE(std::find(expired.orders.begin(), expired.orders.end(), p.rows[4].key), expired.orders.end());
+    EXPECT_NE(run.waiting, 0U);
+    EXPECT_EQ(run.waitStart, 0U);
+}
+TEST(RulesTests, routePreviewUsesUnavailableElseAndTerminatesSelfJump)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    auto clause = section(p, Kind::otherwise, 3, 3);
+    clause.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, clause));
+    const auto missing = previewRoute(p, {}, 0, 10, [](const Condition&) { return CheckResult{ false, false, "Missing station" }; });
+    EXPECT_EQ(missing.orders, (std::vector<Key>{ p.rows[0].key, p.rows[3].key, p.rows[4].key, p.rows[0].key }));
+    EXPECT_EQ(missing.reason, "Missing station");
+    p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    auto go = section(p, Kind::goTo, 0, 0);
+    go.parent = p.blocks[0].id;
+    go.target = p.rows[0].key;
+    ASSERT_TRUE(add(p, go));
+    const auto limited = previewRoute(p, {}, 0, 10, yes);
+    EXPECT_TRUE(limited.limited);
+    EXPECT_TRUE(limited.orders.empty());
+    EXPECT_EQ(limited.steps, 256);
+}
+
+namespace
+{
+    struct MapRulesFixture : GameRulesFixture
+    {
+        OpenLoco::Station previous[3];
+        uint16_t year = 0;
+        void SetUp() override
+        {
+            GameRulesFixture::SetUp();
+            OpenLoco::Lines::clearRouteView();
+            year = OpenLoco::getCurrentYear();
+            for (int i = 0; i < 3; ++i)
+            {
+                previous[i] = *OpenLoco::StationManager::get(static_cast<OpenLoco::StationId>(10 + i * 10));
+            }
+            OpenLoco::World::TileManager::allocateMapElements();
+            OpenLoco::World::TileManager::initialise();
+        }
+        void TearDown() override
+        {
+            OpenLoco::Lines::clearRouteView();
+            OpenLoco::setCurrentYear(year);
+            for (int i = 0; i < 3; ++i)
+            {
+                *OpenLoco::StationManager::get(static_cast<OpenLoco::StationId>(10 + i * 10)) = previous[i];
+            }
+            GameRulesFixture::TearDown();
+        }
+        uint16_t mapLine(OpenLoco::Lines::LineKind kind, bool triangle = false, uint8_t colour = 4)
+        {
+            using namespace OpenLoco;
+            using namespace OpenLoco::World;
+            using namespace OpenLoco::Lines;
+            TileManager::initialise();
+            if (kind == LineKind::water)
+            {
+                for (int x = 9; x <= 15; ++x)
+                {
+                    for (int y = 9; y <= 15; ++y)
+                    {
+                        TileManager::get(Pos2{ static_cast<coord_t>(x * 32), static_cast<coord_t>(y * 32) }).surface()->setWater(4);
+                    }
+                }
+            }
+            if (kind == LineKind::rail || kind == LineKind::road || kind == LineKind::tram)
+            {
+                for (int x = 320; x <= 448; x += 32)
+                {
+                    const Pos2 pos{ static_cast<coord_t>(x), 320 };
+                    if (kind == LineKind::rail)
+                    {
+                        auto* track = TileManager::insertElement(ElementType::track, pos, 4, 0)->as<TrackElement>();
+                        track->setTrackId(0);
+                        track->setRotation(0);
+                        track->setSequenceIndex(0);
+                        track->setTrackObjectId(0);
+                        track->setOwner(static_cast<CompanyId>(0));
+                    }
+                    else
+                    {
+                        auto* road = TileManager::insertElement(ElementType::road, pos, 4, 0)->as<RoadElement>();
+                        road->setRoadId(0);
+                        road->setRotation(0);
+                        road->setSequenceIndex(0);
+                        road->setRoadObjectId(0);
+                        road->setOwner(static_cast<CompanyId>(0));
+                    }
+                }
+            }
+            const auto line = createLine("Live map", transportModeForKind(kind), colour);
+            EXPECT_TRUE(line.ok);
+            for (int i = 0; i < 3; ++i)
+            {
+                const auto id = static_cast<StationId>(10 + i * 10);
+                auto* station = StationManager::get(id);
+                station->name = 1;
+                station->owner = static_cast<CompanyId>(0);
+                station->flags = kind == LineKind::rail ? StationFlags::transportModeRail : kind == LineKind::road ? StationFlags::transportModeRoad
+                    : kind == LineKind::water                                                                      ? StationFlags::transportModeWater
+                    : kind == LineKind::air                                                                        ? StationFlags::transportModeAir
+                                                                                                                   : StationFlags::none;
+                station->x = static_cast<coord_t>(triangle ? i == 0 ? 320 : 448 : 320 + i * 64);
+                station->y = static_cast<coord_t>(triangle && i == 1 ? 448 : 320);
+                station->z = 16;
+                station->stationTileSize = 1;
+                station->stationTiles[0] = { station->x, station->y, 16 };
+                LineOrder order;
+                order.station = enumValue(id);
+                EXPECT_TRUE(addOrder(line.id, order).ok);
+            }
+            EXPECT_TRUE(acceptStopKinds(line.id, kind).ok);
+            return line.id;
+        }
+        void yearBranch(uint16_t line, bool passed)
+        {
+            using namespace OpenLoco;
+            const Owner owner{ OwnerKind::line, line };
+            const auto p = snapshot(owner);
+            Edit e;
+            e.block = section(p, Kind::ifBlock, 1, 1);
+            e.block.condition.check = Check::year;
+            e.block.condition.value = getCurrentYear();
+            e.block.condition.compare = passed ? Compare::equal : Compare::greater;
+            EXPECT_TRUE(submit(owner, e));
+        }
+        void settle(int updates = 16)
+        {
+            for (int i = 0; i < updates; ++i)
+            {
+                const auto before = OpenLoco::Lines::routeViewStats();
+                OpenLoco::Lines::updateRouteView();
+                const auto after = OpenLoco::Lines::routeViewStats();
+                EXPECT_LE(after.pathSearches - before.pathSearches, 1U);
+                EXPECT_LE(after.rulePolls - before.rulePolls, 2U);
+                EXPECT_LE(after.cachedLegs, 128U);
+                EXPECT_LE(after.cachedUnits, 131072U);
+            }
+        }
+    };
+}
+TEST_F(MapRulesFixture, liveAirOverlayChangesWithYearFactsAndReusesCachedLegs)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    yearBranch(line, false);
+    Lines::setRouteView(line, true, false);
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(384, 320));
+    const auto initial = Lines::routeViewStats();
+    for (int i = 0; i < 100; ++i)
+    {
+        Lines::setRouteView(line, true, false); // Rendering requests do no rule work.
+    }
+    EXPECT_EQ(Lines::routeViewStats().rulePolls, initial.rulePolls);
+    settle(24);
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, initial.pathSearches);
+    const auto definitions = *find({ OwnerKind::line, line });
+    setCurrentYear(year + 1);
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_EQ(*find({ OwnerKind::line, line }), definitions);
+    EXPECT_GT(Lines::routeViewStats().pathSearches, initial.pathSearches);
+    const auto changed = Lines::routeViewStats();
+    setCurrentYear(year);
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, changed.pathSearches);
+    EXPECT_EQ(Lines::routeViewStats().pendingLegs, 0U);
+}
+TEST_F(MapRulesFixture, liveWaterOverlayUsesOnlySelectedRouteAndHonoursWaitBoundary)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::water, true);
+    yearBranch(line, false);
+    Lines::setRouteView(line, true, false);
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(384, 320));
+    setCurrentYear(year + 1);
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    const Owner owner{ OwnerKind::line, line };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.value = getCurrentYear() + 1;
+    ASSERT_TRUE(submit(owner, e));
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_EQ(Lines::routePreviewStatus(line), "Map: ends at wait");
+}
+TEST_F(MapRulesFixture, liveRoadTramAndRailUseNativePiecePaths)
+{
+    using namespace OpenLoco;
+    for (const auto kind : { Lines::LineKind::rail, Lines::LineKind::road, Lines::LineKind::tram })
+    {
+        Lines::clearRouteView();
+        Lines::clearLines();
+        clear();
+        const auto line = mapLine(kind);
+        yearBranch(line, true);
+        Lines::setRouteView(line, true, false);
+        settle();
+        const auto pieceKind = kind == Lines::LineKind::rail ? 0 : 1;
+        EXPECT_TRUE(Lines::routeOverlayColour(384, 320, 4, 0, 0, pieceKind)) << static_cast<int>(kind);
+        EXPECT_FALSE(Lines::surfaceOverlayColour(384, 320));
+        EXPECT_EQ(Lines::routeViewStats().pendingLegs, 0U);
+    }
+}
+TEST_F(MapRulesFixture, hiddenViewsDoNoWorkAndClearTheirCaches)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    yearBranch(line, true);
+    Lines::setRouteView(line, true, false);
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    Lines::clearRouteView();
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, 0U);
+    EXPECT_EQ(Lines::routeViewStats().cachedLegs, 0U);
+    EXPECT_EQ(Lines::routeViewStats().rulePolls, 0U);
+}
+TEST_F(MapRulesFixture, selectedStaticLineColourWinsOverLiveAllLineOverlay)
+{
+    using namespace OpenLoco;
+    const auto live = mapLine(Lines::LineKind::air, true, 4);
+    yearBranch(live, true);
+    const auto plain = Lines::createLine("Static", TransportMode::air, 9);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        ASSERT_TRUE(Lines::addOrder(plain.id, order).ok);
+    }
+    Lines::setRouteView(plain.id, true, true);
+    settle();
+    EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 9);
+    Lines::setRouteView(live, true, true);
+    settle();
+    EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 4);
+}
+TEST_F(MapRulesFixture, ruleRemovalReturnsToStaticRouteAndAllModeRefreshesBothLines)
+{
+    using namespace OpenLoco;
+    const auto a = mapLine(Lines::LineKind::air, true, 4);
+    yearBranch(a, false);
+    const auto b = Lines::createLine("Other rule line", TransportMode::air, 9);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        ASSERT_TRUE(Lines::addOrder(b.id, order).ok);
+    }
+    yearBranch(b.id, false);
+    Lines::setRouteView(a, true, true);
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    setCurrentYear(year + 1);
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    setCurrentYear(year);
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    Edit e;
+    e.kind = EditKind::removeBlock;
+    e.block.id = find({ OwnerKind::line, a })->blocks.front().id;
+    ASSERT_TRUE(submit({ OwnerKind::line, a }, e));
+    settle();
+    EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 4);
+}
+TEST_F(MapRulesFixture, livePreviewKeepsVehicleRuntimeAndSupportsSelectedVehicleChanges)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    auto* a = vehicle();
+    auto* b = vehicle();
+    const auto ai = enumValue(a->id), bi = enumValue(b->id);
+    for (auto* head : { a, b })
+    {
+        Vehicles::Vehicle train(*head);
+        for (auto* part : { static_cast<Vehicles::VehicleBase*>(head), static_cast<Vehicles::VehicleBase*>(train.veh1), static_cast<Vehicles::VehicleBase*>(train.veh2), static_cast<Vehicles::VehicleBase*>(train.tail) })
+        {
+            part->mode = TransportMode::air;
+        }
+        head->vehicleType = VehicleType::aircraft;
+        ASSERT_TRUE(Lines::assignVehicle(line, enumValue(head->id), TransportMode::air).ok);
+    }
+    yearBranch(line, true);
+    ASSERT_TRUE(prepareVehicle(ai));
+    ASSERT_TRUE(prepareVehicle(bi));
+    const auto p = snapshot({ OwnerKind::line, line });
+    b->currentOrder = 4;
+    manuallySkipped(bi);
+    const auto pcA = runtimeForVehicle(ai)->pc, pcB = runtimeForVehicle(bi)->pc;
+    const auto cursorA = a->currentOrder, cursorB = b->currentOrder;
+    Lines::setRouteView(line, true, false, ai);
+    settle();
+    EXPECT_EQ(a->currentOrder, cursorA);
+    EXPECT_EQ(b->currentOrder, cursorB);
+    EXPECT_EQ(runtimeForVehicle(ai)->pc, pcA);
+    EXPECT_EQ(runtimeForVehicle(bi)->pc, pcB);
+    EXPECT_EQ(routeOrderForVehicle(bi), p.rows[2].key);
+    Lines::setRouteView(line, true, false, bi);
+    settle();
+    EXPECT_EQ(a->currentOrder, cursorA);
+    EXPECT_EQ(b->currentOrder, cursorB);
+    EXPECT_EQ(runtimeForVehicle(ai)->pc, pcA);
+    EXPECT_EQ(runtimeForVehicle(bi)->pc, pcB);
+    EXPECT_EQ(previewLineRoute(line, bi).orders.front(), p.rows[2].key);
+}
+
+TEST_F(GameRulesFixture, manualSkipArrowDrawsInTheRulesCanvasGutter)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    Edit e;
+    e.block = section(snapshot(owner), Kind::group, 0, 2);
+    ASSERT_TRUE(submit(owner, e));
+    GameCommands::VehicleOrderSkipArgs args;
+    args.head = head->id;
+    auto regs = static_cast<GameCommands::registers>(args);
+    GameCommands::vehicleOrderSkip(regs, GameCommands::Flags::apply);
+    const auto p = snapshot(owner);
+    const auto layout = programLayout(p, 220, 16);
+    std::vector<uint8_t> pixels(360 * 240);
+    Gfx::RenderTarget target{ pixels.data(), 0, 0, 360, 240, 0 };
+    Gfx::SoftwareDrawingContext ctx;
+    ctx.pushRenderTarget(target);
+    drawProgramBlocks(ctx, p, runtimeForVehicle(id), layout, 220, 97, 0, false);
+    const auto key = routeOrderForVehicle(id, &p);
+    drawRouteOrderMarker(ctx, p, layout, key, 220, 97);
+    const auto marker = routeOrderMarkerPosition(p, layout, key, 220, 97);
+    ASSERT_TRUE(marker);
+    EXPECT_GT(marker->x, 97);
+    EXPECT_EQ(pixels[(marker->y + 3) * 360 + marker->x + 1], Colours::getShade(Colour::white, 9));
+}
+TEST_F(MapRulesFixture, fullVehicleDiversionChangesSelectedLivePathWithoutEditingTheLine)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    auto* a = vehicle();
+    auto* b = vehicle();
+    for (auto* head : { a, b })
+    {
+        head->mode = TransportMode::air;
+        head->vehicleType = VehicleType::aircraft;
+        ASSERT_TRUE(Lines::assignVehicle(line, enumValue(head->id), TransportMode::air).ok);
+    }
+    Vehicle train(*b);
+    const auto tail = train.veh2->nextCarId;
+    auto* front = reinterpret_cast<VehicleBogie*>(EntityManager::createEntityVehicle());
+    auto* back = reinterpret_cast<VehicleBogie*>(EntityManager::createEntityVehicle());
+    auto* body = reinterpret_cast<VehicleBody*>(EntityManager::createEntityVehicle());
+    for (auto* part : { static_cast<VehicleBase*>(front), static_cast<VehicleBase*>(back), static_cast<VehicleBase*>(body) })
+    {
+        part->baseType = EntityBaseType::vehicle;
+        part->head = b->id;
+        part->mode = TransportMode::air;
+    }
+    front->subType = back->subType = VehicleEntityType::bogie;
+    body->subType = VehicleEntityType::body_start;
+    train.veh2->nextCarId = front->id;
+    front->nextCarId = back->id;
+    back->nextCarId = body->id;
+    body->nextCarId = tail;
+    front->secondaryCargo.type = body->primaryCargo.type = 0;
+    front->secondaryCargo.maxQty = body->primaryCargo.maxQty = 10;
+    front->secondaryCargo.qty = body->primaryCargo.qty = 10;
+    const Owner owner{ OwnerKind::line, line };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 1, 1);
+    e.block.condition.check = Check::full;
+    ASSERT_TRUE(submit(owner, e));
+    e.block = section(p, Kind::goTo, 1, 1);
+    e.block.parent = find(owner)->blocks.front().id;
+    e.block.target = p.rows[2].key;
+    ASSERT_TRUE(submit(owner, e));
+    const auto beforeA = *runtimeForVehicle(enumValue(a->id));
+    const auto beforeB = *runtimeForVehicle(enumValue(b->id));
+    EXPECT_EQ(previewLineRoute(line, enumValue(a->id)).orders[1], p.rows[1].key);
+    EXPECT_EQ(previewLineRoute(line, enumValue(b->id)).orders[1], p.rows[2].key);
+    Lines::setRouteView(line, true, false, enumValue(a->id));
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    Lines::setRouteView(line, true, false, enumValue(b->id));
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    const auto definitions = *find(owner);
+    body->primaryCargo.qty = 9;
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_EQ(*find(owner), definitions);
+    for (const auto& [id, before] : { std::pair{ enumValue(a->id), beforeA }, std::pair{ enumValue(b->id), beforeB } })
+    {
+        const auto* after = runtimeForVehicle(id);
+        ASSERT_NE(after, nullptr);
+        EXPECT_EQ(after->pc, before.pc);
+        EXPECT_EQ(after->current, before.current);
+        EXPECT_EQ(after->branches, before.branches);
+        EXPECT_EQ(after->repeats, before.repeats);
+        EXPECT_EQ(after->waiting, before.waiting);
+    }
+}
+TEST_F(MapRulesFixture, topologyInvalidationRebuildsLegGeometryWithoutAConditionChange)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::rail);
+    yearBranch(line, true);
+    Lines::setRouteView(line, true, false);
+    settle();
+    ASSERT_TRUE(Lines::routeOverlayColour(384, 320, 4, 0, 0, 0));
+    const auto before = Lines::routeViewStats();
+    World::TileManager::initialise(); // Remove the synthetic track while orders and facts remain identical.
+    Lines::invalidateRouteCache();
+    settle();
+    EXPECT_FALSE(Lines::routeOverlayColour(384, 320, 4, 0, 0, 0));
+    EXPECT_GT(Lines::routeViewStats().pathSearches, before.pathSearches);
+    EXPECT_EQ(Lines::routeViewStats().pendingLegs, 0U);
+}
+TEST_F(MapRulesFixture, liveLegCacheRemainsBoundedAcrossManyVisibleLines)
+{
+    using namespace OpenLoco;
+    const auto first = mapLine(Lines::LineKind::air, true);
+    yearBranch(first, true);
+    for (int i = 0; i < 48; ++i)
+    {
+        const auto line = Lines::createLine("Cache stress", TransportMode::air, 4);
+        for (uint16_t station : { 10, 20, 30 })
+        {
+            Lines::LineOrder order;
+            order.station = station;
+            ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+        }
+        yearBranch(line.id, true);
+    }
+    Lines::setRouteView(first, true, true);
+    settle(200);
+    EXPECT_EQ(Lines::routeViewStats().cachedLegs, 128U);
+    EXPECT_LE(Lines::routeViewStats().cachedUnits, 131072U);
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    Lines::clearRouteView();
+    EXPECT_EQ(Lines::routeViewStats().cachedUnits, 0U);
 }

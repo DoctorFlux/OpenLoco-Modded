@@ -520,7 +520,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                     }
                 }
             }
-            drawRouteOrderMarker(ctx, program, canvasLayout, routeOrderForVehicle(progressVehicle()), static_cast<int16_t>(window.width - layout.paletteWidth - 26), layout.paletteWidth + 1);
+            drawRouteOrderMarker(ctx, program, canvasLayout, routeOrderForVehicle(progressVehicle(), &program), static_cast<int16_t>(window.width - layout.paletteWidth - 26), layout.paletteWidth + 1);
             if (visuals.empty())
             {
                 text(ctx, layout.paletteWidth + 5, 5, width - layout.paletteWidth - 10, "Add stops in the vehicle Route tab or Lines first.");

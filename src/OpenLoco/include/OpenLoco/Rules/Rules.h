@@ -185,6 +185,17 @@ namespace OpenLoco::Rules
     // Arrival gates keep selecting their travel anchor until markArrived.
     // The host holds planner progression at requiresArrivalStop boundaries.
     Decision next(const Program& program, Runtime& runtime, uint32_t tick, const Evaluate& evaluate, Key arrivalOnly = 0);
+    struct RoutePreview
+    {
+        std::vector<Key> orders;
+        bool limited = false;
+        bool waiting = false;
+        uint16_t steps = 0;
+        std::string reason;
+    };
+    // Current facts projected on a runtime copy, at most 256 steps and 64 destinations.
+    RoutePreview previewRoute(const Program& program, Runtime runtime, Key committed, uint32_t tick, const Evaluate& evaluate);
+    RoutePreview previewLineRoute(uint16_t line, uint16_t vehicle = UINT16_MAX);
     void markArrived(const Program& program, Runtime& runtime, Key order);
     bool requiresArrivalStop(const Program& program, const Runtime& runtime);
     Key executingBlock(const Program& program, const Runtime& runtime);
@@ -224,7 +235,7 @@ namespace OpenLoco::Rules
     std::string vehicleStatus(uint16_t vehicle);
     std::string vehicleNextStop(uint16_t vehicle);
     const Runtime* runtimeForVehicle(uint16_t vehicle);
-    Key routeOrderForVehicle(uint16_t vehicle); // Committed travel/hold row, distinct from cargo/program cursors; 0 uses vanilla.
+    Key routeOrderForVehicle(uint16_t vehicle, const Program* displayedProgram = nullptr); // Committed travel/hold row; supplied snapshot also supports plain Rules lists.
     bool saveCompanion(const std::filesystem::path& savePath);
     bool loadCompanion(const std::filesystem::path& savePath);
     std::filesystem::path companionPath(const std::filesystem::path& savePath);

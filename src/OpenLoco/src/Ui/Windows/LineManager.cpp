@@ -527,6 +527,7 @@ namespace OpenLoco::Ui::Windows::LineManager
     }
     static void onUpdate(Ui::Window& self)
     {
+        Lines::updateRouteView();
         self.updateScrollWidgets();
         if (orderProgram(self) != nullptr)
         {
@@ -1139,7 +1140,7 @@ namespace OpenLoco::Ui::Windows::LineManager
         {
             window.disabledWidgets &= ~((1ULL << widx::colourPrimary) | (1ULL << widx::colourSecondary) | (1ULL << widx::paintVehicles) | (1ULL << widx::schemes));
         }
-        Lines::setRouteView(line == nullptr ? 0 : line->id, _showPath && line != nullptr, _showAllLines);
+        Lines::setRouteView(line == nullptr ? 0 : line->id, _showPath && line != nullptr, _showAllLines, progressVehicle());
     }
 
     static void draw(Ui::Window& window, Gfx::DrawingContext& drawingCtx)
@@ -1159,6 +1160,11 @@ namespace OpenLoco::Ui::Windows::LineManager
             const auto vehicle = progressVehicle();
             const auto* head = vehicle == UINT16_MAX ? nullptr : EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
             auto sentence = head ? "Vehicle " + std::to_string(head->ordinalNumber) + ": " + Rules::vehicleStatus(vehicle) : "Rules: no assigned vehicle";
+            const auto mapStatus = Lines::routePreviewStatus(_selectedLine);
+            if (!mapStatus.empty())
+            {
+                sentence = mapStatus + " | " + sentence;
+            }
             sentence.insert(sentence.begin(), static_cast<char>(ControlCodes::Colour::black));
             tr.setCurrentFont(Gfx::Font::medium_bold);
             tr.clipString(220, sentence.data());
