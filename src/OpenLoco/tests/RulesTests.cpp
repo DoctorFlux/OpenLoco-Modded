@@ -1957,7 +1957,7 @@ TEST(RulesTests, arrivalTimingValidationAndReadableSentencesAreConsistent)
     EXPECT_EQ(p, before);
     b.when = Timing::onArrival;
     ASSERT_TRUE(add(p, b));
-    EXPECT_NE(blockSentence(p, p.blocks[0]).find("[on arrival]"), std::string::npos);
+    EXPECT_EQ(blockSentence(p, p.blocks[0]).find("[on arrival]"), std::string::npos);
     b = section(p, Kind::waitUntil, 2, 3);
     ASSERT_TRUE(add(p, b));
     EXPECT_EQ(timingOf(p, p.blocks[1]), Timing::onArrival);
@@ -2813,7 +2813,7 @@ TEST(RulesTests, compactFieldsExposeBothChecksAndKeepEveryHitInsideItsDrawnSocke
     {
         const auto layout = programLayout(p, width);
         const auto& visual = layout.items.front();
-        ASSERT_EQ(visual.fields.size(), 12U);
+        ASSERT_EQ(visual.fields.size(), 11U); // Ordinary If omits the timing socket.
         bool primaryValue = false, extraValue = false;
         for (const auto& field : visual.fields)
         {
@@ -2974,7 +2974,7 @@ TEST(RulesTests, compactCanvasGainsSpaceAndSimpleBlocksUseOneFieldRow)
     ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
     const auto layout = programLayout(p, 438, 16);
     EXPECT_EQ(layout.items[0].height, 23);
-    EXPECT_EQ(layout.items[0].fields[1].field, BlockField::check);
+    EXPECT_EQ(layout.items[0].fields[0].field, BlockField::check);
     EXPECT_EQ(layout.items[0].fields.back().field, BlockField::join);
 }
 
@@ -3011,6 +3011,68 @@ TEST(RulesTests, everyFieldKindAndSecondCheckRemainAccessibleInAllBlockShapes)
     const auto closing = std::find_if(layout.items.begin(), layout.items.end(), [](const ProgramVisual& v) { return v.closing; });
     ASSERT_NE(closing, layout.items.end());
     EXPECT_EQ(blockFieldHit(layout, 30, closing->top + 3, 196), nullptr); // Append slot still accepts dragging.
+}
+
+TEST(RulesTests, onlyWaitBlocksExposeTimingFieldsAndLabels)
+{
+    auto p = route();
+    auto branch = section(p, Kind::ifBlock, 0, 0);
+    branch.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, branch));
+    auto clause = section(p, Kind::elseIf, 1, 1);
+    clause.parent = p.blocks.back().id;
+    clause.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, clause));
+    clause = section(p, Kind::otherwise, 2, 2);
+    clause.parent = p.blocks.back().id;
+    clause.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, clause));
+    auto loop = section(p, Kind::repeat, 0, 3);
+    loop.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, loop));
+    const auto loopKey = p.blocks.back().id;
+    for (auto kind : { Kind::skip, Kind::goTo, Kind::breakLoop })
+    {
+        const auto row = kind == Kind::breakLoop ? 3 : kind == Kind::skip ? 0
+                                                                          : 1;
+        auto action = section(p, kind, row, row);
+        action.parent = kind == Kind::breakLoop ? 0 : p.blocks[row].id;
+        action.when = Timing::onArrival;
+        action.target = kind == Kind::breakLoop ? loopKey : kind == Kind::goTo ? p.rows[4].key
+                                                                               : 0;
+        ASSERT_TRUE(add(p, action));
+    }
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 4)));
+    auto wait = section(p, Kind::waitUntil, 4, 4);
+    ASSERT_TRUE(add(p, wait));
+    const auto waitKey = p.blocks.back().id;
+    const auto before = p;
+    for (int16_t width : { 196, 220, 438 })
+    {
+        const auto layout = programLayout(p, width);
+        for (const auto& visual : layout.items)
+        {
+            if (!visual.block || visual.closing)
+            {
+                continue;
+            }
+            const auto count = std::count_if(visual.fields.begin(), visual.fields.end(), [](const FieldVisual& f) { return f.field == BlockField::when; });
+            EXPECT_EQ(count, visual.block == waitKey ? 1 : 0);
+        }
+    }
+    for (const auto& block : p.blocks)
+    {
+        const auto sentence = blockSentence(p, block);
+        EXPECT_EQ(sentence.find("[on arrival]") != std::string::npos, block.id == waitKey);
+        EXPECT_EQ(sentence.find("[before travelling]"), std::string::npos);
+    }
+    Edit change;
+    change.kind = EditKind::updateBlock;
+    change.block = p.blocks.back();
+    change.block.when = Timing::beforeTravel;
+    ASSERT_TRUE(edit(p, change));
+    EXPECT_NE(blockSentence(p, p.blocks.back()).find("[before travelling]"), std::string::npos);
+    EXPECT_EQ(before.blocks.front().when, Timing::onArrival); // Read-only presentation preserves saved timing.
 }
 
 TEST(RulesTests, maximumJoinedWaitFieldsFitNativeScrollOffsetsInCompactViews)

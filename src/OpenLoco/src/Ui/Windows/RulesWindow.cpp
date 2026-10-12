@@ -300,7 +300,8 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             window.widgets[bin].top = layout.binTop;
             window.widgets[bin].bottom = layout.binTop + 19;
             const auto* b = selected();
-            window.widgets[name].text = b && b->kind != Kind::group ? StringIds::rules_when : StringIds::rules_name;
+            window.widgets[name].text = b && b->kind == Kind::waitUntil ? StringIds::rules_when : StringIds::rules_name;
+            window.widgets[name].hidden = !showDetails || !b || (b->kind != Kind::group && b->kind != Kind::waitUntil);
             window.widgets[number].text = b && b->kind == Kind::repeat ? (b->number ? StringIds::rules_times : StringIds::rules_forever) : StringIds::rules_number;
             window.widgets[target].text = b && b->kind == Kind::breakLoop ? StringIds::rules_loop : StringIds::rules_target;
             window.widgets[cargo].text = b && (editingExtra ? b->extra.check : b->condition.check) == Check::platformFree ? StringIds::rules_platform : StringIds::rules_cargo;
@@ -355,7 +356,10 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 {
                     window.disabledWidgets &= ~(uint64_t(1) << number);
                 }
-                window.disabledWidgets &= ~(uint64_t(1) << name);
+                if (b->kind == Kind::group || b->kind == Kind::waitUntil)
+                {
+                    window.disabledWidgets &= ~(uint64_t(1) << name);
+                }
                 if (b->kind == Kind::goTo || b->kind == Kind::breakLoop)
                 {
                     window.disabledWidgets &= ~(uint64_t(1) << target);
@@ -809,12 +813,13 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             stopChoices.clear();
             platformChoices.clear();
             std::vector<std::string> labels;
-            if (id == nameId && b->kind != Kind::group)
+            if (id == nameId)
             {
-                labels = { b->kind == Kind::waitUntil ? "Automatic: on arrival" : (b->kind == Kind::skip || b->kind == Kind::goTo || b->kind == Kind::breakLoop) && b->parent ? "Automatic: with parent"
-                                                                                                                                                                              : "Automatic: before travelling",
-                           "Before travelling",
-                           "On arrival" };
+                if (b->kind != Kind::waitUntil)
+                {
+                    return;
+                }
+                labels = { "Automatic: on arrival", "Before travelling", "On arrival" };
             }
             else if (id == numberId && b->kind == Kind::repeat)
             {
@@ -1026,8 +1031,12 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             auto b = *selectedValue;
             auto& c = inputExtra ? b.extra : b.condition;
-            if (id == nameId && b.kind != Kind::group)
+            if (id == nameId)
             {
+                if (b.kind != Kind::waitUntil)
+                {
+                    return;
+                }
                 b.when = static_cast<Timing>(index);
             }
             else if (id == numberId && b.kind == Kind::repeat)

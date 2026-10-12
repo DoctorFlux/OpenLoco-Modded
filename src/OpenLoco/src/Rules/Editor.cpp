@@ -110,7 +110,7 @@ namespace OpenLoco::Rules
         {
             sentence += " (unavailable)";
         }
-        if (block.kind != Kind::group)
+        if (block.kind == Kind::waitUntil)
         {
             sentence += timingOf(program, block) == Timing::onArrival ? " [on arrival]" : " [before travelling]";
         }
@@ -140,7 +140,7 @@ namespace OpenLoco::Rules
             }
             return size_t{ 0 };
         };
-        if (b.kind != Kind::group)
+        if (b.kind == Kind::waitUntil)
         {
             add(BlockField::when, timingOf(program, b) == Timing::onArrival ? "arrive" : "before");
         }
