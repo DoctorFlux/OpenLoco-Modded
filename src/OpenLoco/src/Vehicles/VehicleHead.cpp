@@ -212,7 +212,7 @@ namespace OpenLoco::Vehicles
             VehicleManager::deleteTrain(*this);
             return false;
         }
-        if (status != Status::loading && status != Status::unloading && !hasVehicleFlags(VehicleFlags::manualControl) && !hasVehicleFlags(VehicleFlags::commandStop) && !Rules::prepareVehicle(enumValue(id)))
+        if (status != Status::loading && status != Status::unloading && !hasVehicleFlags(VehicleFlags::commandStop) && !Rules::prepareVehicle(enumValue(id)))
         {
             veh2->currentSpeed = 0.0_mph;
             veh2->motorState = MotorState::stopped;
@@ -3611,7 +3611,7 @@ namespace OpenLoco::Vehicles
             }
         }
         if (Rules::holdAtStation(enumValue(id))) return true;
-        if (Lines::holdForTimetable(enumValue(id), currentOrder, enumValue(stationId)))
+        if (Lines::holdForTimetable(enumValue(id), Rules::timetableOrder(enumValue(id), currentOrder), enumValue(stationId)))
         {
             return true;
         }
@@ -4322,6 +4322,7 @@ namespace OpenLoco::Vehicles
             if (!stationProcessed)
             {
                 if (head.stationId != tileStationId
+                    && Rules::canStopAt(enumValue(head.id), enumValue(tileStationId))
                     && (train.veh1->var_48 & Flags48::expressMode) == Flags48::none)
                 {
                     auto* station = StationManager::get(tileStationId);
@@ -4604,6 +4605,7 @@ namespace OpenLoco::Vehicles
             if (!stationProcessed)
             {
                 if (head.stationId != tileStationId
+                    && Rules::canStopAt(enumValue(head.id), enumValue(tileStationId))
                     && (train.veh1->var_48 & Flags48::expressMode) == Flags48::none)
                 {
                     return Sub4ACEE7Result{ 4, 0, tileStationId };

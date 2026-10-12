@@ -119,7 +119,9 @@ namespace OpenLoco::Rules
                 {
                     return { false, "An action uses its branch's section" };
                 }
-                if (b.kind == Kind::otherwise && indexOf(p, parent->last) >= first)
+                const auto pairedActionScope = b.kind == Kind::otherwise && b.first == parent->first && b.last == parent->last && b.id > parent->id
+                    && std::any_of(p.blocks.begin(), p.blocks.end(), [&](const Block& child) { return child.parent == parent->id && action(child.kind); });
+                if (b.kind == Kind::otherwise && !pairedActionScope && indexOf(p, parent->last) >= first)
                 {
                     return { false, "Otherwise must follow its If section" };
                 }
@@ -380,6 +382,7 @@ namespace OpenLoco::Rules
         {
             Code code;
             std::map<Key, size_t> starts;
+            std::map<Key, size_t> rowEnds;
             for (size_t i = 0; i < p.rows.size(); ++i)
             {
                 code.entries[p.rows[i].key] = code.instructions.size();
@@ -424,6 +427,7 @@ namespace OpenLoco::Rules
                     }
                 }
                 code.instructions.push_back({ Op::row, p.rows[i].key });
+                rowEnds[p.rows[i].key] = code.instructions.size();
                 std::sort(closing.begin(), closing.end(), [&](const Block* a, const Block* b) {
                     const auto af = indexOf(p, a->first), bf = indexOf(p, b->first);
                     return af != bf ? af > bf : a->id > b->id;
@@ -453,6 +457,21 @@ namespace OpenLoco::Rules
                 const auto* b = blockById(p, instruction.key);
                 const auto after = indexOf(p, b->last) + 1;
                 instruction.jump = after == p.rows.size() ? code.instructions.size() : code.entries[p.rows[after].key];
+                // Skip means this pass. Preserve the enclosing Repeat's end instruction.
+                for (size_t i = rowEnds[b->last]; i < instruction.jump; ++i)
+                {
+                    const auto& close = code.instructions[i];
+                    if (close.op != Op::repeatEnd)
+                    {
+                        continue;
+                    }
+                    const auto* repeat = blockById(p, close.key);
+                    if (indexOf(p, repeat->first) <= indexOf(p, b->first) && indexOf(p, repeat->last) >= indexOf(p, b->last))
+                    {
+                        instruction.jump = i;
+                        break;
+                    }
+                }
             }
             return code;
         }
@@ -541,19 +560,35 @@ namespace OpenLoco::Rules
                 case Op::check:
                 case Op::otherwise:
                 {
-                    const auto result = r.prechecked.contains(b->id) ? CheckResult{ true, r.prechecked[b->id], {} }
+                    auto result = r.prechecked.contains(b->id) ? CheckResult{ true, r.prechecked[b->id], {} }
                         : instruction.op == Op::check                ? evaluateBlock(*b, evaluate)
-                                                                     : CheckResult{ true, r.branches.contains(b->parent) && !r.branches[b->parent], {} };
+                                                                     : CheckResult{ true, !r.branches.contains(b->parent) || !r.branches[b->parent], {} };
+                    for (const auto& child : p.blocks)
+                        if (child.parent == b->id && child.kind == Kind::goTo && !child.enabled) result = { false, false, "Go to destination is missing" };
                     r.prechecked.erase(b->id);
                     r.branches[b->id] = result.available && result.passed;
                     if (!result.available)
                     {
                         r.status = result.reason.empty() ? "Check unavailable" : result.reason;
                     }
+                    if (!r.branches[b->id])
+                    {
+                        for (size_t i = r.pc + 1; i < instruction.jump; ++i)
+                        {
+                            if (code.instructions[i].op == Op::row)
+                            {
+                                r.skipped.insert(code.instructions[i].key);
+                            }
+                        }
+                    }
                     r.pc = r.branches[b->id] ? r.pc + 1 : instruction.jump;
                     break;
                 }
                 case Op::repeatStart:
+                    std::erase_if(r.branches, [&](const auto& branch) {
+                        const auto* inner = blockById(p, branch.first);
+                        return inner && indexOf(p, b->first) <= indexOf(p, inner->first) && indexOf(p, inner->last) <= indexOf(p, b->last);
+                    });
                     r.repeats[b->id] = b->number;
                     ++r.pc;
                     break;
@@ -561,6 +596,10 @@ namespace OpenLoco::Rules
                     if (r.repeats.contains(b->id) && r.repeats[b->id] > 1)
                     {
                         --r.repeats[b->id];
+                        std::erase_if(r.branches, [&](const auto& branch) {
+                            const auto* inner = blockById(p, branch.first);
+                            return inner && indexOf(p, b->first) <= indexOf(p, inner->first) && indexOf(p, inner->last) <= indexOf(p, b->last);
+                        });
                         r.pc = instruction.jump;
                     }
                     else
@@ -594,10 +633,13 @@ namespace OpenLoco::Rules
                     return { RunKind::waiting, r.current, b->id };
                 }
                 case Op::skip:
-                    std::erase_if(r.repeats, [&](const auto& frame) {
-                        const auto* repeat = blockById(p, frame.first);
-                        return repeat == nullptr || (indexOf(p, repeat->last) <= indexOf(p, b->last) && indexOf(p, repeat->first) >= indexOf(p, b->first));
-                    });
+                    for (size_t i = r.pc + 1; i < instruction.jump; ++i)
+                    {
+                        if (code.instructions[i].op == Op::row)
+                        {
+                            r.skipped.insert(code.instructions[i].key);
+                        }
+                    }
                     r.pc = instruction.jump;
                     break;
                 case Op::goTo:
@@ -614,6 +656,13 @@ namespace OpenLoco::Rules
                         r.status = "Go to destination is missing";
                         return { RunKind::fault, r.current, b->id };
                     }
+                    for (const auto& row : p.rows)
+                    {
+                        if (row.key != b->target && isRoutable(row.raw))
+                        {
+                            r.skipped.insert(row.key);
+                        }
+                    }
                     // Retain a repeat only when the destination is still inside it.
                     std::erase_if(r.repeats, [&](const auto& frame) {
                         const auto* repeat = blockById(p, frame.first);
@@ -624,7 +673,7 @@ namespace OpenLoco::Rules
                 }
             }
         }
-        r.status = "Continuing rules next tick";
+        r.status = "Choosing the next stop...";
         return { RunKind::yielded, r.current, 0 };
     }
     bool validRuntime(const Program& p, const Runtime& r)
@@ -666,6 +715,13 @@ namespace OpenLoco::Rules
         {
             const auto* b = blockById(p, key);
             if (!b || (b->kind != Kind::ifBlock && b->kind != Kind::otherwise))
+            {
+                return false;
+            }
+        }
+        for (auto key : r.skipped)
+        {
+            if (indexOf(p, key) >= p.rows.size())
             {
                 return false;
             }

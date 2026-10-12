@@ -79,17 +79,14 @@ namespace OpenLoco::Rules
                     const auto entrance = Signals::entranceOf({ piece, reversed });
                     const auto& data = World::TrackData::getUnkTrack(tad);
                     auto exit = entrance.pos + data.pos;
-                    if (data.rotationEnd < 12)
-                    {
-                        exit -= World::Pos3{ World::kRotationOffset[data.rotationEnd], 0 };
-                    }
                     for (auto it = remaining.begin(); it != remaining.end();)
                     {
                         bool connected = false;
                         for (uint8_t side = 0; side < 2; ++side)
                         {
                             const auto otherEntrance = Signals::entranceOf({ *it, side });
-                            if (otherEntrance.pos == exit && (otherEntrance.connection & 3) == (data.rotationEnd & 3))
+                            const auto& otherData = World::TrackData::getUnkTrack(otherEntrance.connection);
+                            if (otherEntrance.pos == exit && otherData.rotationBegin == data.rotationEnd)
                             {
                                 connected = true;
                             }

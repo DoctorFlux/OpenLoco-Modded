@@ -2247,6 +2247,10 @@ namespace OpenLoco::StringIds
     constexpr StringId rules_bin = 2534;
     constexpr StringId rules_name_prompt = 2535;
     constexpr StringId rules_number_prompt = 2536;
+    constexpr StringId rules_minutes = 2537;
+    constexpr StringId rules_times = 2538;
+    constexpr StringId rules_platform = 2539;
+    constexpr StringId rules_button_short = 2540;
 
 
     constexpr StringId temporary_object_load_str_0 = 8192;

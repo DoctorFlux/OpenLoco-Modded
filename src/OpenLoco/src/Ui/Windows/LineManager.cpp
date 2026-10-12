@@ -191,7 +191,7 @@ namespace OpenLoco::Ui::Windows::LineManager
         Widgets::Button(Widx::kShowAllLines, { 84, 196 }, { 40, 14 }, WindowColour::secondary, StringIds::line_show_all),
         Widgets::Button(Widx::kPaintVehicles, { 126, 196 }, { 60, 14 }, WindowColour::secondary, StringIds::line_paint_vehicles),
         Widgets::Button(Widx::kSchemes, { 4, 214 }, { 70, 14 }, WindowColour::secondary, StringIds::line_colour_schemes),
-        Widgets::Button(Widx::kRules, { 392, 148 }, { 24, 24 }, WindowColour::secondary, StringIds::rules_title)
+        Widgets::Button(Widx::kRules, { 392, 148 }, { 24, 24 }, WindowColour::secondary, StringIds::rules_button_short, StringIds::rules_title)
 
     );
 

@@ -5,6 +5,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -148,6 +149,7 @@ namespace OpenLoco::Rules
         std::map<Key, uint16_t> repeats;
         std::map<Key, bool> branches;
         std::map<Key, bool> prechecked;
+        std::set<Key> skipped;
         std::string status;
     };
     enum class RunKind : uint8_t
@@ -188,6 +190,8 @@ namespace OpenLoco::Rules
     void manuallySkipped(uint16_t vehicle);
     bool holdAtStation(uint16_t vehicle);
     bool cargoOrderEnabled(uint16_t vehicle, uint16_t orderOffset);
+    uint16_t timetableOrder(uint16_t vehicle, uint16_t vanillaOffset);
+    bool canStopAt(uint16_t vehicle, uint16_t station);
     std::string vehicleStatus(uint16_t vehicle);
     bool saveCompanion(const std::filesystem::path& savePath);
     bool loadCompanion(const std::filesystem::path& savePath);

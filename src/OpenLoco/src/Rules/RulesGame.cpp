@@ -3,6 +3,8 @@
 #include "GameCommands/GameCommands.h"
 #include "GameCommands/Vehicles/VehicleOrderDelete.h"
 #include "Lines/Line.h"
+#include "Objects/CargoObject.h"
+#include "Objects/ObjectManager.h"
 #include "Rules/Platforms.h"
 #include "Rules/Rules.h"
 #include "S5/Limits.h"
@@ -19,6 +21,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
+#include <locale>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -39,6 +42,7 @@ namespace OpenLoco::Rules
             bool hasOrder = false;
             Owner owner{};
             std::map<Key, bool> cargoDecisions;
+            Key reachedOrder = 0;
         };
         std::map<uint16_t, VehicleRun> vehicles;
         bool installing = false;
@@ -182,23 +186,27 @@ namespace OpenLoco::Rules
             {
                 Vehicle train(head);
                 uint32_t quantity = 0, capacity = 0;
+                bool allFull = true;
+                bool anySpace = false;
                 for (auto& car : train.cars)
                 {
                     for (auto& part : car)
                     {
                         for (const auto* cargo : { &part.front->secondaryCargo, &part.body->primaryCargo })
                         {
-                            if (cargo->type != 0xFF && cargo->maxQty != 0)
+                            if (cargo->maxQty != 0 && (cargo->type != 0xFF || cargo->acceptedTypes != 0))
                             {
                                 capacity += cargo->maxQty;
                                 quantity += cargo->qty;
+                                allFull &= cargo->qty == cargo->maxQty;
+                                anySpace |= cargo->qty < cargo->maxQty;
                             }
                         }
                     }
                 }
-                return { capacity != 0, c.check == Check::full ? capacity != 0 && quantity == capacity : c.check == Check::empty ? quantity == 0
-                                                                                                                                 : quantity < capacity,
-                         "This vehicle has no cargo space" };
+                return { true, c.check == Check::full ? capacity != 0 && allFull : c.check == Check::empty ? quantity == 0
+                                                                                                           : anySpace,
+                         {} };
             }
             const auto index = indexOf(p, c.stop);
             if (index >= p.rows.size())
@@ -218,6 +226,10 @@ namespace OpenLoco::Rules
             }
             if (c.check == Check::cargoWaiting)
             {
+                if (ObjectManager::get<CargoObject>(c.cargo) == nullptr)
+                {
+                    return { false, false, "This cargo type is unavailable" };
+                }
                 return { true, compare(station->cargoStats[c.cargo].quantity, c), {} };
             }
             if (c.check == Check::platformFree)
@@ -259,7 +271,13 @@ namespace OpenLoco::Rules
                 {
                     continue;
                 }
-                head.currentOrder = offsetOf(p, d.order);
+                const auto nextOffset = offsetOf(p, d.order);
+                if (head.currentOrder != nextOffset)
+                {
+                    Signals::dropPendingPath(enumValue(head.id));
+                    Signals::clearWaitingSignals(enumValue(head.id));
+                }
+                head.currentOrder = nextOffset;
                 run.hasOrder = true;
                 run.ready = true;
                 Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
@@ -339,6 +357,23 @@ namespace OpenLoco::Rules
         {
             return result;
         }
+        if (command.kind == EditKind::insertRow)
+        {
+            const auto* order = reinterpret_cast<const Vehicles::Order*>(&command.raw);
+            const auto mode = owner.kind == OwnerKind::line ? Lines::findLine(owner.id)->mode : EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(owner.id))->mode;
+            if ((mode == TransportMode::air && (order->is<Vehicles::OrderRouteThrough>() || order->is<Vehicles::OrderRouteWaypoint>())) || (mode == TransportMode::water && order->is<Vehicles::OrderRouteThrough>()))
+            {
+                return { false, "This order is not available for this vehicle type" };
+            }
+            if (const auto* stop = order->as<Vehicles::OrderStation>())
+            {
+                const auto* station = StationManager::get(stop->getStation());
+                if (!station || station->empty() || station->owner != CompanyManager::getControllingId())
+                {
+                    return { false, "Choose a station belonging to this company" };
+                }
+            }
+        }
         const bool changesRows = command.kind == EditKind::insertRow || command.kind == EditKind::deleteRow || command.kind == EditKind::deleteRows || command.kind == EditKind::moveRows || command.kind == EditKind::reverseRows;
         std::map<uint16_t, Key> cursors;
         for (uint16_t i = 0; i < S5::Limits::kMaxEntities; ++i)
@@ -371,6 +406,10 @@ namespace OpenLoco::Rules
             auto& run = vehicles[id];
             run.owner = owner;
             run.cargoDecisions.clear();
+            if (indexOf(p, run.reachedOrder) >= p.rows.size())
+            {
+                run.reachedOrder = 0;
+            }
             if (indexOf(p, key) < p.rows.size())
             {
                 auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(id));
@@ -378,14 +417,22 @@ namespace OpenLoco::Rules
                 {
                     head->currentOrder = offsetOf(p, key);
                 }
-                resumeAfter(p, run.runtime, key);
-                run.ready = true;
+                const auto pendingKey = !run.ready && indexOf(p, run.runtime.current) < p.rows.size() ? run.runtime.current : key;
+                resumeAfter(p, run.runtime, pendingKey);
+                run.ready = pendingKey == key;
                 run.hasOrder = true;
+                if (!head->isPlaced())
+                {
+                    run = {};
+                    run.owner = owner;
+                    run.runtime.revision = p.revision;
+                }
             }
             else
             {
                 run = {};
                 run.owner = owner;
+                run.runtime.revision = p.revision;
             }
         }
         Ui::WindowManager::invalidate(Ui::WindowType::lineManager);
@@ -468,6 +515,11 @@ namespace OpenLoco::Rules
         {
             if (run.owner == owner)
             {
+                run.cargoDecisions.clear();
+                if (indexOf(it->second, run.reachedOrder) >= it->second.rows.size())
+                {
+                    run.reachedOrder = 0;
+                }
                 if (indexOf(it->second, run.runtime.current) < it->second.rows.size())
                 {
                     resumeAfter(it->second, run.runtime, run.runtime.current);
@@ -477,6 +529,7 @@ namespace OpenLoco::Rules
                     run.ready = false;
                     run.hasOrder = false;
                     run.runtime = {};
+                    run.runtime.revision = it->second.revision;
                 }
             }
         }
@@ -535,7 +588,7 @@ namespace OpenLoco::Rules
             return true;
         }
         auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
-        if (head == nullptr || !head->isPlaced())
+        if (head == nullptr || !head->isPlaced() || head->var_52 == 1)
         {
             return true;
         }
@@ -563,12 +616,66 @@ namespace OpenLoco::Rules
     }
     void reached(uint16_t vehicle)
     {
+        const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+        if (head == nullptr || !head->isPlaced() || head->var_52 == 1)
+        {
+            return;
+        }
         if (auto it = vehicles.find(vehicle); it != vehicles.end())
         {
+            it->second.reachedOrder = it->second.runtime.current;
             it->second.ready = false;
             it->second.cargoDecisions.clear();
             it->second.runtime.prechecked.clear();
+            it->second.runtime.skipped.clear();
         }
+    }
+    uint16_t timetableOrder(uint16_t vehicle, uint16_t vanillaOffset)
+    {
+        const auto* p = find(ownerForVehicle(vehicle));
+        auto it = vehicles.find(vehicle);
+        if (!p || it == vehicles.end())
+        {
+            return vanillaOffset;
+        }
+        const auto index = indexOf(*p, it->second.reachedOrder);
+        if (index >= p->rows.size() || (p->rows[index].raw & 7) != 1)
+        {
+            return vanillaOffset;
+        }
+        return offsetOf(*p, it->second.reachedOrder);
+    }
+    bool canStopAt(uint16_t vehicle, uint16_t station)
+    {
+        const auto* p = find(ownerForVehicle(vehicle));
+        const auto it = vehicles.find(vehicle);
+        if (!p || p->blocks.empty() || it == vehicles.end())
+        {
+            return true;
+        }
+        const auto current = indexOf(*p, it->second.runtime.current);
+        if (current < p->rows.size())
+        {
+            const auto* order = reinterpret_cast<const Vehicles::Order*>(&p->rows[current].raw)->as<Vehicles::OrderStation>();
+            if (order && enumValue(order->getStation()) == station)
+            {
+                return true;
+            }
+        }
+        for (const auto key : it->second.runtime.skipped)
+        {
+            const auto index = indexOf(*p, key);
+            if (index >= p->rows.size() || (p->rows[index].raw & 7) != 1)
+            {
+                continue;
+            }
+            const auto* order = reinterpret_cast<const Vehicles::Order*>(&p->rows[index].raw)->as<Vehicles::OrderStation>();
+            if (enumValue(order->getStation()) == station)
+            {
+                return false;
+            }
+        }
+        return true;
     }
     bool cargoOrderEnabled(uint16_t vehicle, uint16_t orderOffset)
     {
@@ -615,7 +722,7 @@ namespace OpenLoco::Rules
             {
                 if (b.kind == Kind::otherwise)
                 {
-                    passed = run.runtime.branches.contains(b.parent) && !run.runtime.branches[b.parent];
+                    passed = !run.runtime.branches.contains(b.parent) || !run.runtime.branches[b.parent];
                 }
                 else
                 {
@@ -630,6 +737,14 @@ namespace OpenLoco::Rules
                     if (!result.available)
                     {
                         run.runtime.status = result.reason.empty() ? "Check unavailable" : result.reason;
+                    }
+                }
+                for (const auto& child : p->blocks)
+                {
+                    if (child.parent == b.id && child.kind == Kind::goTo && !child.enabled)
+                    {
+                        passed = false;
+                        run.runtime.status = "Go to destination is missing";
                     }
                 }
                 run.runtime.prechecked[b.id] = passed;
@@ -697,10 +812,50 @@ namespace OpenLoco::Rules
     std::string vehicleStatus(uint16_t vehicle)
     {
         const auto it = vehicles.find(vehicle);
-        return it == vehicles.end() ? "Rules run when the next order is chosen" : it->second.runtime.status;
+        if (it == vehicles.end())
+        {
+            return "Rules run when the next order is chosen";
+        }
+        const auto& r = it->second.runtime;
+        if (!r.status.empty())
+        {
+            return r.status;
+        }
+        if (!it->second.hasOrder || r.current == 0)
+        {
+            return "Rules start when the vehicle departs";
+        }
+        const auto* p = find(it->second.owner);
+        if (!p)
+        {
+            return "Following the orders";
+        }
+        size_t number = 0;
+        for (const auto& row : p->rows)
+        {
+            if (isRoutable(row.raw))
+            {
+                ++number;
+            }
+            if (row.key == r.current)
+            {
+                break;
+            }
+        }
+        std::string text = "Next stop / waypoint " + std::to_string(number);
+        if (!r.repeats.empty())
+        {
+            text = "Repeat: " + std::to_string(r.repeats.rbegin()->second) + " passes left. " + text;
+        }
+        return text;
     }
 
-    std::filesystem::path companionPath(const std::filesystem::path& path) { return path.string() + ".orules"; }
+    std::filesystem::path companionPath(const std::filesystem::path& path)
+    {
+        auto companion = path;
+        companion += ".orules";
+        return companion;
+    }
     // Text companion, bounded records, explicit version. Never changes the SV5 order byte.
     static void writeCondition(std::ostream& out, const Condition& c)
     {
@@ -721,8 +876,10 @@ namespace OpenLoco::Rules
     bool saveCompanion(const std::filesystem::path& savePath)
     {
         const auto path = companionPath(savePath);
-        const auto temporary = path.string() + ".tmp";
+        auto temporary = path;
+        temporary += ".tmp";
         std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        out.imbue(std::locale::classic());
         if (!out)
         {
             return false;
@@ -749,7 +906,7 @@ namespace OpenLoco::Rules
         for (const auto& [id, run] : vehicles)
         {
             const auto& r = run.runtime;
-            out << id << ' ' << int(run.owner.kind) << ' ' << run.owner.id << ' ' << std::quoted(identity({ OwnerKind::vehicle, id })) << ' ' << run.ready << ' ' << run.hasOrder << ' '
+            out << id << ' ' << int(run.owner.kind) << ' ' << run.owner.id << ' ' << std::quoted(identity({ OwnerKind::vehicle, id })) << ' ' << run.ready << ' ' << run.hasOrder << ' ' << run.reachedOrder << ' '
                 << r.revision << ' ' << r.pc << ' ' << r.current << ' ' << r.waiting << ' ' << r.waitStart << ' ' << r.budgetTick << ' ' << r.steps << ' ' << std::quoted(r.status) << '\n';
             out << r.repeats.size();
             for (auto [key, count] : r.repeats)
@@ -775,18 +932,24 @@ namespace OpenLoco::Rules
                 out << ' ' << key << ' ' << allowed;
             }
             out << '\n';
+            out << r.skipped.size();
+            for (auto key : r.skipped)
+            {
+                out << ' ' << key;
+            }
+            out << '\n';
         }
         out.flush();
         const bool success = static_cast<bool>(out);
         out.close();
-        if (!success)
+        if (!success || out.fail())
         {
             std::filesystem::remove(temporary);
             return false;
         }
         // Windows rename cannot replace an existing destination; use the platform's replacement API.
 #ifdef _WIN32
-        if (!MoveFileExW(std::filesystem::path(temporary).c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
         {
             return false;
         }
@@ -814,6 +977,7 @@ namespace OpenLoco::Rules
             return false;
         }
         std::ifstream in(path, std::ios::binary);
+        in.imbue(std::locale::classic());
         std::string magic;
         unsigned version;
         size_t count;
@@ -898,7 +1062,7 @@ namespace OpenLoco::Rules
             unsigned ownerKind;
             std::string stamp;
             auto& r = run.runtime;
-            if (!(in >> id >> ownerKind >> run.owner.id >> std::quoted(stamp) >> run.ready >> run.hasOrder >> r.revision >> r.pc >> r.current >> r.waiting >> r.waitStart >> r.budgetTick >> r.steps >> std::quoted(r.status)) || ownerKind > 1 || r.steps > 256 || r.pc > 2048 || r.status.size() > 256)
+            if (!(in >> id >> ownerKind >> run.owner.id >> std::quoted(stamp) >> run.ready >> run.hasOrder >> run.reachedOrder >> r.revision >> r.pc >> r.current >> r.waiting >> r.waitStart >> r.budgetTick >> r.steps >> std::quoted(r.status)) || ownerKind > 1 || r.steps > 256 || r.pc > 2048 || r.status.size() > 256)
             {
                 return false;
             }
@@ -956,10 +1120,26 @@ namespace OpenLoco::Rules
                     return false;
                 }
             }
+            if (!(in >> frames) || frames > 63)
+            {
+                return false;
+            }
+            for (size_t j = 0; j < frames; ++j)
+            {
+                Key key;
+                if (!(in >> key) || !r.skipped.insert(key).second)
+                {
+                    return false;
+                }
+            }
             if (loaded.contains(run.owner) && ownerForVehicle(id) == run.owner && identity({ OwnerKind::vehicle, id }) == stamp)
             {
                 const auto& p = loaded.at(run.owner);
                 if (!validRuntime(p, r))
+                {
+                    return false;
+                }
+                if (run.reachedOrder && indexOf(p, run.reachedOrder) >= p.rows.size())
                 {
                     return false;
                 }

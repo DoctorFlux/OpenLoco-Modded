@@ -127,6 +127,17 @@ namespace OpenLoco::Lines
             return 1;
         }
 
+        bool canSyncOrders(const Line& line, size_t count, size_t bytes, std::optional<uint16_t> additionalVehicle = {})
+        {
+            if (count > Limits::kMaxOrdersPerVehicle) return false;
+            int64_t delta = 0;
+            for (const auto id : line.vehicles)
+                if (const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(id))) delta += static_cast<int64_t>(bytes) - head->sizeOfOrderTable;
+            if (additionalVehicle && std::find(line.vehicles.begin(), line.vehicles.end(), *additionalVehicle) == line.vehicles.end())
+                if (const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(*additionalVehicle))) delta += static_cast<int64_t>(bytes) - head->sizeOfOrderTable;
+            return static_cast<int64_t>(Vehicles::OrderManager::orderTableLength()) + delta <= static_cast<int64_t>(Limits::kMaxOrders);
+        }
+
         void syncVehicleOrders(uint16_t vehicleId, const std::vector<LineOrder>& orders)
         {
             auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicleId));
@@ -674,6 +685,7 @@ namespace OpenLoco::Lines
         {
             return { false, 0, "line not found" };
         }
+        if (order.type == Vehicles::OrderType::End || static_cast<unsigned>(order.type) > 5) return { false, 0, "invalid order type" };
         if (index > line->orders.size())
         {
             index = line->orders.size();
@@ -697,6 +709,9 @@ namespace OpenLoco::Lines
         {
             return { false, 0, "consecutive identical stops are not allowed" };
         }
+        size_t bytes = 1 + orderSize(order.type);
+        for (const auto& existing : line->orders) bytes += orderSize(existing.type);
+        if (!canSyncOrders(*line, line->orders.size() + 1, bytes)) return { false, 0, "order table is full" };
         Rules::Edit edit; edit.kind = Rules::EditKind::insertRow; edit.first = index;
         // Convert before the move into the line vector.
         const auto raw = [&]() -> uint64_t {
@@ -1066,6 +1081,9 @@ namespace OpenLoco::Lines
         {
             return { false, 0, "vehicle mode does not match the line" };
         }
+        size_t bytes = 1;
+        for (const auto& order : line->orders) bytes += orderSize(order.type);
+        if (!canSyncOrders(*line, line->orders.size(), bytes, vehicleId)) return { false, 0, "order table is full" };
         if (line->kinds != kEveryLineKind)
         {
             if (auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicleId)))

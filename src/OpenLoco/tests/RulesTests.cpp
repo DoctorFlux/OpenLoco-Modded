@@ -1,13 +1,21 @@
 #include <OpenLoco/Date.h>
 #include <OpenLoco/Entities/EntityManager.h>
 #include <OpenLoco/Lines/Line.h>
+#include <OpenLoco/Map/StationElement.h>
+#include <OpenLoco/Map/TileManager.h>
+#include <OpenLoco/Map/TrackElement.h>
 #include <OpenLoco/Rules/Editor.h>
 #include <OpenLoco/Rules/Platforms.h>
 #include <OpenLoco/Rules/Rules.h>
 #include <OpenLoco/Scenario/ScenarioManager.h>
 #include <OpenLoco/Vehicles/OrderManager.h>
+#include <OpenLoco/Vehicles/Vehicle2.h>
+#include <OpenLoco/Vehicles/VehicleBody.h>
+#include <OpenLoco/Vehicles/VehicleBogie.h>
 #include <OpenLoco/Vehicles/VehicleHead.h>
 #include <OpenLoco/World/CompanyManager.h>
+#include <OpenLoco/World/Station.h>
+#include <OpenLoco/World/StationManager.h>
 #include <fstream>
 #include <gtest/gtest.h>
 
@@ -69,6 +77,7 @@ namespace
                 components[i]->head = components[0]->id;
             }
             auto* head = reinterpret_cast<VehicleHead*>(components[0]);
+            EntityManager::moveEntityToList(head, EntityManager::EntityListType::vehicleHead);
             head->status = Status::travelling;
             head->ordinalNumber = 1;
             OrderManager::allocateOrders(*head);
@@ -282,6 +291,23 @@ TEST(RulesTests, nestedRepeatsRestartTheInnerCount)
     ASSERT_TRUE(add(p, inner));
     Runtime r;
     const size_t expected[] = { 0, 1, 2, 2, 3, 1, 2, 2, 3, 4 };
+    for (auto index : expected)
+    {
+        EXPECT_EQ(next(p, r, 0, yes).order, p.rows[index].key);
+    }
+}
+TEST(RulesTests, skippingTheLastRowStillFinishesEachRepeatPass)
+{
+    auto p = route();
+    auto repeat = section(p, Kind::repeat, 1, 3);
+    repeat.number = 2;
+    ASSERT_TRUE(add(p, repeat));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 3, 3)));
+    auto skip = section(p, Kind::skip, 3, 3);
+    skip.parent = p.blocks[1].id;
+    ASSERT_TRUE(add(p, skip));
+    Runtime r;
+    const size_t expected[] = { 0, 1, 2, 1, 2, 4 };
     for (auto index : expected)
     {
         EXPECT_EQ(next(p, r, 0, yes).order, p.rows[index].key);
@@ -692,7 +718,7 @@ TEST_F(GameRulesFixture, savingMidRepeatAndMidBudgetPreservesExecution)
     ASSERT_TRUE(loadCompanion(path));
     ScenarioManager::setScenarioTicks(1);
     EXPECT_FALSE(prepareVehicle(id));
-    EXPECT_NE(vehicleStatus(id).find("next tick"), std::string::npos);
+    EXPECT_NE(vehicleStatus(id).find("Choosing"), std::string::npos);
     std::filesystem::remove(companionPath(path));
 }
 TEST_F(GameRulesFixture, deletingASelectedRunUsesValidatedOrderDeletion)
@@ -713,4 +739,258 @@ TEST_F(GameRulesFixture, deletingASelectedRunUsesValidatedOrderDeletion)
     EXPECT_EQ(find(owner)->rows.size(), 1U);
     EXPECT_TRUE(find(owner)->blocks.empty());
     EXPECT_EQ(head->sizeOfOrderTable, 3);
+}
+TEST_F(GameRulesFixture, fullMeansEveryUsableCargoCompartmentIsFull)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    Vehicle train(*head);
+    auto tail = train.veh2->nextCarId;
+    auto* front = reinterpret_cast<VehicleBogie*>(EntityManager::createEntityVehicle());
+    auto* back = reinterpret_cast<VehicleBogie*>(EntityManager::createEntityVehicle());
+    auto* body = reinterpret_cast<VehicleBody*>(EntityManager::createEntityVehicle());
+    for (auto* part : { static_cast<VehicleBase*>(front), static_cast<VehicleBase*>(back), static_cast<VehicleBase*>(body) })
+    {
+        part->baseType = EntityBaseType::vehicle;
+        part->head = head->id;
+        part->mode = TransportMode::rail;
+    }
+    front->subType = back->subType = VehicleEntityType::bogie;
+    body->subType = VehicleEntityType::body_start;
+    train.veh2->nextCarId = front->id;
+    front->nextCarId = back->id;
+    back->nextCarId = body->id;
+    body->nextCarId = tail;
+    front->secondaryCargo.type = 0;
+    front->secondaryCargo.maxQty = 10;
+    front->secondaryCargo.qty = 11;
+    body->primaryCargo.type = 0;
+    body->primaryCargo.maxQty = 10;
+    body->primaryCargo.qty = 9;
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 1, 1);
+    e.block.condition.check = Check::full;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(head->currentOrder, 4);
+    head->currentOrder = 0;
+    manuallySkipped(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    front->secondaryCargo.qty = body->primaryCargo.qty = 10;
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(head->currentOrder, 2);
+}
+TEST_F(GameRulesFixture, platformQueryJoinsStationTrackAndKeepsParallelPlatformsSeparate)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::World;
+    TileManager::allocateMapElements();
+    TileManager::initialise();
+    auto* station = StationManager::get(static_cast<StationId>(10));
+    station->name = 1;
+    station->stationTileSize = 4;
+    const Pos3 points[] = { { 320, 320, 16 }, { 352, 320, 16 }, { 320, 352, 16 }, { 352, 352, 16 } };
+    for (size_t i = 0; i < 4; ++i)
+    {
+        const auto pos = points[i];
+        station->stationTiles[i] = pos;
+        auto* track = TileManager::insertElement(ElementType::track, Pos2{ pos.x, pos.y }, 4, 0)->as<TrackElement>();
+        track->setTrackId(0);
+        track->setRotation(0);
+        track->setSequenceIndex(0);
+        track->setHasStationElement(true);
+        auto* element = TileManager::insertElement(ElementType::station, Pos2{ pos.x, pos.y }, 4, 0)->as<StationElement>();
+        element->setStationId(static_cast<StationId>(10));
+        element->setStationType(StationType::trainStation);
+    }
+    const auto platforms = railPlatforms(10);
+    ASSERT_EQ(platforms.size(), 2U);
+    EXPECT_EQ(platforms[0].pieces.size(), 2U);
+    EXPECT_EQ(platforms[1].pieces.size(), 2U);
+    Signals::clearAll();
+    Signals::holdOccupied(2, platforms[0].pieces.back(), false);
+    EXPECT_FALSE(platformIsFree(platforms[0], 1));
+    EXPECT_TRUE(platformIsFree(platforms[1], 1));
+    Signals::clearAll();
+    station->name = StringIds::null;
+}
+TEST_F(GameRulesFixture, removingAStationUpdatesSharedAndPrivateOrderKeys)
+{
+    using namespace OpenLoco;
+    auto* a = vehicle();
+    auto* b = vehicle();
+    auto ai = enumValue(a->id), bi = enumValue(b->id);
+    const auto line = Lines::createLine("Station removal", TransportMode::rail, 2);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, ai, TransportMode::rail).ok);
+    const Owner shared{ OwnerKind::line, line.id }, own{ OwnerKind::vehicle, bi };
+    for (auto owner : { shared, own })
+    {
+        const auto p = snapshot(owner);
+        Edit e;
+        e.block = section(p, Kind::group, 0, 1);
+        ASSERT_TRUE(submit(owner, e));
+    }
+    Vehicles::OrderManager::removeOrdersForStation(static_cast<StationId>(10));
+    ASSERT_EQ(Lines::findLine(line.id)->orders.size(), 2U);
+    EXPECT_EQ(a->sizeOfOrderTable, 5);
+    EXPECT_EQ(b->sizeOfOrderTable, 5);
+    for (auto owner : { shared, own })
+    {
+        ASSERT_NE(find(owner), nullptr);
+        ASSERT_EQ(find(owner)->rows.size(), 2U);
+        EXPECT_EQ(indexOf(*find(owner), find(owner)->blocks[0].first), 0U);
+    }
+}
+TEST_F(GameRulesFixture, anUnplacedVehicleRunsTheFirstBlockWhenPlaced)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    head->tileX = -1;
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    head->tileX = 32;
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(head->currentOrder, 2);
+}
+TEST_F(GameRulesFixture, saveImmediatelyAfterDeletingTheCurrentOrderResetsPendingExecution)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::group, 0, 1);
+    ASSERT_TRUE(submit(owner, e));
+    Vehicles::OrderManager::deleteOrder(head, 0);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_deleted_current_rules_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(find(owner), nullptr);
+    EXPECT_EQ(find(owner)->rows.size(), 2U);
+    EXPECT_TRUE(prepareVehicle(id));
+    std::filesystem::remove(companionPath(path));
+}
+TEST_F(GameRulesFixture, localServicesPassStationsSkippedByRulesAndSaveThatDecision)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 1, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_FALSE(canStopAt(id, 20));
+    EXPECT_TRUE(canStopAt(id, 30));
+    EXPECT_TRUE(canStopAt(id, 40));
+    const auto path = std::filesystem::temp_directory_path() / "openloco_skipped_stations_rules_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_FALSE(canStopAt(id, 20));
+    reached(id);
+    EXPECT_TRUE(canStopAt(id, 20));
+    std::filesystem::remove(companionPath(path));
+}
+TEST_F(GameRulesFixture, diversionKeepsTimetableAttachedToTheReachedStop)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::group, 0, 2);
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(head->currentOrder, 2);
+    EXPECT_EQ(timetableOrder(id, head->currentOrder), 0);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_timetable_rules_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_EQ(timetableOrder(id, head->currentOrder), 0);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST(RulesTests, otherwiseCanUseTheDiversionSectionWhenTheCheckFails)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 3)));
+    auto go = section(p, Kind::goTo, 1, 3);
+    go.parent = p.blocks[0].id;
+    go.target = p.rows[4].key;
+    ASSERT_TRUE(add(p, go));
+    auto fallback = section(p, Kind::otherwise, 1, 3);
+    fallback.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, fallback));
+    Runtime diverted, normal;
+    EXPECT_EQ(next(p, diverted, 0, yes).order, p.rows[0].key);
+    EXPECT_EQ(next(p, diverted, 0, yes).order, p.rows[4].key);
+    for (const auto& row : p.rows)
+    {
+        EXPECT_EQ(next(p, normal, 0, no).order, row.key);
+    }
+}
+
+TEST_F(GameRulesFixture, companionNumbersDoNotDependOnTheGameLocale)
+{
+    struct GroupedNumbers : std::numpunct<char>
+    {
+        char do_thousands_sep() const override { return ','; }
+        std::string do_grouping() const override { return "\3"; }
+    };
+    struct RestoreLocale
+    {
+        std::locale previous = std::locale();
+        ~RestoreLocale() { std::locale::global(previous); }
+    } restore;
+    std::locale::global(std::locale(std::locale::classic(), new GroupedNumbers));
+    auto* head = vehicle();
+    auto p = snapshot(ownerForVehicle(OpenLoco::enumValue(head->id)));
+    auto b = section(p, Kind::ifBlock, 0, 0);
+    b.condition.check = Check::year;
+    b.condition.value = 2000;
+    Edit e;
+    e.block = b;
+    ASSERT_TRUE(submit(ownerForVehicle(OpenLoco::enumValue(head->id)), e));
+    const auto path = std::filesystem::temp_directory_path() / "openloco-rules-locale.SV5";
+    ASSERT_TRUE(saveCompanion(path));
+    std::ifstream file(companionPath(path));
+    const std::string contents((std::istreambuf_iterator<char>(file)), {});
+    EXPECT_EQ(contents.find("2,000"), std::string::npos);
+    std::locale::global(std::locale::classic());
+    clear();
+    EXPECT_TRUE(loadCompanion(path));
+    ASSERT_NE(find(ownerForVehicle(OpenLoco::enumValue(head->id))), nullptr);
+    EXPECT_EQ(find(ownerForVehicle(OpenLoco::enumValue(head->id)))->blocks[0].condition.value, 2000);
+    file.close();
+    std::filesystem::remove(companionPath(path));
 }

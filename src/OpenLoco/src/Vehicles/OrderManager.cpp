@@ -1,3 +1,4 @@
+#include "Lines/Line.h"
 #include "Rules/Rules.h"
 #include "Vehicles/OrderManager.h"
 #include "GameState.h"
@@ -521,27 +522,30 @@ namespace OpenLoco::Vehicles::OrderManager
     // 0x0047062B
     void removeOrdersForStation(const StationId stationId)
     {
-        for (auto i = 0U; i < orderTableLength();)
+        // Remove from the authoritative shared lists first, including unassigned lines.
+        for (const auto& line : Lines::allLines())
         {
-            auto& order = orders()[i];
-            auto* stationOrder = order.as<OrderStation>();
-            if (stationOrder != nullptr)
+            for (size_t i = line.orders.size(); i > 0; --i)
             {
-                if (stationOrder->getStation() == stationId)
-                {
-                    // Find the vehicle that has the order
-                    for (auto* head : VehicleManager::VehicleList())
-                    {
-                        if (head->orderTableOffset <= i
-                            && i < head->orderTableOffset + head->sizeOfOrderTable)
-                        {
-                            deleteOrder(head, i - head->orderTableOffset);
-                            break;
-                        }
-                    }
-                }
+                const auto& order = line.orders[i - 1];
+                if ((order.type == OrderType::StopAt || order.type == OrderType::RouteThrough) && order.station == enumValue(stationId))
+                    Lines::removeOrder(line.id, i - 1);
             }
-            i += kOrderSizes[enumValue(order.getType())];
+        }
+        for (auto* head : VehicleManager::VehicleList())
+        {
+            if (Lines::lineForVehicle(enumValue(head->id)) != nullptr) continue;
+            for (uint16_t offset = 0; offset < head->sizeOfOrderTable;)
+            {
+                auto& order = orders()[head->orderTableOffset + offset];
+                const auto* stationOrder = order.as<OrderStation>();
+                if (stationOrder != nullptr && stationOrder->getStation() == stationId)
+                {
+                    deleteOrder(head, offset);
+                    continue;
+                }
+                offset += kOrderSizes[enumValue(order.getType())];
+            }
         }
     }
 }
