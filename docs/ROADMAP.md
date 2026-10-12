@@ -34,6 +34,8 @@ Phase 4 editing now includes clickable fields in all three block views, native v
 
 Manual Skip now retains the arrow immediately in Vehicle/Rules (D43). Shared-line Path/All now projects current rule choices without changing simulation, with periodic selected-vehicle fact refresh, one missing leg search per UI update and a bounded geometry cache (D44). The latest full Debug/Release suites each passed 349/349. Next concrete task adds user manual arrow/live-map responsiveness checks to the remaining Phase 4 acceptance rows.
 
+Path/All condition display now swaps complete per-line snapshots, stabilizes lanes and bounded All admission, and includes an already-selected loading departure (D45). Actual simulation is unchanged. Final Debug/Release suites passed 357/357 each. Next concrete task is the user's short visual condition-change recheck; Phase 4 remains TESTING.
+
 1. Block list, checks the game can already answer, If/Else if/Else, Skip, Go to, finite/Forever Repeat, Break, and the 256-step budget. Tests load the blocks from memory.
 2. Run those blocks on a vehicle's own orders, and run the same blocks on a shared line. Each vehicle on a line keeps its own repeat count and wait.
 3. Rules window. Its own window, drag and drop inside it, placed so it does not cover the line window, the vehicle window, or schemes.

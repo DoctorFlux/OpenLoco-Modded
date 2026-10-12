@@ -325,12 +325,16 @@ namespace OpenLoco::Lines
     {
         uint32_t rulePolls = 0;
         uint32_t pathSearches = 0;
+        uint32_t routePublishes = 0;
         size_t cachedLegs = 0;
         size_t cachedUnits = 0;
         size_t pendingLegs = 0;
+        size_t publishedLegs = 0;
+        size_t publishedUnits = 0;
     };
     RouteViewStats routeViewStats();
     std::string routePreviewStatus(uint16_t line);
+    int32_t routeLaneOffset(uint16_t line); // Stable while visibility is unchanged, including pending/empty rule paths.
     void clearRouteView();
     std::optional<uint8_t> routeOverlayColour(int32_t x, int32_t y, uint8_t baseZ, uint8_t pieceId, uint8_t rotation, uint8_t kind);
     std::optional<uint8_t> surfaceOverlayColour(int32_t x, int32_t y);

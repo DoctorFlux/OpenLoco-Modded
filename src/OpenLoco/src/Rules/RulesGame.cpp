@@ -1070,6 +1070,14 @@ namespace OpenLoco::Rules
         {
             runtime = it->second.runtime;
             committed = routeOrderForVehicle(vehicle);
+            const auto row = indexOf(*p, runtime.current);
+            if (it->second.ready && row < p->rows.size() && isRoutable(p->rows[row].raw))
+            {
+                // The white arrow can stay on the loading station while the
+                // runner has already selected departure. Its pc is after that
+                // destination, so the preview must include it explicitly.
+                committed = runtime.current;
+            }
         }
         else
         {

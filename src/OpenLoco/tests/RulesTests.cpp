@@ -3554,6 +3554,8 @@ namespace
                 EXPECT_LE(after.rulePolls - before.rulePolls, 2U);
                 EXPECT_LE(after.cachedLegs, 128U);
                 EXPECT_LE(after.cachedUnits, 131072U);
+                EXPECT_LE(after.publishedLegs, 128U);
+                EXPECT_LE(after.publishedUnits, 131072U);
             }
         }
     };
@@ -3863,9 +3865,257 @@ TEST_F(MapRulesFixture, liveLegCacheRemainsBoundedAcrossManyVisibleLines)
     }
     Lines::setRouteView(first, true, true);
     settle(200);
-    EXPECT_EQ(Lines::routeViewStats().cachedLegs, 128U);
+    EXPECT_LE(Lines::routeViewStats().cachedLegs, 128U);
     EXPECT_LE(Lines::routeViewStats().cachedUnits, 131072U);
     EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
     Lines::clearRouteView();
     EXPECT_EQ(Lines::routeViewStats().cachedUnits, 0U);
+}
+
+TEST_F(MapRulesFixture, conditionReplacementPublishesWholeRouteWithoutHalfBranchFrames)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    yearBranch(line, false);
+    Lines::setRouteView(line, true, false);
+    settle();
+    ASSERT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    const auto publishes = Lines::routeViewStats().routePublishes;
+    setCurrentYear(year + 1);
+    Lines::invalidateRuleRouteCache(line);
+    Lines::updateRouteView(); // First of two new legs has completed.
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(384, 320));
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, publishes);
+    EXPECT_EQ(Lines::routePreviewStatus(line), "Map: updating preview");
+    Lines::updateRouteView(); // Entire changed path is now ready.
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, publishes + 1);
+    setCurrentYear(year);
+    Lines::invalidateRuleRouteCache(line);
+    Lines::updateRouteView(); // Previously built false path swaps atomically from cache.
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(384, 320));
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, publishes + 2);
+}
+TEST_F(MapRulesFixture, changingBackDuringBuildNeverDisplaysAnAbandonedTrueBranch)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    yearBranch(line, false);
+    Lines::setRouteView(line, true, false);
+    settle();
+    const auto publishes = Lines::routeViewStats().routePublishes;
+    setCurrentYear(year + 1);
+    Lines::invalidateRuleRouteCache(line);
+    Lines::updateRouteView();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    setCurrentYear(year);
+    Lines::invalidateRuleRouteCache(line);
+    for (int update = 0; update < 24; ++update)
+    {
+        Lines::updateRouteView();
+        EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+        EXPECT_TRUE(Lines::surfaceOverlayColour(384, 320));
+    }
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, publishes);
+}
+TEST_F(MapRulesFixture, loadingPreviewIncludesTheAlreadySelectedNextStop)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    auto* head = vehicle();
+    head->mode = TransportMode::air;
+    head->vehicleType = VehicleType::aircraft;
+    const auto id = enumValue(head->id);
+    ASSERT_TRUE(Lines::assignVehicle(line, id, TransportMode::air).ok);
+    yearBranch(line, true);
+    const auto p = snapshot({ OwnerKind::line, line });
+    ASSERT_TRUE(prepareVehicle(id));
+    reached(id);
+    head->status = Vehicles::Status::loading;
+    processStationArrival(id);
+    ASSERT_FALSE(holdAtStation(id));
+    ASSERT_EQ(runtimeForVehicle(id)->current, p.rows[1].key);
+    ASSERT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    const auto pc = runtimeForVehicle(id)->pc;
+    const auto preview = previewLineRoute(line, id);
+    ASSERT_GE(preview.orders.size(), 2U);
+    EXPECT_EQ(preview.orders[0], p.rows[1].key);
+    EXPECT_EQ(preview.orders[1], p.rows[2].key);
+    Lines::setRouteView(line, true, false, id);
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_EQ(runtimeForVehicle(id)->pc, pc);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    EXPECT_EQ(head->status, Vehicles::Status::loading);
+}
+TEST_F(MapRulesFixture, slopeSubpositionsDoNotContinuouslyRebuildTheOrigin)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::rail);
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    ASSERT_TRUE(Lines::assignVehicle(line, id, TransportMode::rail).ok);
+    Vehicles::Vehicle train(*head);
+    train.veh2->position = { 320, 320, 16 };
+    train.veh2->tileBaseZ = 4;
+    yearBranch(line, true);
+    Lines::setRouteView(line, true, false, id);
+    settle();
+    const auto before = Lines::routeViewStats();
+    for (int i = 0; i < 24; ++i)
+    {
+        train.veh2->position.z = static_cast<coord_t>(16 + i % 8);
+        train.veh2->position.x = static_cast<coord_t>(320 + i % 16);
+        Lines::updateRouteView();
+        EXPECT_TRUE(Lines::routeOverlayColour(384, 320, 4, 0, 0, 0));
+    }
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, before.pathSearches);
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes);
+}
+TEST_F(MapRulesFixture, allModeLaneOffsetsStayFixedWhileBranchesWaitOrBuild)
+{
+    using namespace OpenLoco;
+    const auto live = mapLine(Lines::LineKind::air, true);
+    yearBranch(live, true);
+    const auto plain = Lines::createLine("Stable lane", TransportMode::air, 9);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        ASSERT_TRUE(Lines::addOrder(plain.id, order).ok);
+    }
+    Lines::setRouteView(live, true, true);
+    const auto offset = Lines::routeLaneOffset(plain.id);
+    EXPECT_NE(offset, 0);
+    settle();
+    EXPECT_EQ(Lines::routeLaneOffset(plain.id), offset);
+    Edit e;
+    e.block = section(snapshot({ OwnerKind::line, live }), Kind::waitUntil, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.value = getCurrentYear() + 1;
+    ASSERT_TRUE(submit({ OwnerKind::line, live }, e));
+    settle(); // The live route now ends at its first stop and has no drawable leg.
+    EXPECT_EQ(Lines::routePreviewStatus(live), "Map: ends at wait");
+    EXPECT_EQ(Lines::routeLaneOffset(plain.id), offset);
+    setCurrentYear(year + 1);
+    for (int i = 0; i < 16; ++i)
+    {
+        Lines::updateRouteView();
+        EXPECT_EQ(Lines::routeLaneOffset(plain.id), offset);
+    }
+    EXPECT_EQ(Lines::routeLaneOffset(UINT16_MAX), 0);
+}
+TEST_F(MapRulesFixture, oversubscribedAllViewStopsCacheThrashingAndKeepsSelectedPath)
+{
+    using namespace OpenLoco;
+    const auto first = mapLine(Lines::LineKind::air, true);
+    yearBranch(first, true);
+    uint16_t last = first;
+    for (int i = 0; i < 48; ++i)
+    {
+        const auto line = Lines::createLine("Stable overflow", TransportMode::air, static_cast<uint8_t>(5 + i % 5));
+        ASSERT_TRUE(line.ok);
+        last = line.id;
+        for (uint16_t station : { 10, 20, 30 })
+        {
+            Lines::LineOrder order;
+            order.station = station;
+            ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+        }
+        yearBranch(line.id, true);
+    }
+    Lines::setRouteView(first, true, true);
+    settle(240);
+    const auto before = Lines::routeViewStats();
+    EXPECT_LE(before.publishedLegs, 128U);
+    EXPECT_LE(before.publishedUnits, 131072U);
+    EXPECT_EQ(Lines::routePreviewStatus(first), "Map: All preview limit");
+    for (int update = 0; update < 80; ++update)
+    {
+        Lines::updateRouteView();
+        EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 4);
+    }
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, before.pathSearches);
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes);
+    Lines::setRouteView(last, true, true); // The formerly limited line receives selected priority.
+    settle(24);
+    EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 5 + 47 % 5);
+    const auto switched = Lines::routeViewStats();
+    settle(40);
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, switched.pathSearches);
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, switched.routePublishes);
+    EXPECT_LE(switched.publishedLegs, 128U);
+    EXPECT_LE(switched.publishedUnits, 131072U);
+}
+TEST_F(MapRulesFixture, previewLegRotationDoesNotRepublishTheSameRouteGeometry)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    auto* head = vehicle();
+    head->mode = TransportMode::air;
+    head->vehicleType = VehicleType::aircraft;
+    const auto id = enumValue(head->id);
+    ASSERT_TRUE(Lines::assignVehicle(line, id, TransportMode::air).ok);
+    head->tileX = -1; // No physical origin; isolate cyclic route geometry from movement.
+    yearBranch(line, true);
+    ASSERT_TRUE(prepareVehicle(id));
+    const auto p = snapshot({ OwnerKind::line, line });
+    Lines::setRouteView(line, true, false, id);
+    settle();
+    const auto before = Lines::routeViewStats();
+    for (const uint16_t offset : { 2, 4, 0, 2, 4, 0 })
+    {
+        head->currentOrder = offset;
+        manuallySkipped(id);
+        settle(8);
+        EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    }
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes);
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, before.pathSearches);
+    EXPECT_EQ(p.rows.size(), 3U);
+}
+
+TEST_F(MapRulesFixture, mapBranchChainMatchesIfElseIfAndElseForLiveFacts)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    Lines::LineOrder origin;
+    origin.type = Vehicles::OrderType::RouteWaypoint;
+    origin.tileX = 8;
+    origin.tileY = 10;
+    ASSERT_TRUE(Lines::insertOrder(line, 0, origin).ok);
+    const Owner owner{ OwnerKind::line, line };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 1, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::greater;
+    e.block.condition.value = year + 1;
+    ASSERT_TRUE(submit(owner, e));
+    e.block = section(p, Kind::elseIf, 2, 2);
+    e.block.parent = find(owner)->blocks.back().id;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::greater;
+    e.block.condition.value = year;
+    ASSERT_TRUE(submit(owner, e));
+    e.block = section(p, Kind::otherwise, 3, 3);
+    e.block.parent = find(owner)->blocks.back().id;
+    ASSERT_TRUE(submit(owner, e));
+    Lines::setRouteView(line, true, false);
+    for (const int advance : { 0, 1, 2, 1, 0, 2 })
+    {
+        setCurrentYear(year + advance);
+        Lines::invalidateRuleRouteCache(line);
+        settle();
+        const auto chosen = advance == 0 ? 3 : advance == 1 ? 2
+                                                            : 1;
+        EXPECT_EQ(previewLineRoute(line).orders, (std::vector<Key>{ p.rows[0].key, p.rows[chosen].key, p.rows[0].key }));
+        EXPECT_EQ(Lines::surfaceOverlayColour(448, 448).has_value(), advance == 1);
+        EXPECT_EQ(Lines::surfaceOverlayColour(448, 320).has_value(), advance == 0);
+        EXPECT_EQ(Lines::routeViewStats().pendingLegs, 0U);
+        EXPECT_LE(Lines::routeViewStats().publishedLegs, 128U);
+        EXPECT_LE(Lines::routeViewStats().publishedUnits, 131072U);
+    }
 }
