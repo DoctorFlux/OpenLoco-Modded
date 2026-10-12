@@ -32,6 +32,26 @@ namespace OpenLoco::Rules
     };
     Feedback blockFeedback(const Program& program, const Runtime* runtime, Key block);
     bool blockIsCurrent(const Program& program, const Runtime* runtime, Key block);
+    struct ProgramVisual
+    {
+        int16_t top = 0, height = 0;
+        size_t row = 0;
+        Key block = 0;
+        uint8_t depth = 0;
+        int16_t bottom = 0;
+        std::vector<std::string> lines;
+    };
+    struct ProgramLayout
+    {
+        std::vector<ProgramVisual> items;
+        std::vector<int16_t> orderTops;
+        int16_t height = 0;
+    };
+    std::string blockSentence(const Program& program, const Block& block);
+    ProgramLayout programLayout(const Program& program, int16_t width, int16_t orderHeight = 10);
+    const ProgramVisual* programHit(const ProgramLayout& layout, int16_t y);
+    size_t programRowAt(const ProgramLayout& layout, int16_t y);
+    void drawProgramBlocks(Gfx::DrawingContext& context, const Program& program, const Runtime* runtime, const ProgramLayout& layout, int16_t width);
     struct OrderFeedback
     {
         std::string sentence;
@@ -63,5 +83,5 @@ namespace OpenLoco::Rules
 }
 namespace OpenLoco::Ui::Windows::RulesWindow
 {
-    Window* open(Rules::Owner owner, Window& opener, uint16_t vehicle = UINT16_MAX, std::optional<size_t> row = {});
+    Window* open(Rules::Owner owner, Window& opener, uint16_t vehicle = UINT16_MAX, std::optional<size_t> row = {}, Rules::Key block = 0);
 }

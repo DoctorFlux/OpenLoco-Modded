@@ -2,7 +2,11 @@
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
 #include "GameCommands/Vehicles/VehicleOrderDelete.h"
+#include "Graphics/Gfx.h"
 #include "Lines/Line.h"
+#include "Localisation/Formatting.h"
+#include "Localisation/StringIds.h"
+#include "Localisation/StringManager.h"
 #include "Objects/CargoObject.h"
 #include "Objects/ObjectManager.h"
 #include "Rules/Platforms.h"
@@ -435,6 +439,11 @@ namespace OpenLoco::Rules
                 run.runtime.revision = p.revision;
             }
         }
+        if (changesRows)
+        {
+            Vehicles::OrderManager::refreshNumDisplayFrames();
+            Gfx::invalidateScreen();
+        }
         Ui::WindowManager::invalidate(Ui::WindowType::lineManager);
         Ui::WindowManager::invalidate(Ui::WindowType::vehicle);
         return { true, {} };
@@ -705,7 +714,7 @@ namespace OpenLoco::Rules
         bool allowed = true;
         for (const auto& b : p->blocks)
         {
-            if ((b.kind != Kind::ifBlock && b.kind != Kind::otherwise) || index < indexOf(*p, b.first) || index > indexOf(*p, b.last))
+            if ((b.kind != Kind::ifBlock && b.kind != Kind::otherwise && b.kind != Kind::elseIf) || index < indexOf(*p, b.first) || index > indexOf(*p, b.last))
             {
                 continue;
             }
@@ -720,32 +729,11 @@ namespace OpenLoco::Rules
             }
             else
             {
-                if (b.kind == Kind::otherwise)
+                const auto result = evaluateBranch(*p, run.runtime, b, [&](const Condition& check) { return evaluate(*p, *head, check); });
+                passed = result.available && result.passed;
+                if (!result.available)
                 {
-                    passed = !run.runtime.branches.contains(b.parent) || !run.runtime.branches[b.parent];
-                }
-                else
-                {
-                    auto result = b.enabled ? evaluate(*p, *head, b.condition) : CheckResult{ false, false, "Check unavailable" };
-                    if (b.join != Join::none)
-                    {
-                        const auto extra = evaluate(*p, *head, b.extra);
-                        result.passed = result.available && extra.available && (b.join == Join::andCheck ? result.passed && extra.passed : result.passed || extra.passed);
-                        result.available = result.available && extra.available;
-                    }
-                    passed = result.available && result.passed;
-                    if (!result.available)
-                    {
-                        run.runtime.status = result.reason.empty() ? "Check unavailable" : result.reason;
-                    }
-                }
-                for (const auto& child : p->blocks)
-                {
-                    if (child.parent == b.id && child.kind == Kind::goTo && !child.enabled)
-                    {
-                        passed = false;
-                        run.runtime.status = "Go to destination is missing";
-                    }
+                    run.runtime.status = result.reason;
                 }
                 run.runtime.prechecked[b.id] = passed;
                 run.runtime.branches[b.id] = passed;
@@ -753,7 +741,7 @@ namespace OpenLoco::Rules
             bool hasActions = false;
             for (const auto& child : p->blocks)
             {
-                if (child.parent == b.id && (child.kind == Kind::skip || child.kind == Kind::goTo))
+                if (child.parent == b.id && (child.kind == Kind::skip || child.kind == Kind::goTo || child.kind == Kind::breakLoop))
                 {
                     hasActions = true;
                     if (passed && child.enabled)
@@ -821,43 +809,114 @@ namespace OpenLoco::Rules
     }
     std::string vehicleStatus(uint16_t vehicle)
     {
+        const auto* program = find(ownerForVehicle(vehicle));
         const auto it = vehicles.find(vehicle);
-        if (it == vehicles.end())
+        if (!program || it == vehicles.end())
         {
-            return "Rules run when the next order is chosen";
+            return "Program: starts at the next order";
         }
-        const auto& r = it->second.runtime;
-        if (!r.status.empty())
+        const auto& runtime = it->second.runtime;
+        const auto key = executingBlock(*program, runtime);
+        const auto block = std::find_if(program->blocks.begin(), program->blocks.end(), [key](const Block& b) { return b.id == key; });
+        std::string text = "Program: ";
+        if (block != program->blocks.end())
         {
-            return r.status;
+            text += kindName(block->kind);
+            text += " at row " + std::to_string(indexOf(*program, block->first) + 1);
         }
-        if (!it->second.hasOrder || r.current == 0)
+        else
         {
-            return "Rules start when the vehicle departs";
+            text += runtime.current ? "row " + std::to_string(indexOf(*program, runtime.current) + 1) : "starting";
         }
-        const auto* p = find(it->second.owner);
-        if (!p)
+        if (!runtime.repeats.empty())
         {
-            return "Following the orders";
+            const auto count = runtime.repeats.rbegin()->second;
+            text += count ? " (" + std::to_string(count) + " passes left)" : " (forever)";
         }
-        size_t number = 0;
-        for (const auto& row : p->rows)
+        if (!runtime.status.empty())
         {
-            if (isRoutable(row.raw))
-            {
-                ++number;
-            }
-            if (row.key == r.current)
-            {
-                break;
-            }
-        }
-        std::string text = "Next stop / waypoint " + std::to_string(number);
-        if (!r.repeats.empty())
-        {
-            text = "Repeat: " + std::to_string(r.repeats.rbegin()->second) + " passes left. " + text;
+            text += ": " + runtime.status;
         }
         return text;
+    }
+    std::string vehicleNextStop(uint16_t vehicle)
+    {
+        const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+        if (!head)
+        {
+            return "Next stop / waypoint: no vehicle";
+        }
+        const auto* program = find(ownerForVehicle(vehicle));
+        const auto run = vehicles.find(vehicle);
+        const bool pending = program && run != vehicles.end() && !run->second.ready && (run->second.runtime.waiting || run->second.runtime.steps == 256);
+        auto index = program ? rowAtOffset(*program, head->currentOrder) : 0;
+        const auto orders = program ? *program : snapshot(ownerForVehicle(vehicle));
+        if (pending)
+        {
+            index = indexOf(orders, run->second.runtime.current) + 1;
+            size_t smallest = orders.rows.size() + 1;
+            for (const auto& [key, count] : run->second.runtime.repeats)
+            {
+                const auto loop = std::find_if(orders.blocks.begin(), orders.blocks.end(), [key](const Block& block) { return block.id == key; });
+                if (loop == orders.blocks.end())
+                {
+                    continue;
+                }
+                const auto first = indexOf(orders, loop->first), last = indexOf(orders, loop->last);
+                if (index == last + 1 && (count == 0 || count > 1) && last - first < smallest)
+                {
+                    index = first;
+                    smallest = last - first;
+                }
+            }
+        }
+        if (orders.rows.empty())
+        {
+            return "Next stop / waypoint: none";
+        }
+        for (size_t steps = 0; steps < orders.rows.size(); ++steps)
+        {
+            index %= orders.rows.size();
+            const auto raw = orders.rows[index].raw;
+            const auto* order = reinterpret_cast<const Vehicles::Order*>(&raw);
+            if (isRoutable(raw))
+            {
+                size_t number = 0;
+                for (size_t i = 0; i <= index; ++i)
+                {
+                    if (isRoutable(orders.rows[i].raw))
+                    {
+                        ++number;
+                    }
+                }
+                std::string label = pending ? "Next listed " : "Next ";
+                if (const auto* stationOrder = order->as<Vehicles::OrderStation>())
+                {
+                    label += "stop " + std::to_string(number);
+                    const auto* station = StationManager::get(stationOrder->getStation());
+                    if (station && !station->empty())
+                    {
+                        char name[128]{};
+                        FormatArguments args;
+                        stationOrder->setFormatArguments(args);
+                        StringManager::formatString(name, sizeof(name), StringIds::orders_stop_at, args);
+                        label += ": ";
+                        label += name;
+                    }
+                }
+                else
+                {
+                    label += "waypoint " + std::to_string(number);
+                }
+                if (pending)
+                {
+                    label += " (after decision)";
+                }
+                return label;
+            }
+            ++index;
+        }
+        return "Next stop / waypoint: none";
     }
 
     std::filesystem::path companionPath(const std::filesystem::path& path)
@@ -1025,7 +1084,7 @@ namespace OpenLoco::Rules
             {
                 Block b;
                 unsigned blockKind, join;
-                if (!(in >> b.id >> blockKind >> b.first >> b.last >> b.parent >> b.target >> join >> b.number >> b.enabled >> std::quoted(b.name)) || blockKind > unsigned(Kind::goTo) || join > 2 || b.name.size() > 80)
+                if (!(in >> b.id >> blockKind >> b.first >> b.last >> b.parent >> b.target >> join >> b.number >> b.enabled >> std::quoted(b.name)) || blockKind > unsigned(Kind::breakLoop) || join > 2 || b.name.size() > 80)
                 {
                     return false;
                 }
@@ -1086,7 +1145,7 @@ namespace OpenLoco::Rules
             {
                 Key key;
                 uint16_t remaining;
-                if (!(in >> key >> remaining) || remaining < 1 || remaining > 20 || !r.repeats.emplace(key, remaining).second)
+                if (!(in >> key >> remaining) || remaining > 20 || !r.repeats.emplace(key, remaining).second)
                 {
                     return false;
                 }

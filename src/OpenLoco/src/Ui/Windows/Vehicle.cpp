@@ -374,11 +374,29 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
         constexpr uint64_t holdableWidgets = 0;
         static Rules::OrderDrag orderDrag;
-        static int16_t routeRowHeight(const Window& window)
+        static const Rules::Program* routeProgram(const Window& window)
         {
-            return Rules::orderRowHeight(Rules::find(Rules::ownerForVehicle(window.number)));
+            const auto* program = Rules::find(Rules::ownerForVehicle(window.number));
+            return program && !program->blocks.empty() ? program : nullptr;
         }
-
+        static Rules::ProgramLayout routeLayout(const Window& window)
+        {
+            const auto* program = routeProgram(window);
+            return program ? Rules::programLayout(*program, window.widgets[widx::routeList].width() - 14) : Rules::ProgramLayout{};
+        }
+        static size_t routeRowAt(const Window& window, int16_t y)
+        {
+            return routeProgram(window) ? Rules::programRowAt(routeLayout(window), y) : static_cast<size_t>(std::max<int>(0, y) / 10);
+        }
+        static int16_t routeRowTop(const Window& window, size_t row)
+        {
+            if (!routeProgram(window))
+            {
+                return static_cast<int16_t>(row * 10);
+            }
+            const auto layout = routeLayout(window);
+            return row < layout.orderTops.size() ? layout.orderTops[row] : layout.height;
+        }
         static constexpr auto widgets = makeWidgets(
             Common::makeCommonWidgets(265, 189, StringIds::title_vehicle_route),
             // TODO: This is not ideal, this is used for the tool, do this in a better way.
@@ -3519,7 +3537,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
             WindowManager::invalidateWidget(WindowType::vehicle, self.number, 8);
             self.updateScrollWidgets();
-            if (routeRowHeight(self) > 10)
+            if (routeProgram(self) != nullptr)
             {
                 self.invalidate();
             }
@@ -3934,10 +3952,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 return;
             }
             auto table = getOrderTable(head);
-            scrollHeight = routeRowHeight(self) * std::distance(table.begin(), table.end());
+            scrollHeight = routeProgram(self) ? routeLayout(self).height : 10 * std::distance(table.begin(), table.end());
 
             // Space for the 'end of orders' item
-            scrollHeight += routeRowHeight(self);
+            scrollHeight += 10;
         }
 
         static void scrollMouseDown(Window& self, [[maybe_unused]] const int16_t x, const int16_t y, [[maybe_unused]] const uint8_t scrollIndex)
@@ -3947,7 +3965,17 @@ namespace OpenLoco::Ui::Windows::Vehicle
             {
                 return;
             }
-            int16_t item = y / routeRowHeight(self);
+            if (routeProgram(self))
+            {
+                const auto layout = routeLayout(self);
+                if (const auto* hit = Rules::programHit(layout, y); hit && hit->block)
+                {
+                    orderDrag.cancel();
+                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number, hit->row, hit->block);
+                    return;
+                }
+            }
+            int16_t item = static_cast<int16_t>(routeRowAt(self, y));
             Vehicles::Order* selectedOrder = getOrderTable(head).atIndex(item);
             if (selectedOrder == nullptr)
             {
@@ -3985,12 +4013,6 @@ namespace OpenLoco::Ui::Windows::Vehicle
             }
 
             orderDrag.begin(Rules::ownerForVehicle(self.number), Rules::snapshot(Rules::ownerForVehicle(self.number)), item, x, y);
-            if (routeRowHeight(self) > 10 && y % routeRowHeight(self) >= 10 && selectedOrder)
-            {
-                orderDrag.cancel();
-                RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number, static_cast<size_t>(item));
-                return;
-            }
             if (item != self.orderTableIndex)
             {
                 self.orderTableIndex = item;
@@ -4053,7 +4075,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             std::optional<size_t> destination;
             if (WindowManager::findAt(screenX, screenY) == &self && screenX >= self.x + view.left && screenX < self.x + view.right - 12 && screenY >= self.y + view.top && screenY <= self.y + view.bottom)
             {
-                destination = static_cast<size_t>(std::max<int>(0, screenY - self.y - view.top - 1 + self.scrollAreas[0].contentOffsetY) / routeRowHeight(self));
+                destination = routeRowAt(self, static_cast<int16_t>(screenY - self.y - view.top - 1 + self.scrollAreas[0].contentOffsetY));
             }
             const auto owner = Rules::ownerForVehicle(self.number);
             if (const auto edit = orderDrag.finish(owner, Rules::snapshot(owner), destination))
@@ -4077,7 +4099,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         static void scrollMouseOver(Window& self, [[maybe_unused]] const int16_t x, const int16_t y, [[maybe_unused]] const uint8_t scrollIndex)
         {
             self.flags &= ~WindowFlags::notScrollView;
-            auto item = y / routeRowHeight(self);
+            auto item = static_cast<int16_t>(routeRowAt(self, y));
             if (self.rowHover != item)
             {
                 self.rowHover = item;
@@ -4141,7 +4163,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.widgets[Common::widx::closeButton].right = self.width - 3;
 
             self.widgets[widx::routeList].right = self.width - 26;
-            self.widgets[widx::routeList].bottom = self.height - 14;
+            self.widgets[widx::routeList].bottom = self.height - (routeProgram(self) ? 28 : 14);
 
             self.widgets[widx::orderForceUnload].right = self.width - 2;
             self.widgets[widx::orderWait].right = self.width - 2;
@@ -4243,8 +4265,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 auto status = Rules::vehicleStatus(self.number);
                 status.insert(status.begin(), static_cast<char>(ControlCodes::Colour::black));
                 tr.setCurrentFont(Gfx::Font::medium_bold);
-                tr.clipString(self.width - 14, status.data());
-                tr.drawString({ 3, static_cast<int16_t>(self.height - 13) }, Colour::black, status.c_str());
+                tr.clipString(self.widgets[widx::routeList].width() - 6, status.data());
+                tr.drawString({ 3, static_cast<int16_t>(self.height - 27) }, Colour::black, status.c_str());
+                auto next = std::string(1, static_cast<char>(ControlCodes::Colour::black)) + Rules::vehicleNextStop(self.number);
+                tr.clipString(self.widgets[widx::routeList].width() - 6, next.data());
+                tr.drawString({ 3, static_cast<int16_t>(self.height - 14) }, Colour::black, next.c_str());
             }
             else if (ToolManager::isToolActive(WindowType::vehicle, self.number))
             {
@@ -4348,7 +4373,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         };
 
         // 0x004B4A58 based on
-        static void drawOrderLabel(Window& self, Gfx::DrawingContext& drawingCtx, const StringId strFormat, FormatArguments& args, Vehicles::Order& order, int16_t& y, int16_t& orderNumber)
+        static void drawOrderLabel(Window& self, Gfx::DrawingContext& drawingCtx, const StringId strFormat, FormatArguments& args, Vehicles::Order& order, int16_t& y, int16_t& orderNumber, int16_t x)
         {
             auto tr = Gfx::TextRenderer(drawingCtx);
 
@@ -4356,7 +4381,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             StringManager::formatString(buffer, std::size(buffer), strFormat, args);
 
             tr.setCurrentFont(Gfx::Font::medium_bold);
-            tr.drawString(Point(8, y - 1), Colour::black, buffer);
+            tr.clipString(self.widgets[widx::routeList].width() - x - 24, buffer);
+            tr.drawString(Point(x, y - 1), Colour::black, buffer);
             auto labelWidth = tr.getStringWidth(buffer);
 
             if (order.hasFlags(Vehicles::OrderFlags::HasNumber))
@@ -4364,7 +4390,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 if (ToolManager::isToolActive(self.type, self.number))
                 {
                     auto imageId = kNumberCircle[orderNumber - 1];
-                    drawingCtx.drawImage(ZoomLevel::full, labelWidth + 8 + 3, y, Gfx::recolour(imageId, Colour::white));
+                    drawingCtx.drawImage(ZoomLevel::full, labelWidth + x + 3, y, Gfx::recolour(imageId, Colour::white));
                 }
                 orderNumber++;
             }
@@ -4392,20 +4418,28 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 rowNum++; // Used to move down the text
             }
 
+            const auto* program = routeProgram(self);
+            const auto layout = routeLayout(self);
+            if (program)
+            {
+                Rules::drawProgramBlocks(drawingCtx, *program, Rules::runtimeForVehicle(self.number), layout, self.widgets[widx::routeList].width() - 14);
+            }
             int16_t orderNumber = 1;
             for (auto& order : getOrderTable(head))
             {
-                int16_t y = rowNum * routeRowHeight(self);
+                int16_t y = routeRowTop(self, rowNum);
+                const auto item = std::find_if(layout.items.begin(), layout.items.end(), [&](const Rules::ProgramVisual& item) { return !item.block && item.row == static_cast<size_t>(rowNum); });
+                const auto x = static_cast<int16_t>(8 + (item != layout.items.end() ? std::min<int>(item->depth, 8) * 8 : 0));
                 auto strFormat = StringIds::black_stringid;
                 if (self.orderTableIndex == rowNum)
                 {
-                    drawingCtx.fillRect(0, y, self.width, y + 9, PaletteIndex::black0, Gfx::RectFlags::none);
+                    drawingCtx.fillRect(x - 1, y, self.width, y + 9, PaletteIndex::black0, Gfx::RectFlags::none);
                     strFormat = StringIds::white_stringid;
                 }
                 if (self.rowHover == rowNum)
                 {
                     strFormat = StringIds::wcolour2_stringid;
-                    drawingCtx.fillRect(0, y, self.width, y + 9, enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
+                    drawingCtx.fillRect(x - 1, y, self.width, y + 9, enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
                 }
 
                 FormatArguments args{};
@@ -4433,32 +4467,28 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     }
                 }
 
-                drawOrderLabel(self, drawingCtx, strFormat, args, order, y, orderNumber);
+                drawOrderLabel(self, drawingCtx, strFormat, args, order, y, orderNumber, x);
                 if (head->currentOrder + head->orderTableOffset == order.getOffset())
                 {
-                    auto point = Point(1, y - 1);
+                    auto point = Point(std::max<int16_t>(0, x - 6), y - 1);
                     tr.drawStringLeft(point, Colour::black, StringIds::orders_current_order);
                 }
 
-                if (const auto* program = Rules::find(Rules::ownerForVehicle(self.number)); program && !program->blocks.empty() && static_cast<size_t>(rowNum) < program->rows.size())
-                {
-                    Rules::drawOrderFeedback(drawingCtx, 8, y + 10, self.widgets[widx::routeList].width() - 22, Rules::orderFeedback(*program, Rules::runtimeForVehicle(self.number), rowNum));
-                }
                 rowNum++;
             }
 
             // Output the end of orders
-            Ui::Point loc = { 8, static_cast<int16_t>(rowNum * routeRowHeight(self)) };
+            Ui::Point loc = { 8, static_cast<int16_t>(routeRowTop(self, rowNum)) };
             auto strFormat = StringIds::black_stringid;
             if (self.orderTableIndex == rowNum)
             {
-                drawingCtx.fillRect(0, loc.y, self.width, loc.y + routeRowHeight(self), PaletteIndex::black0, Gfx::RectFlags::none);
+                drawingCtx.fillRect(0, loc.y, self.width, loc.y + 10, PaletteIndex::black0, Gfx::RectFlags::none);
                 strFormat = StringIds::white_stringid;
             }
             if (self.rowHover == rowNum)
             {
                 strFormat = StringIds::wcolour2_stringid;
-                drawingCtx.fillRect(0, loc.y, self.width, loc.y + routeRowHeight(self), enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
+                drawingCtx.fillRect(0, loc.y, self.width, loc.y + 10, enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
             }
 
             loc.y -= 1;
@@ -4467,11 +4497,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
             if (orderDrag.active && orderDrag.moved && orderDrag.owner == Rules::ownerForVehicle(self.number))
             {
                 const auto mouse = Input::getMouseLocation();
-                const auto destination = static_cast<size_t>(std::max<int>(0, mouse.y - self.y - self.widgets[widx::routeList].top - 1 + self.scrollAreas[0].contentOffsetY) / routeRowHeight(self));
+                const auto destination = routeRowAt(self, static_cast<int16_t>(mouse.y - self.y - self.widgets[widx::routeList].top - 1 + self.scrollAreas[0].contentOffsetY));
                 auto preview = orderDrag;
                 if (WindowManager::findAt(mouse.x, mouse.y) == &self && preview.finish(orderDrag.owner, Rules::snapshot(orderDrag.owner), destination))
                 {
-                    drawingCtx.fillRect(0, static_cast<int16_t>(destination * routeRowHeight(self)), self.widgets[widx::routeList].width() - 14, static_cast<int16_t>(destination * routeRowHeight(self) + 1), PaletteIndex::black0, Gfx::RectFlags::none);
+                    drawingCtx.fillRect(0, static_cast<int16_t>(routeRowTop(self, destination)), self.widgets[widx::routeList].width() - 14, static_cast<int16_t>(routeRowTop(self, destination) + 1), PaletteIndex::black0, Gfx::RectFlags::none);
                 }
             }
         }

@@ -105,6 +105,7 @@ namespace OpenLoco::Vehicles
 namespace OpenLoco::Vehicles::OrderManager
 {
     static sfl::static_vector<NumDisplayFrame, Limits::kMaxOrdersPerVehicle> _displayFrames;
+    static EntityId _displayVehicle = EntityId::null;
 
     std::span<const NumDisplayFrame> displayFrames()
     {
@@ -248,6 +249,8 @@ namespace OpenLoco::Vehicles::OrderManager
     {
         // No need to zero order table as it will get cleaned up on save
         orderTableLength() = 0;
+        _displayVehicle = EntityId::null;
+        _displayFrames.clear();
         Rules::clear();
     }
 
@@ -357,9 +360,28 @@ namespace OpenLoco::Vehicles::OrderManager
         return { pos, ss.str() };
     }
 
+    void refreshNumDisplayFrames()
+    {
+        if (!World::hasMapSelectionFlag(World::MapSelectionFlags::unk_04))
+        {
+            return;
+        }
+        if (auto* head = EntityManager::get<VehicleHead>(_displayVehicle))
+        {
+            generateNumDisplayFrames(head);
+        }
+        else
+        {
+            _displayVehicle = EntityId::null;
+            _displayFrames.clear();
+            Gfx::invalidateScreen();
+        }
+    }
+
     // 0x00470824
     void generateNumDisplayFrames(Vehicles::VehicleHead* head)
     {
+        _displayVehicle = head->id;
         World::setMapSelectionFlags(World::MapSelectionFlags::unk_04);
         Gfx::invalidateScreen();
         _displayFrames.clear();

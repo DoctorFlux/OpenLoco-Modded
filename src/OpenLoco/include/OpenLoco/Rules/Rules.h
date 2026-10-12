@@ -31,7 +31,9 @@ namespace OpenLoco::Rules
         repeat,
         waitUntil,
         skip,
-        goTo
+        goTo,
+        elseIf,
+        breakLoop
     };
     enum class Check : uint8_t
     {
@@ -79,12 +81,12 @@ namespace OpenLoco::Rules
         Kind kind = Kind::group;
         Key first = 0;
         Key last = 0;
-        Key parent = 0; // Conditional parent of Skip / Go to, or paired If of Otherwise.
+        Key parent = 0; // Conditional action parent, or preceding branch in an Else chain.
         Key target = 0;
         Condition condition{};
         Join join = Join::none;
         Condition extra{};
-        uint16_t number = 1; // Repeat count or wait time limit in timetable minutes.
+        uint16_t number = 1; // Repeat count (0 means forever) or wait time limit in timetable minutes.
         std::string name;
         bool enabled = true;
         bool operator==(const Block&) const = default;
@@ -168,6 +170,9 @@ namespace OpenLoco::Rules
     };
     // Each order result is consumed once; the caller resumes after physically reaching it.
     Decision next(const Program& program, Runtime& runtime, uint32_t tick, const Evaluate& evaluate);
+    Key executingBlock(const Program& program, const Runtime& runtime);
+    const char* kindName(Kind kind);
+    CheckResult evaluateBranch(const Program& program, const Runtime& runtime, const Block& block, const Evaluate& evaluate);
     void startAt(const Program& program, Runtime& runtime, Key order);
     void resumeAfter(const Program& program, Runtime& runtime, Key order);
     bool validRuntime(const Program& program, const Runtime& runtime);
@@ -193,6 +198,7 @@ namespace OpenLoco::Rules
     uint16_t timetableOrder(uint16_t vehicle, uint16_t vanillaOffset);
     bool canStopAt(uint16_t vehicle, uint16_t station);
     std::string vehicleStatus(uint16_t vehicle);
+    std::string vehicleNextStop(uint16_t vehicle);
     const Runtime* runtimeForVehicle(uint16_t vehicle);
     bool saveCompanion(const std::filesystem::path& savePath);
     bool loadCompanion(const std::filesystem::path& savePath);

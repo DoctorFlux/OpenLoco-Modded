@@ -1,6 +1,7 @@
 #include <OpenLoco/Date.h>
 #include <OpenLoco/Entities/EntityManager.h>
 #include <OpenLoco/Lines/Line.h>
+#include <OpenLoco/Map/MapSelection.h>
 #include <OpenLoco/Map/StationElement.h>
 #include <OpenLoco/Map/TileManager.h>
 #include <OpenLoco/Map/TrackElement.h>
@@ -172,11 +173,11 @@ TEST(RulesTests, unavailableCheckTakesOtherwise)
     EXPECT_EQ(next(p, r, 0, unavailable).order, p.rows[3].key);
     EXPECT_EQ(r.status, "No timetable slot");
 }
-TEST(RulesTests, fifthShapeAndMissingRepeatNumberAreAtomicRejections)
+TEST(RulesTests, fifthShapeAndInvalidRepeatCountAreAtomicRejections)
 {
     auto p = route();
     auto b = section(p, Kind::repeat, 1, 3);
-    b.number = 0;
+    b.number = 21;
     auto before = p;
     EXPECT_FALSE(add(p, b));
     EXPECT_EQ(before, p);
@@ -1108,4 +1109,283 @@ TEST(RulesTests, ordinaryRowGeometryOnlyExpandsWhenRulesExist)
     EXPECT_GT(width - 3, 50);
     EXPECT_LT(layout.canvasBottom, layout.controlsTop);
     EXPECT_LT(layout.controlsTop + 43, layout.binTop);
+}
+
+TEST(RulesTests, elseIfChecksOnlyUntilOneBranchIsTaken)
+{
+    auto p = route();
+    auto first = section(p, Kind::ifBlock, 0, 0);
+    first.condition.value = 1;
+    ASSERT_TRUE(add(p, first));
+    auto middle = section(p, Kind::elseIf, 1, 2);
+    middle.parent = p.blocks[0].id;
+    middle.condition.value = 2;
+    ASSERT_TRUE(add(p, middle));
+    auto last = section(p, Kind::otherwise, 3, 3);
+    last.parent = p.blocks[1].id;
+    ASSERT_TRUE(add(p, last));
+    for (int taken : { 1, 2, 3 })
+    {
+        Runtime runtime;
+        int checks = 0;
+        auto evaluate = [&](const Condition& c) { ++checks; return CheckResult{true, c.value == taken, {}}; };
+        std::vector<Key> visited;
+        do
+        {
+            visited.push_back(next(p, runtime, 0, evaluate).order);
+        } while (visited.back() != p.rows[4].key);
+        const std::vector<Key> expected = taken == 1 ? std::vector<Key>{ p.rows[0].key, p.rows[4].key } : taken == 2 ? std::vector<Key>{ p.rows[1].key, p.rows[2].key, p.rows[4].key }
+                                                                                                                     : std::vector<Key>{ p.rows[3].key, p.rows[4].key };
+        EXPECT_EQ(visited, expected);
+        EXPECT_EQ(checks, taken == 1 ? 1 : 2);
+    }
+}
+TEST(RulesTests, elseChainRejectsForksAndBadParentsAtomically)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    auto middle = section(p, Kind::elseIf, 1, 1);
+    middle.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, middle));
+    const auto before = p;
+    auto branch = section(p, Kind::otherwise, 2, 2);
+    branch.parent = p.blocks[0].id;
+    EXPECT_FALSE(add(p, branch));
+    EXPECT_EQ(p, before);
+    branch.parent = p.rows[0].key;
+    EXPECT_FALSE(add(p, branch));
+    EXPECT_EQ(p, before);
+}
+TEST(RulesTests, infiniteRepeatRunsUntilConditionalBreakAndStartsFreshOnReturn)
+{
+    auto p = route();
+    auto repeat = section(p, Kind::repeat, 1, 3);
+    repeat.number = 0;
+    ASSERT_TRUE(add(p, repeat));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 3, 3)));
+    auto stop = section(p, Kind::breakLoop, 3, 3);
+    stop.parent = p.blocks[1].id;
+    stop.target = p.blocks[0].id;
+    ASSERT_TRUE(add(p, stop));
+    Runtime runtime;
+    for (int index : { 0, 1, 2, 3, 1, 2 })
+    {
+        EXPECT_EQ(next(p, runtime, 0, no).order, p.rows[index].key);
+    }
+    EXPECT_EQ(runtime.repeats[p.blocks[0].id], 0);
+    EXPECT_TRUE(validRuntime(p, runtime));
+    EXPECT_EQ(next(p, runtime, 0, yes).order, p.rows[4].key);
+    EXPECT_TRUE(runtime.repeats.empty());
+    EXPECT_EQ(next(p, runtime, 1, no).order, p.rows[0].key);
+    EXPECT_EQ(next(p, runtime, 1, no).order, p.rows[1].key);
+    EXPECT_EQ(runtime.repeats[p.blocks[0].id], 0);
+}
+TEST(RulesTests, infiniteDecisionLoopIsBoundedAndResumesToBreak)
+{
+    auto p = route();
+    auto repeat = section(p, Kind::repeat, 1, 3);
+    repeat.number = 0;
+    ASSERT_TRUE(add(p, repeat));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 3)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 3)));
+    auto stop = section(p, Kind::breakLoop, 1, 3);
+    stop.parent = p.blocks[2].id;
+    stop.target = p.blocks[0].id;
+    ASSERT_TRUE(add(p, stop));
+    Runtime runtime;
+    EXPECT_EQ(next(p, runtime, 0, no).order, p.rows[0].key);
+    EXPECT_EQ(next(p, runtime, 0, no).kind, RunKind::yielded);
+    EXPECT_EQ(runtime.steps, 256);
+    EXPECT_TRUE(validRuntime(p, runtime));
+    EXPECT_EQ(next(p, runtime, 1, yes).order, p.rows[4].key);
+    EXPECT_EQ(runtime.status.find("Choosing"), std::string::npos);
+}
+TEST(RulesTests, breakRejectsNonLoopTargetsAndLoopRemovalRemovesBreak)
+{
+    auto p = route();
+    auto repeat = section(p, Kind::repeat, 0, 3);
+    repeat.number = 0;
+    ASSERT_TRUE(add(p, repeat));
+    auto stop = section(p, Kind::breakLoop, 2, 2);
+    stop.target = p.rows[0].key;
+    const auto before = p;
+    EXPECT_FALSE(add(p, stop));
+    EXPECT_EQ(p, before);
+    stop.target = p.blocks[0].id;
+    ASSERT_TRUE(add(p, stop));
+    Edit removal;
+    removal.kind = EditKind::removeBlock;
+    removal.block.id = p.blocks[0].id;
+    ASSERT_TRUE(edit(p, removal));
+    EXPECT_TRUE(p.blocks.empty());
+}
+TEST(RulesTests, programLayoutContainsRealNestedBracketsAndConsistentHitTests)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    for (int width : { 138, 190, 360, 580 })
+    {
+        const auto layout = programLayout(p, width);
+        ASSERT_EQ(layout.orderTops.size(), p.rows.size());
+        int16_t previousEnd = 0;
+        for (const auto& item : layout.items)
+        {
+            EXPECT_GE(item.top, previousEnd);
+            previousEnd = item.top + item.height;
+            const auto* hit = programHit(layout, item.top + 1);
+            ASSERT_NE(hit, nullptr);
+            EXPECT_EQ(hit->row, item.row);
+            EXPECT_EQ(hit->block, item.block);
+            EXPECT_EQ(programRowAt(layout, item.top + 1), item.row);
+            if (item.block)
+            {
+                EXPECT_GT(item.bottom, item.top + item.height);
+            }
+        }
+        EXPECT_GT(layout.height, 10 * p.rows.size());
+        EXPECT_EQ(programRowAt(layout, layout.height + 10), p.rows.size());
+        EXPECT_LT(layout.orderTops[1] - layout.orderTops[0], layout.height);
+    }
+}
+TEST_F(GameRulesFixture, currentProgramAndNextStopRemainVisibleDuringWait)
+{
+    auto* head = vehicle();
+    const auto id = OpenLoco::enumValue(head->id);
+    auto p = snapshot(ownerForVehicle(id));
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.number = 3;
+    ASSERT_TRUE(submit(ownerForVehicle(id), e));
+    ASSERT_TRUE(prepareVehicle(id));
+    reached(id);
+    EXPECT_FALSE(prepareVehicle(id));
+    EXPECT_NE(vehicleStatus(id).find("Wait until"), std::string::npos);
+    EXPECT_NE(vehicleNextStop(id).find("after decision"), std::string::npos);
+    EXPECT_EQ(executingBlock(*find(ownerForVehicle(id)), *runtimeForVehicle(id)), find(ownerForVehicle(id))->blocks[0].id);
+}
+TEST_F(GameRulesFixture, saveResumesInfiniteRepeatAndElseIfDefinitions)
+{
+    auto* head = vehicle();
+    const auto id = OpenLoco::enumValue(head->id);
+    auto p = snapshot(ownerForVehicle(id));
+    Edit e;
+    e.block = section(p, Kind::repeat, 1, 2);
+    e.block.number = 0;
+    ASSERT_TRUE(submit(ownerForVehicle(id), e));
+    ASSERT_TRUE(prepareVehicle(id));
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    const auto path = std::filesystem::temp_directory_path() / "openloco-infinite-rules.SV5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(runtimeForVehicle(id), nullptr);
+    ASSERT_FALSE(runtimeForVehicle(id)->repeats.empty());
+    EXPECT_EQ(runtimeForVehicle(id)->repeats.begin()->second, 0);
+    EXPECT_NE(vehicleStatus(id).find("forever"), std::string::npos);
+    p = snapshot(ownerForVehicle(id));
+    e = {};
+    e.block = section(p, Kind::ifBlock, 0, 0);
+    ASSERT_TRUE(submit(ownerForVehicle(id), e));
+    p = snapshot(ownerForVehicle(id));
+    e.block = section(p, Kind::elseIf, 1, 1);
+    e.block.parent = p.blocks.back().id;
+    ASSERT_TRUE(submit(ownerForVehicle(id), e));
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_EQ(find(ownerForVehicle(id))->blocks.back().kind, Kind::elseIf);
+    std::filesystem::remove(companionPath(path));
+}
+TEST_F(GameRulesFixture, structuralEditsRebuildTheWhiteCircleMapLabels)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        auto* record = StationManager::get(static_cast<StationId>(station));
+        record->x = station * 32;
+        record->y = 32;
+    }
+    Vehicles::OrderManager::generateNumDisplayFrames(head);
+    ASSERT_EQ(Vehicles::OrderManager::displayFrames().size(), 3);
+    const auto original = Vehicles::OrderManager::displayFrames().front().frame.left[0];
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = move.last = 2;
+    move.destination = 0;
+    ASSERT_TRUE(submit(ownerForVehicle(enumValue(head->id)), move));
+    EXPECT_NE(Vehicles::OrderManager::displayFrames().front().frame.left[0], original);
+    World::resetMapSelectionFlags();
+}
+
+TEST(RulesTests, maximumBlockCountFitsNativeScrollOffsets)
+{
+    auto p = route();
+    for (size_t i = 0; i < 256; ++i)
+    {
+        auto group = section(p, Kind::group, 0, 4);
+        group.name = std::string(80, 'W');
+        ASSERT_TRUE(add(p, group));
+    }
+    const auto layout = programLayout(p, 138);
+    EXPECT_GT(layout.height, 0);
+    EXPECT_LT(layout.height, 32767);
+    EXPECT_EQ(programRowAt(layout, layout.orderTops.back()), 4);
+    EXPECT_EQ(layout.items.back().depth, 8);
+}
+TEST_F(GameRulesFixture, sharedOrderDraggingRefreshesTheAssignedVehiclesMapNumbers)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        auto* record = StationManager::get(static_cast<StationId>(station));
+        record->x = station * 32;
+        record->y = 32;
+    }
+    const auto line = Lines::createLine("Numbers", TransportMode::rail, 2);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder row;
+        row.station = station;
+        ASSERT_TRUE(Lines::addOrder(line.id, row).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(head->id), TransportMode::rail).ok);
+    Vehicles::OrderManager::generateNumDisplayFrames(head);
+    const auto original = Vehicles::OrderManager::displayFrames().front().frame.left[0];
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = move.last = 2;
+    move.destination = 0;
+    ASSERT_TRUE(submit({ OwnerKind::line, line.id }, move));
+    EXPECT_NE(Vehicles::OrderManager::displayFrames().front().frame.left[0], original);
+    World::resetMapSelectionFlags();
+}
+
+TEST_F(GameRulesFixture, movingAWaypointRefreshesItsWorldNumberAndPosition)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        auto* record = StationManager::get(static_cast<StationId>(station));
+        record->x = station * 32;
+        record->y = 32;
+    }
+    Vehicles::OrderRouteWaypoint waypoint({ 16, 20 }, 0, 0, 0);
+    Vehicles::OrderManager::insertOrder(head, head->sizeOfOrderTable - 1, &waypoint);
+    Vehicles::OrderManager::generateNumDisplayFrames(head);
+    ASSERT_EQ(Vehicles::OrderManager::displayFrames().size(), 4);
+    const auto oldLeft = Vehicles::OrderManager::displayFrames().front().frame.left[0];
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = move.last = 3;
+    move.destination = 0;
+    ASSERT_TRUE(submit(ownerForVehicle(enumValue(head->id)), move));
+    EXPECT_EQ(Vehicles::OrderManager::orders()[head->orderTableOffset].getType(), Vehicles::OrderType::RouteWaypoint);
+    EXPECT_NE(Vehicles::OrderManager::displayFrames().front().frame.left[0], oldLeft);
+    EXPECT_NE(vehicleNextStop(enumValue(head->id)).find("stop 2"), std::string::npos);
+    World::resetMapSelectionFlags();
 }

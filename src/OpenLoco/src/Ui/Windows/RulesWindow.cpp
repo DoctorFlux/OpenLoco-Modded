@@ -89,14 +89,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         bool editingExtra = false;
         std::string status;
         uint16_t messageFrames = 0;
-        struct Visual
-        {
-            int16_t top;
-            int16_t height;
-            size_t row;
-            Key block;
-            std::vector<std::string> lines;
-        };
+        using Visual = ProgramVisual;
         std::vector<Visual> visuals;
         enum class Drag
         {
@@ -117,9 +110,11 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         std::vector<Key> stopChoices;
         std::vector<Platform> platformChoices;
         std::vector<std::string> choiceLabels;
-        const char* names[] = { "Group", "If", "Otherwise", "Repeat", "Wait until", "Skip", "Go to" };
+        const char* names[] = { "Group", "If", "Else", "Repeat", "Wait until", "Skip", "Go to", "Else if", "Break" };
+        constexpr Kind paletteKinds[] = { Kind::group, Kind::ifBlock, Kind::elseIf, Kind::otherwise, Kind::repeat, Kind::waitUntil, Kind::skip, Kind::goTo, Kind::breakLoop };
         const char* checkNames[] = { "Cargo waiting", "This vehicle is full", "This vehicle is empty", "This vehicle has space", "Platform is free", "This vehicle is late", "This vehicle is on time", "The year" };
         int32_t layoutWidth = 600;
+        int16_t layoutHeight = 360;
         std::string blockText(const Block& b);
         std::vector<std::string> wrapBlock(std::string value, int16_t width)
         {
@@ -153,9 +148,10 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             return lines;
         }
+        int paletteColumns(const Window& window) { return window.widgets[canvas].height() < 150 ? 2 : 1; }
         int16_t paletteStep(const Window& window)
         {
-            return window.widgets[canvas].height() < 180 ? 13 : 24;
+            return paletteColumns(window) == 2 ? 15 : static_cast<int16_t>(std::min<int>(22, (window.widgets[canvas].height() - 4) / 9));
         }
         const Block* selected()
         {
@@ -165,24 +161,8 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         void refresh()
         {
             program = snapshot(selectedOwner);
-            visuals.clear();
-            int16_t y = 4;
-            for (size_t row = 0; row < program.rows.size(); ++row)
-            {
-                for (const auto& b : program.blocks)
-                {
-                    if (b.first == program.rows[row].key)
-                    {
-                        const auto layout = editorLayout(static_cast<int16_t>(layoutWidth), 360);
-                        auto lines = wrapBlock(blockText(b), static_cast<int16_t>(std::max<int>(80, layoutWidth - layout.paletteWidth - 64)));
-                        const auto height = static_cast<int16_t>(std::max<int>(24, static_cast<int>(lines.size()) * 12 + 6));
-                        visuals.push_back({ y, height, row, b.id, std::move(lines) });
-                        y += height;
-                    }
-                }
-                visuals.push_back({ y, 20, row, 0, {} });
-                y += 20;
-            }
+            const auto layout = editorLayout(static_cast<int16_t>(layoutWidth), layoutHeight);
+            visuals = programLayout(program, static_cast<int16_t>(layoutWidth - layout.paletteWidth - 22), 20).items;
             if (firstSelected >= static_cast<int>(program.rows.size()))
             {
                 firstSelected = lastSelected = -1;
@@ -251,39 +231,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             return text;
         }
-        std::string blockText(const Block& b)
-        {
-            std::string text = names[static_cast<unsigned>(b.kind)];
-            if (b.kind == Kind::ifBlock || b.kind == Kind::waitUntil)
-            {
-                text += " " + conditionText(b.condition);
-                if (b.join != Join::none)
-                {
-                    text += (b.join == Join::andCheck ? " and " : " or ") + conditionText(b.extra);
-                }
-            }
-            if (b.kind == Kind::repeat)
-            {
-                text += " " + std::to_string(b.number) + " times";
-            }
-            if (b.kind == Kind::waitUntil)
-            {
-                text += " (up to " + std::to_string(b.number) + " min)";
-            }
-            if (b.kind == Kind::group)
-            {
-                text += " " + b.name;
-            }
-            if (b.kind == Kind::goTo)
-            {
-                text += " order " + std::to_string(indexOf(program, b.target) + 1);
-            }
-            if (!b.enabled)
-            {
-                text += " (unavailable)";
-            }
-            return text;
-        }
+        std::string blockText(const Block& b) { return blockSentence(program, b); }
         void text(Gfx::DrawingContext& ctx, int16_t x, int16_t y, int16_t width, std::string value)
         {
             value.insert(value.begin(), static_cast<char>(ControlCodes::Colour::black));
@@ -294,9 +242,10 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         }
         void prepare(Window& window)
         {
-            if (layoutWidth != window.width)
+            if (layoutWidth != window.width || layoutHeight != window.height)
             {
                 layoutWidth = window.width;
+                layoutHeight = window.height;
                 refresh();
             }
             auto layout = editorLayout(window.width, window.height);
@@ -326,7 +275,8 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             window.widgets[bin].top = layout.binTop;
             window.widgets[bin].bottom = layout.binTop + 19;
             const auto* b = selected();
-            window.widgets[number].text = b && b->kind == Kind::repeat ? StringIds::rules_times : StringIds::rules_number;
+            window.widgets[number].text = b && b->kind == Kind::repeat ? (b->number ? StringIds::rules_times : StringIds::rules_forever) : StringIds::rules_number;
+            window.widgets[target].text = b && b->kind == Kind::breakLoop ? StringIds::rules_loop : StringIds::rules_target;
             window.widgets[cargo].text = b && (editingExtra ? b->extra.check : b->condition.check) == Check::platformFree ? StringIds::rules_platform : StringIds::rules_cargo;
             window.activatedWidgets = editingExtra ? uint64_t(1) << extra : 0;
             window.disabledWidgets = 0;
@@ -336,11 +286,11 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             if (b)
             {
-                if (b->kind != Kind::skip && b->kind != Kind::goTo)
+                if (b->kind != Kind::skip && b->kind != Kind::goTo && b->kind != Kind::breakLoop)
                 {
                     window.disabledWidgets &= ~((uint64_t(1) << firstRow) | (uint64_t(1) << lastRow));
                 }
-                if (b->kind == Kind::ifBlock || b->kind == Kind::waitUntil)
+                if (b->kind == Kind::ifBlock || b->kind == Kind::elseIf || b->kind == Kind::waitUntil)
                 {
                     for (int i : { check, join })
                     {
@@ -379,7 +329,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 {
                     window.disabledWidgets &= ~(uint64_t(1) << name);
                 }
-                if (b->kind == Kind::goTo)
+                if (b->kind == Kind::goTo || b->kind == Kind::breakLoop)
                 {
                     window.disabledWidgets &= ~(uint64_t(1) << target);
                 }
@@ -412,9 +362,13 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             text(ctx, 5, 19, window.width - 10, caption);
             text(ctx, 5, 30, window.width - 10, "Drag = to move stops/waypoints; select rows to wrap, or drag the block end to resize.");
-            const auto footer = !status.empty() ? status : progressVehicle() != UINT16_MAX ? vehicleStatus(progressVehicle())
-                                                                                           : "Select a vehicle on this line to see its running rule";
-            text(ctx, 5, window.height - 15, window.width - 10, footer);
+            auto footer = progressVehicle() != UINT16_MAX ? vehicleStatus(progressVehicle()) : "Select a vehicle on this line to see its running rule";
+            if (!status.empty())
+            {
+                footer += " | " + status;
+            }
+            text(ctx, 5, window.height - 28, window.width - 10, footer);
+            text(ctx, 5, window.height - 15, window.width - 10, vehicleNextStop(progressVehicle()));
             if (dragged && drag != Drag::none && drag != Drag::selection)
             {
                 std::string label;
@@ -453,13 +407,18 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             const auto layout = editorLayout(window.width, window.height);
             const auto width = window.widgets[canvas].width() - 14;
             const auto* runtime = runtimeForVehicle(progressVehicle());
+            const auto currentBlock = runtime ? executingBlock(program, *runtime) : 0;
 
-            for (unsigned i = 0; i < 7; ++i)
+            const auto columns = paletteColumns(window);
+            const auto rows = (std::size(paletteKinds) + columns - 1) / columns;
+            const auto columnWidth = layout.paletteWidth / columns;
+            for (size_t i = 0; i < std::size(paletteKinds); ++i)
             {
                 const auto step = paletteStep(window);
-                const auto y = static_cast<int16_t>(window.scrollAreas[0].contentOffsetY + 2 + i * step);
-                ctx.fillRect(2, y, layout.paletteWidth - 4, y + step - 3, PaletteIndex::grey1, Gfx::RectFlags::none);
-                text(ctx, 5, y + (step == 13 ? 1 : 4), layout.paletteWidth - 10, names[i]);
+                const auto x = static_cast<int16_t>(2 + (i / rows) * columnWidth);
+                const auto y = static_cast<int16_t>(window.scrollAreas[0].contentOffsetY + 2 + (i % rows) * step);
+                ctx.fillRect(x, y, x + columnWidth - 4, y + step - 3, PaletteIndex::grey1, Gfx::RectFlags::none);
+                text(ctx, x + 3, y + 1, columnWidth - 10, names[static_cast<unsigned>(paletteKinds[i])]);
             }
             int ordinal = 0;
             for (const auto& v : visuals)
@@ -472,7 +431,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                     size_t depth = 0;
                     for (const auto& enclosing : program.blocks)
                     {
-                        if (enclosing.kind == Kind::skip || enclosing.kind == Kind::goTo || enclosing.kind == Kind::waitUntil || enclosing.id == b.id)
+                        if (enclosing.kind == Kind::skip || enclosing.kind == Kind::goTo || enclosing.kind == Kind::breakLoop || enclosing.id == b.id)
                         {
                             continue;
                         }
@@ -488,7 +447,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                         : b.id == selectedBlock                                                                                           ? Colours::getShade(Colour::yellow, 7)
                                                                                                                                           : PaletteIndex::grey1;
                     ctx.fillRect(x, v.top, width, v.top + v.height - 3, colour, Gfx::RectFlags::none);
-                    if (blockIsCurrent(program, runtime, b.id))
+                    if (currentBlock == b.id)
                     {
                         ctx.fillRect(x + 3, v.top + 2, x + 5, v.top + v.height - 4, PaletteIndex::black0, Gfx::RectFlags::none);
                     }
@@ -504,12 +463,12 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                             bottom = end.top + end.height - 1;
                         }
                     }
-                    if (b.id == selectedBlock && b.kind != Kind::skip && b.kind != Kind::goTo)
+                    if (b.id == selectedBlock && b.kind != Kind::skip && b.kind != Kind::goTo && b.kind != Kind::breakLoop)
                     {
                         ctx.fillRect(width - 12, bottom - 9, width, bottom, Colours::getShade(Colour::yellow, 7), Gfx::RectFlags::none);
                         text(ctx, width - 10, bottom - 9, 10, "+");
                     }
-                    if (b.kind == Kind::group || b.kind == Kind::ifBlock || b.kind == Kind::otherwise || b.kind == Kind::repeat)
+                    if (b.kind == Kind::group || b.kind == Kind::ifBlock || b.kind == Kind::elseIf || b.kind == Kind::otherwise || b.kind == Kind::repeat || b.kind == Kind::waitUntil)
                     {
                         ctx.fillRect(x, v.top, x + 2, bottom, PaletteIndex::grey0, Gfx::RectFlags::none);
                         ctx.fillRect(x, bottom - 2, x + 9, bottom, PaletteIndex::grey0, Gfx::RectFlags::none);
@@ -517,6 +476,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 }
                 else
                 {
+                    x += static_cast<int16_t>(std::min<int>(v.depth, 8) * 8);
                     const auto& row = program.rows[v.row];
                     if (firstSelected <= static_cast<int>(v.row) && static_cast<int>(v.row) <= lastSelected && firstSelected >= 0)
                     {
@@ -587,7 +547,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             dropRow = -1;
             draggedBlock = 0;
             const auto layout = editorLayout(window.width, window.height);
-            if (const auto* block = selected(); block && block->kind != Kind::skip && block->kind != Kind::goTo && x >= window.widgets[canvas].width() - 28)
+            if (const auto* block = selected(); block && block->kind != Kind::skip && block->kind != Kind::goTo && block->kind != Kind::breakLoop && x >= window.widgets[canvas].width() - 28)
             {
                 const auto end = std::find_if(visuals.begin(), visuals.end(), [&](const Visual& visual) { return visual.block == 0 && visual.row == indexOf(program, block->last); });
                 if (end != visuals.end() && y >= end->top + end->height - 10 && y <= end->top + end->height)
@@ -600,13 +560,16 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             if (x < layout.paletteWidth)
             {
                 const auto paletteY = y - window.scrollAreas[0].contentOffsetY - 2;
-                const int kind = paletteY / paletteStep(window);
-                if (paletteY < 0 || kind < 0 || kind >= 7)
+                const auto columns = paletteColumns(window);
+                const auto rows = static_cast<int>((std::size(paletteKinds) + columns - 1) / columns);
+                const auto column = x / (layout.paletteWidth / columns);
+                const auto item = column * rows + paletteY / paletteStep(window);
+                if (paletteY < 0 || item < 0 || item >= static_cast<int>(std::size(paletteKinds)))
                 {
                     return;
                 }
                 drag = Drag::palette;
-                draggedKind = static_cast<Kind>(kind);
+                draggedKind = paletteKinds[item];
                 return;
             }
             const auto* v = at(y);
@@ -691,20 +654,24 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             b.last = program.rows[last].key;
             b.number = b.kind == Kind::repeat ? 2 : 5;
             b.name = "My section";
-            if (b.kind == Kind::skip || b.kind == Kind::goTo || b.kind == Kind::otherwise)
+            if (b.kind == Kind::skip || b.kind == Kind::goTo || b.kind == Kind::breakLoop || b.kind == Kind::otherwise || b.kind == Kind::elseIf)
             {
                 for (const auto& parent : program.blocks)
                 {
-                    if (b.kind == Kind::otherwise)
+                    if (b.kind == Kind::otherwise || b.kind == Kind::elseIf)
                     {
-                        if (parent.kind == Kind::ifBlock && (indexOf(program, parent.last) < static_cast<size_t>(first) || (parent.first == b.first && parent.last == b.last && std::any_of(program.blocks.begin(), program.blocks.end(), [&](const Block& action) { return action.parent == parent.id && (action.kind == Kind::skip || action.kind == Kind::goTo); }))))
+                        if ((parent.kind == Kind::ifBlock || parent.kind == Kind::elseIf) && (indexOf(program, parent.last) < static_cast<size_t>(first) || (parent.first == b.first && parent.last == b.last && std::any_of(program.blocks.begin(), program.blocks.end(), [&](const Block& action) { return action.parent == parent.id && (action.kind == Kind::skip || action.kind == Kind::goTo || action.kind == Kind::breakLoop); }))))
                         {
                             b.parent = parent.id;
                         }
                     }
-                    else if ((parent.kind == Kind::ifBlock || parent.kind == Kind::otherwise) && parent.first == b.first && parent.last == b.last)
+                    else if ((parent.kind == Kind::ifBlock || parent.kind == Kind::elseIf || parent.kind == Kind::otherwise) && parent.first == b.first && parent.last == b.last)
                     {
                         b.parent = parent.id;
+                        if (const auto* hovered = at(canvasY); hovered && hovered->block == parent.id)
+                        {
+                            break;
+                        }
                     }
                 }
                 if (b.kind == Kind::goTo)
@@ -716,6 +683,23 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                             b.target = row.key;
                             break;
                         }
+                    }
+                }
+            }
+            if (b.kind == Kind::breakLoop)
+            {
+                size_t smallest = program.rows.size() + 1;
+                for (const auto& loop : program.blocks)
+                {
+                    if (loop.kind != Kind::repeat)
+                    {
+                        continue;
+                    }
+                    const auto a = indexOf(program, loop.first), z = indexOf(program, loop.last);
+                    if (a <= static_cast<size_t>(first) && static_cast<size_t>(last) <= z && z - a <= smallest)
+                    {
+                        b.target = loop.id;
+                        smallest = z - a;
                     }
                 }
             }
@@ -837,7 +821,27 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             stopChoices.clear();
             platformChoices.clear();
             std::vector<std::string> labels;
-            if (id == checkId)
+            if (id == numberId && b->kind == Kind::repeat)
+            {
+                labels.push_back("Forever");
+                for (int i = 1; i <= 20; ++i)
+                {
+                    labels.push_back(std::to_string(i) + " times");
+                }
+            }
+            else if (id == targetId && b->kind == Kind::breakLoop)
+            {
+                for (const auto& loop : program.blocks)
+                {
+                    if (loop.kind != Kind::repeat || indexOf(program, loop.first) > indexOf(program, b->first) || indexOf(program, b->last) > indexOf(program, loop.last))
+                    {
+                        continue;
+                    }
+                    stopChoices.push_back(loop.id);
+                    labels.push_back("Repeat loop at row " + std::to_string(indexOf(program, loop.first) + 1));
+                }
+            }
+            else if (id == checkId)
             {
                 choices.push_back(256);
                 labels.push_back("This stop has cargo");
@@ -964,7 +968,11 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             auto b = *selectedValue;
             auto& c = editingExtra ? b.extra : b.condition;
-            if (id == checkId)
+            if (id == numberId && b.kind == Kind::repeat)
+            {
+                b.number = static_cast<uint16_t>(index);
+            }
+            else if (id == checkId)
             {
                 const auto choice = choices[index];
                 c.check = choice >= 256 ? Check::cargoWaiting : static_cast<Check>(choice);
@@ -1067,6 +1075,10 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             const auto* b = selected();
             if (!b)
+            {
+                return;
+            }
+            if (id == numberId && b->kind == Kind::repeat)
             {
                 return;
             }
@@ -1190,7 +1202,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             .keyUp = keyUp,
         };
     }
-    Window* open(Owner owner, Window& opener, uint16_t vehicle, std::optional<size_t> row)
+    Window* open(Owner owner, Window& opener, uint16_t vehicle, std::optional<size_t> row, Key focusedBlock)
     {
         selectedOwner = owner;
         selectedVehicle = vehicle;
@@ -1211,6 +1223,10 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                     selectedBlock = block.id;
                 }
             }
+        }
+        if (focusedBlock && std::any_of(program.blocks.begin(), program.blocks.end(), [focusedBlock](const Block& b) { return b.id == focusedBlock; }))
+        {
+            selectedBlock = focusedBlock;
         }
         std::vector<EditorRect> obstacles;
         for (size_t i = 0; i < WindowManager::count(); ++i)
