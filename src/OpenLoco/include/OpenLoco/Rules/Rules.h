@@ -11,17 +11,50 @@
 namespace OpenLoco::Rules
 {
     using Key = uint32_t;
-    enum class OwnerKind : uint8_t { vehicle, line };
+    enum class OwnerKind : uint8_t
+    {
+        vehicle,
+        line
+    };
     struct Owner
     {
         OwnerKind kind = OwnerKind::vehicle;
         uint16_t id = 0;
         auto operator<=>(const Owner&) const = default;
     };
-    enum class Kind : uint8_t { group, ifBlock, otherwise, repeat, waitUntil, skip, goTo };
-    enum class Check : uint8_t { cargoWaiting, full, empty, hasSpace, platformFree, late, onTime, year };
-    enum class Compare : uint8_t { less, equal, greater };
-    enum class Join : uint8_t { none, andCheck, orCheck };
+    enum class Kind : uint8_t
+    {
+        group,
+        ifBlock,
+        otherwise,
+        repeat,
+        waitUntil,
+        skip,
+        goTo
+    };
+    enum class Check : uint8_t
+    {
+        cargoWaiting,
+        full,
+        empty,
+        hasSpace,
+        platformFree,
+        late,
+        onTime,
+        year
+    };
+    enum class Compare : uint8_t
+    {
+        less,
+        equal,
+        greater
+    };
+    enum class Join : uint8_t
+    {
+        none,
+        andCheck,
+        orCheck
+    };
     struct Condition
     {
         Check check = Check::full;
@@ -70,7 +103,17 @@ namespace OpenLoco::Rules
         std::string message;
         explicit operator bool() const { return ok; }
     };
-    enum class EditKind : uint8_t { addBlock, updateBlock, removeBlock, insertRow, deleteRow, moveRows, reverseRows };
+    enum class EditKind : uint8_t
+    {
+        addBlock,
+        updateBlock,
+        removeBlock,
+        insertRow,
+        deleteRow,
+        moveRows,
+        reverseRows,
+        deleteRows
+    };
     struct Edit
     {
         EditKind kind = EditKind::addBlock;
@@ -104,9 +147,17 @@ namespace OpenLoco::Rules
         uint16_t steps = 0;
         std::map<Key, uint16_t> repeats;
         std::map<Key, bool> branches;
+        std::map<Key, bool> prechecked;
         std::string status;
     };
-    enum class RunKind : uint8_t { order, waiting, yielded, fault, empty };
+    enum class RunKind : uint8_t
+    {
+        order,
+        waiting,
+        yielded,
+        fault,
+        empty
+    };
     struct Decision
     {
         RunKind kind = RunKind::empty;
@@ -117,6 +168,7 @@ namespace OpenLoco::Rules
     Decision next(const Program& program, Runtime& runtime, uint32_t tick, const Evaluate& evaluate);
     void startAt(const Program& program, Runtime& runtime, Key order);
     void resumeAfter(const Program& program, Runtime& runtime, Key order);
+    bool validRuntime(const Program& program, const Runtime& runtime);
 
     const Program* find(Owner owner);
     Program snapshot(Owner owner);
@@ -127,13 +179,15 @@ namespace OpenLoco::Rules
     void assigned(uint16_t vehicle);
     void detached(uint16_t vehicle, uint16_t line);
     void cloned(uint16_t source, uint16_t destination);
-    void noteOrderEdit(Owner owner, const Edit& command);
+    Result noteOrderEdit(Owner owner, const Edit& command);
     void noteRawOrderChange(Owner owner, size_t index, uint64_t raw);
-    void movedPrivateOrder(uint16_t vehicle, uint16_t offset, bool up);
-    void reversePrivateOrders(uint16_t vehicle);
+    Result movedPrivateOrder(uint16_t vehicle, uint16_t offset, bool up);
+    Result reversePrivateOrders(uint16_t vehicle);
     bool prepareVehicle(uint16_t vehicle);
     void reached(uint16_t vehicle);
+    void manuallySkipped(uint16_t vehicle);
     bool holdAtStation(uint16_t vehicle);
+    bool cargoOrderEnabled(uint16_t vehicle, uint16_t orderOffset);
     std::string vehicleStatus(uint16_t vehicle);
     bool saveCompanion(const std::filesystem::path& savePath);
     bool loadCompanion(const std::filesystem::path& savePath);

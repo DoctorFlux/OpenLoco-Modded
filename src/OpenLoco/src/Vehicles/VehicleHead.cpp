@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "Vehicles/VehicleHead.h"
 #include "Audio/Audio.h"
 #include "Config.h"
@@ -209,6 +210,12 @@ namespace OpenLoco::Vehicles
                 return false;
             }
             VehicleManager::deleteTrain(*this);
+            return false;
+        }
+        if (status != Status::loading && status != Status::unloading && !hasVehicleFlags(VehicleFlags::manualControl) && !hasVehicleFlags(VehicleFlags::commandStop) && !Rules::prepareVehicle(enumValue(id)))
+        {
+            veh2->currentSpeed = 0.0_mph;
+            veh2->motorState = MotorState::stopped;
             return false;
         }
         updateBreakdown();
@@ -2708,6 +2715,7 @@ namespace OpenLoco::Vehicles
             return;
         }
 
+        Rules::reached(enumValue(id));
         curOrder++;
         currentOrder = curOrder->getOffset() - orderTableOffset;
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
@@ -2929,7 +2937,9 @@ namespace OpenLoco::Vehicles
                 auto point = waypoint->getWaypoint();
                 if (point.x == (position.x & 0xFFE0) && point.y == (position.y & 0xFFE0))
                 {
+                    Rules::reached(enumValue(id));
                     currentOrder = (++curOrder)->getOffset() - orderTableOffset;
+                    Rules::prepareVehicle(enumValue(id));
                     Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
                 }
             }
@@ -3191,6 +3201,7 @@ namespace OpenLoco::Vehicles
                 {
                     return false;
                 }
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
                 auto* unloadOrder = order.as<OrderUnloadAll>();
                 if (unloadOrder == nullptr)
                 {
@@ -3352,6 +3363,7 @@ namespace OpenLoco::Vehicles
             uint32_t cargoToWaitFor = 0;
             for (auto& order : orders)
             {
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
                 auto* waitFor = order.as<OrderWaitFor>();
                 if (waitFor != nullptr)
                 {
@@ -3366,6 +3378,7 @@ namespace OpenLoco::Vehicles
             uint32_t allPossibleCargoToWaitFor = 0;
             for (auto& order : orders)
             {
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
                 auto* waitFor = order.as<OrderWaitFor>();
                 if (waitFor != nullptr)
                 {
@@ -3415,7 +3428,8 @@ namespace OpenLoco::Vehicles
             {
                 break;
             }
-            auto* unloadAll = order.as<OrderUnloadAll>();
+            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
+                auto* unloadAll = order.as<OrderUnloadAll>();
             if (unloadAll != nullptr)
             {
                 if (unloadAll->getCargo() == cargo.type)
@@ -3547,7 +3561,8 @@ namespace OpenLoco::Vehicles
                 Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
                 break;
             }
-            auto* waitFor = order.as<OrderWaitFor>();
+            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
+                auto* waitFor = order.as<OrderWaitFor>();
             if (waitFor == nullptr)
             {
                 continue;
@@ -3595,6 +3610,7 @@ namespace OpenLoco::Vehicles
                 }
             }
         }
+        if (Rules::holdAtStation(enumValue(id))) return true;
         if (Lines::holdForTimetable(enumValue(id), currentOrder, enumValue(stationId)))
         {
             return true;
@@ -4293,8 +4309,10 @@ namespace OpenLoco::Vehicles
                 {
                     if (tileStationId == stationOrder->getStation())
                     {
+                        Rules::reached(enumValue(head.id));
                         curOrder++;
                         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+                        Rules::prepareVehicle(enumValue(head.id));
                         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
                         stationProcessed = true;
                     }
@@ -4386,8 +4404,10 @@ namespace OpenLoco::Vehicles
                 return Sub4ACEE7Result{ 0, 0, StationId::null };
             }
         }
+        Rules::reached(enumValue(head.id));
         curOrder++;
         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+        Rules::prepareVehicle(enumValue(head.id));
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
         return Sub4ACEE7Result{ 0, 0, StationId::null };
     }
@@ -4571,8 +4591,10 @@ namespace OpenLoco::Vehicles
                 {
                     if (tileStationId == stationOrder->getStation())
                     {
+                        Rules::reached(enumValue(head.id));
                         curOrder++;
                         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+                        Rules::prepareVehicle(enumValue(head.id));
                         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
                         stationProcessed = true;
                     }
@@ -4840,8 +4862,10 @@ namespace OpenLoco::Vehicles
                 return Sub4ACEE7Result{ 0, 0, StationId::null };
             }
         }
+        Rules::reached(enumValue(head.id));
         curOrder++;
         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+        Rules::prepareVehicle(enumValue(head.id));
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
         return Sub4ACEE7Result{ 0, 0, StationId::null };
     }

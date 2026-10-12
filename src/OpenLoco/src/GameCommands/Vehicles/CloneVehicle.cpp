@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "GameCommands/Vehicles/CloneVehicle.h"
 #include "Economy/Expenditures.h"
 #include "Entities/EntityManager.h"
@@ -135,6 +136,8 @@ namespace OpenLoco::GameCommands
             args.rawOrder = order->getRaw();
             GameCommands::doCommand(args, GameCommands::Flags::apply);
         }
+
+        Rules::cloned(enumValue(existingTrain.head->id), enumValue(newHead->id));
 
         // Copy express/local
         if ((existingTrain.veh1->var_48 & Vehicles::Flags48::expressMode) != Vehicles::Flags48::none)

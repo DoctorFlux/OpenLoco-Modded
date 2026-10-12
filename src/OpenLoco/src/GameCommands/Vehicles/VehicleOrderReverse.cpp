@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "GameCommands/Vehicles/VehicleOrderReverse.h"
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
@@ -24,6 +25,7 @@ namespace OpenLoco::GameCommands
 
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head->id));
 
+        if (!Rules::reversePrivateOrders(enumValue(head->id))) return kFailure;
         head->currentOrder = Vehicles::OrderManager::reverseVehicleOrderTable(head->orderTableOffset, head->currentOrder);
 
         return 0;

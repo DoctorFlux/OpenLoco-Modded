@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "Vehicles/OrderManager.h"
 #include "GameState.h"
 #include "Graphics/ImageIds.h"
@@ -160,6 +161,14 @@ namespace OpenLoco::Vehicles::OrderManager
     {
         assert(order->getType() != OrderType::End && orderOffset < head->sizeOfOrderTable);
         auto insOrderLength = kOrderSizes[enumValue(order->getType())];
+        if (Rules::ownerForVehicle(enumValue(head->id)).kind == Rules::OwnerKind::vehicle)
+        {
+            size_t index = 0;
+            for (auto& row : OrderRingView(head->orderTableOffset))
+            { if (row.getOffset() - head->orderTableOffset >= orderOffset) break; ++index; }
+            Rules::Edit edit; edit.kind = Rules::EditKind::insertRow; edit.first = index; edit.raw = order->getRaw();
+            Rules::noteOrderEdit({ Rules::OwnerKind::vehicle, enumValue(head->id) }, edit);
+        }
 
         // Shift current order to compensate for the new order.
         // For empty order tables, let current order point to the first order.
@@ -193,6 +202,15 @@ namespace OpenLoco::Vehicles::OrderManager
         auto& selectedOrder = *(orders.begin());
 
         auto removeOrderSize = kOrderSizes[enumValue(selectedOrder.getType())];
+        if (selectedOrder.getType() == OrderType::End) return;
+        if (Rules::ownerForVehicle(enumValue(head->id)).kind == Rules::OwnerKind::vehicle)
+        {
+            size_t index = 0;
+            for (auto& row : OrderRingView(head->orderTableOffset))
+            { if (row.getOffset() - head->orderTableOffset >= orderOffset) break; ++index; }
+            Rules::Edit edit; edit.kind = Rules::EditKind::deleteRow; edit.first = index;
+            Rules::noteOrderEdit({ Rules::OwnerKind::vehicle, enumValue(head->id) }, edit);
+        }
         head->sizeOfOrderTable -= removeOrderSize;
 
         // Are we removing an order that appears before the current order? Move back a bit
@@ -229,6 +247,7 @@ namespace OpenLoco::Vehicles::OrderManager
     {
         // No need to zero order table as it will get cleaned up on save
         orderTableLength() = 0;
+        Rules::clear();
     }
 
     // 0x00470334

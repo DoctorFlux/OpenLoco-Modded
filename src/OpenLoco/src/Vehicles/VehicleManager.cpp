@@ -1,3 +1,5 @@
+#include "Rules/Rules.h"
+#include "Lines/Line.h"
 #include "Vehicles/VehicleManager.h"
 #include "Audio/Audio.h"
 #include "Date.h"
@@ -413,6 +415,8 @@ namespace OpenLoco::VehicleManager
         }
 
         Audio::stopVehicleNoise(head.id);
+        Lines::unassignVehicle(enumValue(head.id));
+        Rules::forget({ Rules::OwnerKind::vehicle, enumValue(head.id) });
         Signals::forgetTrain(enumValue(head.id));
         Vehicles::RoutingManager::freeRoutingHandle(head.routingHandle);
         Vehicles::OrderManager::freeOrders(&head);

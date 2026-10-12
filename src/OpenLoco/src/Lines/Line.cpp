@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "Lines/Line.h"
 
 #include "Entities/EntityManager.h"
@@ -133,6 +134,8 @@ namespace OpenLoco::Lines
             {
                 return;
             }
+            const auto preservedOrder = head->currentOrder;
+            const auto preserveRules = Rules::find(Rules::ownerForVehicle(vehicleId)) != nullptr;
             Vehicles::OrderManager::freeOrders(head);
             Vehicles::OrderManager::allocateOrders(*head);
             uint16_t offset = 0;
@@ -169,6 +172,7 @@ namespace OpenLoco::Lines
                 }
                 offset = static_cast<uint16_t>(offset + orderSize(order.type));
             }
+            if (preserveRules) head->currentOrder = preservedOrder < head->sizeOfOrderTable - 1 ? preservedOrder : 0;
         }
 
         void syncLine(const Line& line)
@@ -621,28 +625,22 @@ namespace OpenLoco::Lines
         }
         for (const auto vehicleId : line->vehicles)
         {
+            Rules::detached(vehicleId, lineId);
             _privateOrders[vehicleId] = line->orders;
             _cursors.erase(vehicleId);
         }
+        Rules::forget({ Rules::OwnerKind::line, lineId });
         _lines.erase(std::remove_if(_lines.begin(), _lines.end(), [&](const Line& item) { return item.id == lineId; }), _lines.end());
         return { true, 0, {} };
     }
 
     LineError addOrder(uint16_t lineId, LineOrder order)
     {
-        auto* line = findMutable(lineId);
-        if (line == nullptr)
-        {
-            return { false, 0, "line not found" };
-        }
+        const auto* line = findLine(lineId);
+        if (line == nullptr) return { false, 0, "line not found" };
         if (!line->orders.empty() && sameConsecutiveStop(line->orders.back(), order))
-        {
             return { false, 0, "consecutive identical stops are not allowed" };
-        }
-        line->orders.push_back(std::move(order));
-        syncLine(*line);
-        invalidateRouteCache();
-        return { true, 0, {} };
+        return insertOrder(lineId, line->orders.size(), std::move(order));
     }
 
     LineOrder fromVehicleOrder(const Vehicles::Order& order)
@@ -686,6 +684,7 @@ namespace OpenLoco::Lines
             if (previous.type == Vehicles::OrderType::StopAt && previous.station == order.station)
             {
                 previous.type = Vehicles::OrderType::RouteThrough;
+                Rules::noteRawOrderChange({ Rules::OwnerKind::line, lineId }, index - 1, Vehicles::OrderRouteThrough(static_cast<StationId>(previous.station)).getRaw());
                 syncLine(*line);
                 return { true, 0, {} };
             }
@@ -698,6 +697,20 @@ namespace OpenLoco::Lines
         {
             return { false, 0, "consecutive identical stops are not allowed" };
         }
+        Rules::Edit edit; edit.kind = Rules::EditKind::insertRow; edit.first = index;
+        // Convert before the move into the line vector.
+        const auto raw = [&]() -> uint64_t {
+            using namespace Vehicles;
+            switch (order.type) {
+                case OrderType::StopAt: return OrderStopAt(static_cast<StationId>(order.station)).getRaw();
+                case OrderType::RouteThrough: return OrderRouteThrough(static_cast<StationId>(order.station)).getRaw();
+                case OrderType::RouteWaypoint: return OrderRouteWaypoint(World::TilePos2{ order.tileX, order.tileY }, order.baseZ, order.direction, order.trackId).getRaw();
+                case OrderType::UnloadAll: return OrderUnloadAll(order.cargo).getRaw();
+                case OrderType::WaitFor: return OrderWaitFor(order.cargo).getRaw();
+                default: return 0;
+            }
+        }();
+        edit.raw = raw; if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         line->orders.insert(line->orders.begin() + static_cast<std::ptrdiff_t>(index), std::move(order));
         syncLine(*line);
         invalidateRouteCache();
@@ -716,6 +729,8 @@ namespace OpenLoco::Lines
         {
             return { false, 0, "order not found" };
         }
+        Rules::Edit edit; edit.kind = Rules::EditKind::moveRows; edit.first = edit.last = index; edit.destination = delta < 0 ? static_cast<size_t>(destination) : static_cast<size_t>(destination + 1);
+        if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         std::swap(line->orders[index], line->orders[static_cast<size_t>(destination)]);
         syncLine(*line);
         invalidateRouteCache();
@@ -729,7 +744,32 @@ namespace OpenLoco::Lines
         {
             return { false, 0, "line not found" };
         }
+        Rules::Edit edit; edit.kind = Rules::EditKind::reverseRows; if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         std::reverse(line->orders.begin(), line->orders.end());
+        syncLine(*line);
+        invalidateRouteCache();
+        return { true, 0, {} };
+    }
+
+    LineError replaceOrders(uint16_t lineId, std::vector<LineOrder> orders)
+    {
+        auto* line = findMutable(lineId);
+        if (line == nullptr || orders.size() > Limits::kMaxOrdersPerVehicle)
+            return { false, 0, "line not found or too many orders" };
+        size_t needed = 1;
+        for (const auto& order : orders)
+        {
+            if (order.type == Vehicles::OrderType::End || static_cast<unsigned>(order.type) > 5)
+                return { false, 0, "invalid order" };
+            needed += orderSize(order.type);
+        }
+        int64_t delta = 0;
+        for (const auto vehicleId : line->vehicles)
+            if (auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicleId)))
+                delta += static_cast<int64_t>(needed) - head->sizeOfOrderTable;
+        if (static_cast<int64_t>(Vehicles::OrderManager::orderTableLength()) + delta > static_cast<int64_t>(Limits::kMaxOrders))
+            return { false, 0, "order table is full" };
+        line->orders = std::move(orders);
         syncLine(*line);
         invalidateRouteCache();
         return { true, 0, {} };
@@ -742,6 +782,8 @@ namespace OpenLoco::Lines
         {
             return { false, 0, "order not found" };
         }
+        Rules::Edit edit; edit.kind = Rules::EditKind::deleteRow; edit.first = index;
+        if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         line->orders.erase(line->orders.begin() + static_cast<std::ptrdiff_t>(index));
         syncLine(*line);
         invalidateRouteCache();
@@ -1042,6 +1084,7 @@ namespace OpenLoco::Lines
                 line = findMutable(lineId);
             }
         }
+        Rules::assigned(vehicleId);
         _privateOrders.erase(vehicleId);
         if (std::find(line->vehicles.begin(), line->vehicles.end(), vehicleId) == line->vehicles.end())
         {
@@ -1066,6 +1109,7 @@ namespace OpenLoco::Lines
             {
                 continue;
             }
+            Rules::detached(vehicleId, line.id);
             _privateOrders[vehicleId] = line.orders;
             const auto own = std::find(line.ownColourVehicles.begin(), line.ownColourVehicles.end(), vehicleId) != line.ownColourVehicles.end();
             line.vehicles.erase(found);

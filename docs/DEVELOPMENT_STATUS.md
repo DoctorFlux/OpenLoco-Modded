@@ -96,3 +96,5 @@ The schemes window is still an open in-game check: open Schemes on a line, tick 
 - Branch: `codex/block-logic-programming`, published to origin. Master and checkpoint `v26.09-modded.1` are unchanged.
 - Added `Rules/Rules.h`, `Rules/Rules.cpp`, and `RulesTests.cpp`; registered the sources and tests in OpenLoco CMake. Stable order keys, atomic model edits, section validation, conditions, repeats, waits, and the 256-step runner are in memory.
 - Reconfigured Windows, built Debug, and passed 13 `RulesTests`. This is an intermediate implementation, not the completed milestone. Runtime bindings, editor, persistence and in-game checks remain.
+
+- Runtime integration: connected station, route-through, rail/road/water waypoint progression, cargo instructions, per-vehicle execution, shared ownership, clone/delete cleanup, and stable cursors on line edits. The companion service validates orders and identity and can resume repeats, waits and budget pauses. Debug passed 32 rules/integration tests and 70 rules/line tests before the final formatting pass.

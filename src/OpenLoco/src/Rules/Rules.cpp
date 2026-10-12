@@ -20,8 +20,12 @@ namespace OpenLoco::Rules
         Program p;
         p.rail = rail;
         for (auto raw : orders)
+        {
             if ((raw & 7) != 0)
+            {
                 p.rows.push_back({ p.nextKey++, raw });
+            }
+        }
         return p;
     }
     static bool action(Kind kind) { return kind == Kind::skip || kind == Kind::goTo; }
@@ -33,43 +37,74 @@ namespace OpenLoco::Rules
     }
     Result validate(const Program& p)
     {
-        if (p.blocks.size() > 256 || p.rows.size() > 64)
+        if (p.nextKey == 0 || p.blocks.size() > 256 || p.rows.size() > 63)
+        {
             return { false, "This list is too large" };
+        }
         std::set<Key> keys;
         for (const auto& r : p.rows)
+        {
             if (r.key == 0 || !keys.insert(r.key).second || (r.raw & 7) == 0 || (r.raw & 7) > 5)
+            {
                 return { false, "Invalid order key or order type" };
+            }
+        }
         for (const auto& b : p.blocks)
+        {
             if (b.id == 0 || !keys.insert(b.id).second || b.id >= p.nextKey || static_cast<unsigned>(b.kind) > static_cast<unsigned>(Kind::goTo))
+            {
                 return { false, "Invalid block key or kind" };
+            }
+        }
         for (const auto& r : p.rows)
+        {
             if (r.key >= p.nextKey)
+            {
                 return { false, "Invalid next key" };
+            }
+        }
         for (const auto& b : p.blocks)
         {
             const auto first = indexOf(p, b.first), last = indexOf(p, b.last);
             if (first >= p.rows.size() || last >= p.rows.size() || first > last || b.name.size() > 80)
+            {
                 return { false, "A block needs a consecutive section of this list" };
+            }
             if (b.kind == Kind::repeat && (b.number < 1 || b.number > 20))
+            {
                 return { false, "Repeat needs a number from 1 to 20" };
-            if (b.kind == Kind::waitUntil && (b.number == 0 || b.number > 1440 || !isRoutable(p.rows[last].raw)))
+            }
+            if (b.kind == Kind::waitUntil && (b.number == 0 || b.number > 1440))
+            {
                 return { false, "Wait needs a stop or waypoint and a time limit from 1 to 1440 minutes" };
+            }
             if (static_cast<unsigned>(b.join) > static_cast<unsigned>(Join::orCheck))
+            {
                 return { false, "Invalid joined check" };
+            }
             if (b.enabled && (b.kind == Kind::ifBlock || b.kind == Kind::waitUntil))
             {
                 for (const auto* c : { &b.condition, &b.extra })
                 {
-                    if (c == &b.extra && b.join == Join::none) continue;
+                    if (c == &b.extra && b.join == Join::none)
+                    {
+                        continue;
+                    }
                     if (static_cast<unsigned>(c->check) > static_cast<unsigned>(Check::year) || static_cast<unsigned>(c->compare) > 2 || c->cargo >= 32 || c->value < 0)
+                    {
                         return { false, "Invalid check" };
+                    }
                     if (c->check == Check::platformFree && !p.rail)
+                    {
                         return { false, "Platforms are only available on rail lists" };
+                    }
                     if (c->check == Check::cargoWaiting || c->check == Check::platformFree || c->check == Check::late || c->check == Check::onTime)
                     {
                         auto stop = indexOf(p, c->stop);
                         if (stop >= p.rows.size() || ((p.rows[stop].raw & 7) != 1 && (p.rows[stop].raw & 7) != 2))
+                        {
                             return { false, "Choose a stop on this list" };
+                        }
                     }
                 }
             }
@@ -77,32 +112,53 @@ namespace OpenLoco::Rules
             {
                 const auto* parent = blockById(p, b.parent);
                 if (parent == nullptr || (parent->kind != Kind::ifBlock && !(action(b.kind) && parent->kind == Kind::otherwise)))
+                {
                     return { false, "Skip and Go to belong inside If or Otherwise; Otherwise needs an If" };
+                }
                 if (action(b.kind) && (b.first != parent->first || b.last != parent->last))
+                {
                     return { false, "An action uses its branch's section" };
+                }
                 if (b.kind == Kind::otherwise && indexOf(p, parent->last) >= first)
+                {
                     return { false, "Otherwise must follow its If section" };
+                }
             }
             if (b.kind == Kind::goTo && b.enabled)
             {
                 const auto target = indexOf(p, b.target);
                 if (target >= p.rows.size() || !isRoutable(p.rows[target].raw))
+                {
                     return { false, "Go to needs a stop or waypoint on this list" };
+                }
             }
             for (const auto& other : p.blocks)
             {
-                if (action(b.kind) || action(other.kind)) continue;
+                if (action(b.kind) || action(other.kind))
+                {
+                    continue;
+                }
                 const auto a = indexOf(p, other.first), z = indexOf(p, other.last);
                 if ((first < a && a <= last && last < z) || (a < first && first <= z && z < last))
+                {
                     return { false, "Sections cannot cross each other" };
+                }
             }
         }
         for (size_t i = 0; i < p.rows.size(); ++i)
         {
             size_t depth = 0;
             for (const auto& b : p.blocks)
-                if (control(b.kind) && indexOf(p, b.first) <= i && i <= indexOf(p, b.last)) ++depth;
-            if (depth > 4) return { false, "Only four blocks can wrap an order" };
+            {
+                if (control(b.kind) && indexOf(p, b.first) <= i && i <= indexOf(p, b.last))
+                {
+                    ++depth;
+                }
+            }
+            if (depth > 4)
+            {
+                return { false, "Only four blocks can wrap an order" };
+            }
         }
         return { true, {} };
     }
@@ -121,37 +177,87 @@ namespace OpenLoco::Rules
             case EditKind::updateBlock:
             {
                 auto it = std::find_if(p.blocks.begin(), p.blocks.end(), [&](const Block& b) { return b.id == command.block.id; });
-                if (it == p.blocks.end()) return { false, "Block no longer exists" };
+                if (it == p.blocks.end())
+                {
+                    return { false, "Block no longer exists" };
+                }
                 *it = command.block;
                 break;
             }
             case EditKind::removeBlock:
-                if (blockById(p, command.block.id) == nullptr) return { false, "Block no longer exists" };
-                std::erase_if(p.blocks, [&](const Block& b) { return b.id == command.block.id || b.parent == command.block.id; });
-                break;
-            case EditKind::insertRow:
-                if (command.first > p.rows.size()) return { false, "Order no longer exists" };
-                p.rows.insert(p.rows.begin() + command.first, { p.nextKey++, command.raw });
-                break;
-            case EditKind::deleteRow:
             {
-                if (command.first >= p.rows.size()) return { false, "Order no longer exists" };
-                const auto removed = p.rows[command.first].key;
-                for (auto& b : p.blocks)
+                if (blockById(p, command.block.id) == nullptr)
                 {
-                    if (b.first == removed && b.last != removed) b.first = p.rows[command.first + 1].key;
-                    if (b.last == removed && b.first != removed) b.last = p.rows[command.first - 1].key;
-                    if (b.target == removed) b.enabled = false;
-                    if (b.condition.stop == removed || b.extra.stop == removed) b.enabled = false;
+                    return { false, "Block no longer exists" };
                 }
-                std::set<Key> erased;
-                for (const auto& b : p.blocks) if (b.first == removed && b.last == removed) erased.insert(b.id);
+                std::set<Key> removed{ command.block.id };
                 bool changed = true;
                 while (changed)
                 {
                     changed = false;
                     for (const auto& b : p.blocks)
-                        if (erased.contains(b.parent) && erased.insert(b.id).second) changed = true;
+                    {
+                        if (removed.contains(b.parent) && removed.insert(b.id).second)
+                        {
+                            changed = true;
+                        }
+                    }
+                }
+                std::erase_if(p.blocks, [&](const Block& b) { return removed.contains(b.id); });
+                break;
+            }
+            case EditKind::insertRow:
+                if (command.first > p.rows.size())
+                {
+                    return { false, "Order no longer exists" };
+                }
+                p.rows.insert(p.rows.begin() + command.first, { p.nextKey++, command.raw });
+                break;
+            case EditKind::deleteRow:
+            {
+                if (command.first >= p.rows.size())
+                {
+                    return { false, "Order no longer exists" };
+                }
+                const auto removed = p.rows[command.first].key;
+                for (auto& b : p.blocks)
+                {
+                    if (b.first == removed && b.last != removed)
+                    {
+                        b.first = p.rows[command.first + 1].key;
+                    }
+                    if (b.last == removed && b.first != removed)
+                    {
+                        b.last = p.rows[command.first - 1].key;
+                    }
+                    if (b.target == removed)
+                    {
+                        b.enabled = false;
+                    }
+                    if (b.condition.stop == removed || b.extra.stop == removed)
+                    {
+                        b.enabled = false;
+                    }
+                }
+                std::set<Key> erased;
+                for (const auto& b : p.blocks)
+                {
+                    if (b.first == removed && b.last == removed)
+                    {
+                        erased.insert(b.id);
+                    }
+                }
+                bool changed = true;
+                while (changed)
+                {
+                    changed = false;
+                    for (const auto& b : p.blocks)
+                    {
+                        if (erased.contains(b.parent) && erased.insert(b.id).second)
+                        {
+                            changed = true;
+                        }
+                    }
                 }
                 std::erase_if(p.blocks, [&](const Block& b) { return erased.contains(b.id); });
                 p.rows.erase(p.rows.begin() + command.first);
@@ -159,34 +265,88 @@ namespace OpenLoco::Rules
             }
             case EditKind::moveRows:
             {
-                if (command.first > command.last || command.last >= p.rows.size() || command.destination > p.rows.size()) return { false, "Invalid section move" };
-                if (command.destination >= command.first && command.destination <= command.last + 1) return { true, {} };
+                if (command.first > command.last || command.last >= p.rows.size() || command.destination > p.rows.size())
+                {
+                    return { false, "Invalid section move" };
+                }
+                if (command.destination >= command.first && command.destination <= command.last + 1)
+                {
+                    return { true, {} };
+                }
                 std::vector<Row> section(p.rows.begin() + command.first, p.rows.begin() + command.last + 1);
                 // Moving a row out shrinks its original brackets; moving a complete bracket keeps it intact.
                 for (auto& b : p.blocks)
                 {
                     auto a = indexOf(p, b.first), z = indexOf(p, b.last);
-                    if (command.first <= a && z <= command.last) continue;
-                    if (command.first <= a && a <= command.last) b.first = p.rows[command.last + 1].key;
-                    if (command.first <= z && z <= command.last) b.last = p.rows[command.first - 1].key;
+                    if (command.first <= a && z <= command.last)
+                    {
+                        continue;
+                    }
+                    if (command.first <= a && a <= command.last)
+                    {
+                        b.first = p.rows[command.last + 1].key;
+                    }
+                    if (command.first <= z && z <= command.last)
+                    {
+                        b.last = p.rows[command.first - 1].key;
+                    }
                 }
                 p.rows.erase(p.rows.begin() + command.first, p.rows.begin() + command.last + 1);
                 auto dest = command.destination;
-                if (dest > command.last) dest -= section.size();
+                if (dest > command.last)
+                {
+                    dest -= section.size();
+                }
                 p.rows.insert(p.rows.begin() + dest, section.begin(), section.end());
+                if (command.first == command.last && command.block.id == 0)
+                {
+                    std::erase_if(p.blocks, [&](const Block& b) { return b.kind == Kind::group && b.first == section.front().key && b.last == section.front().key; });
+                }
                 break;
             }
             case EditKind::reverseRows:
                 std::reverse(p.rows.begin(), p.rows.end());
-                for (auto& b : p.blocks) std::swap(b.first, b.last);
+                for (auto& b : p.blocks)
+                {
+                    std::swap(b.first, b.last);
+                }
                 break;
+            case EditKind::deleteRows:
+            {
+                if (command.first > command.last || command.last >= p.rows.size())
+                {
+                    return { false, "Invalid section deletion" };
+                }
+                for (size_t i = command.last + 1; i > command.first; --i)
+                {
+                    Edit remove;
+                    remove.kind = EditKind::deleteRow;
+                    remove.first = i - 1;
+                    const auto result = edit(p, remove);
+                    if (!result)
+                    {
+                        return result;
+                    }
+                }
+                break;
+            }
         }
         // Deleted check targets are deliberately unavailable, rather than silently rebound.
         auto checkable = p;
         for (auto& b : checkable.blocks)
-            if (!b.enabled) { b.condition = {}; b.extra = {}; b.join = Join::none; }
+        {
+            if (!b.enabled)
+            {
+                b.condition = {};
+                b.extra = {};
+                b.join = Join::none;
+            }
+        }
         const auto result = validate(checkable);
-        if (!result) return result;
+        if (!result)
+        {
+            return result;
+        }
         ++p.revision;
         original = std::move(p);
         return { true, {} };
@@ -194,9 +354,28 @@ namespace OpenLoco::Rules
 
     namespace
     {
-        enum class Op { row, check, otherwise, repeatStart, repeatEnd, wait, skip, goTo };
-        struct Instruction { Op op; Key key; size_t jump = 0; };
-        struct Code { std::vector<Instruction> instructions; std::map<Key, size_t> entries; };
+        enum class Op
+        {
+            row,
+            check,
+            otherwise,
+            repeatStart,
+            repeatEnd,
+            wait,
+            skip,
+            goTo
+        };
+        struct Instruction
+        {
+            Op op;
+            Key key;
+            size_t jump = 0;
+        };
+        struct Code
+        {
+            std::vector<Instruction> instructions;
+            std::map<Key, size_t> entries;
+        };
         Code compile(const Program& p)
         {
             Code code;
@@ -207,9 +386,18 @@ namespace OpenLoco::Rules
                 std::vector<const Block*> opening, closing;
                 for (const auto& b : p.blocks)
                 {
-                    if (action(b.kind) || b.kind == Kind::group) continue;
-                    if (indexOf(p, b.first) == i && b.kind != Kind::waitUntil) opening.push_back(&b);
-                    if (indexOf(p, b.last) == i) closing.push_back(&b);
+                    if (action(b.kind) || b.kind == Kind::group)
+                    {
+                        continue;
+                    }
+                    if (indexOf(p, b.first) == i && b.kind != Kind::waitUntil)
+                    {
+                        opening.push_back(&b);
+                    }
+                    if (indexOf(p, b.last) == i)
+                    {
+                        closing.push_back(&b);
+                    }
                 }
                 std::sort(opening.begin(), opening.end(), [&](const Block* a, const Block* b) {
                     const auto al = indexOf(p, a->last), bl = indexOf(p, b->last);
@@ -218,16 +406,22 @@ namespace OpenLoco::Rules
                 for (auto* b : opening)
                 {
                     starts[b->id] = code.instructions.size();
-                    auto op = b->kind == Kind::repeat ? Op::repeatStart : b->kind == Kind::otherwise ? Op::otherwise : Op::check;
+                    auto op = b->kind == Kind::repeat ? Op::repeatStart : b->kind == Kind::otherwise ? Op::otherwise
+                                                                                                     : Op::check;
                     code.instructions.push_back({ op, b->id });
                     bool hasActions = false;
                     for (const auto& child : p.blocks)
+                    {
                         if (child.parent == b->id && action(child.kind))
                         {
                             code.instructions.push_back({ child.kind == Kind::skip ? Op::skip : Op::goTo, child.id });
                             hasActions = true;
                         }
-                    if (hasActions) code.instructions[starts[b->id]].jump = code.instructions.size();
+                    }
+                    if (hasActions)
+                    {
+                        code.instructions[starts[b->id]].jump = code.instructions.size();
+                    }
                 }
                 code.instructions.push_back({ Op::row, p.rows[i].key });
                 std::sort(closing.begin(), closing.end(), [&](const Block* a, const Block* b) {
@@ -236,14 +430,26 @@ namespace OpenLoco::Rules
                 });
                 for (auto* b : closing)
                 {
-                    if (b->kind == Kind::waitUntil) code.instructions.push_back({ Op::wait, b->id });
-                    else if (b->kind == Kind::repeat) code.instructions.push_back({ Op::repeatEnd, b->id, starts[b->id] + 1 });
-                    else if (code.instructions[starts[b->id]].jump == 0) code.instructions[starts[b->id]].jump = code.instructions.size();
+                    if (b->kind == Kind::waitUntil)
+                    {
+                        code.instructions.push_back({ Op::wait, b->id });
+                    }
+                    else if (b->kind == Kind::repeat)
+                    {
+                        code.instructions.push_back({ Op::repeatEnd, b->id, starts[b->id] + 1 });
+                    }
+                    else if (code.instructions[starts[b->id]].jump == 0)
+                    {
+                        code.instructions[starts[b->id]].jump = code.instructions.size();
+                    }
                 }
             }
             for (auto& instruction : code.instructions)
             {
-                if (instruction.op != Op::skip) continue;
+                if (instruction.op != Op::skip)
+                {
+                    continue;
+                }
                 const auto* b = blockById(p, instruction.key);
                 const auto after = indexOf(p, b->last) + 1;
                 instruction.jump = after == p.rows.size() ? code.instructions.size() : code.entries[p.rows[after].key];
@@ -252,11 +458,20 @@ namespace OpenLoco::Rules
         }
         CheckResult evaluateBlock(const Block& b, const Evaluate& evaluate)
         {
-            if (!b.enabled) return { false, false, "This block has a missing stop or destination" };
+            if (!b.enabled)
+            {
+                return { false, false, "This block has a missing stop or destination" };
+            }
             auto first = evaluate(b.condition);
-            if (b.join == Join::none) return first;
+            if (b.join == Join::none)
+            {
+                return first;
+            }
             auto second = evaluate(b.extra);
-            if (!first.available || !second.available) return { false, false, first.available ? second.reason : first.reason };
+            if (!first.available || !second.available)
+            {
+                return { false, false, first.available ? second.reason : first.reason };
+            }
             first.passed = b.join == Join::andCheck ? first.passed && second.passed : first.passed || second.passed;
             return first;
         }
@@ -267,30 +482,54 @@ namespace OpenLoco::Rules
         r.revision = p.revision;
         const auto code = compile(p);
         const auto it = code.entries.find(order);
-        if (it != code.entries.end()) r.pc = it->second;
+        if (it != code.entries.end())
+        {
+            r.pc = it->second;
+        }
     }
     void resumeAfter(const Program& p, Runtime& r, Key order)
     {
         startAt(p, r, order);
         const auto code = compile(p);
         for (size_t i = 0; i < code.instructions.size(); ++i)
+        {
             if (code.instructions[i].op == Op::row && code.instructions[i].key == order)
             {
                 r.pc = i + 1;
                 r.current = order;
                 return;
             }
+        }
     }
     Decision next(const Program& p, Runtime& r, uint32_t tick, const Evaluate& evaluate)
     {
-        if (p.rows.empty()) return {};
-        if (r.revision != p.revision) startAt(p, r, r.current);
+        if (p.rows.empty())
+        {
+            return {};
+        }
+        if (r.revision != p.revision)
+        {
+            startAt(p, r, r.current);
+        }
         const auto code = compile(p);
-        if (r.budgetTick != tick) { r.budgetTick = tick; r.steps = 0; }
+        if (r.waiting != 0 && r.budgetTick == tick)
+        {
+            return { RunKind::waiting, r.current, r.waiting };
+        }
+        if (r.budgetTick != tick)
+        {
+            r.budgetTick = tick;
+            r.steps = 0;
+        }
         while (r.steps < 256)
         {
             ++r.steps;
-            if (r.pc >= code.instructions.size()) { r.pc = 0; r.repeats.clear(); r.branches.clear(); }
+            if (r.pc >= code.instructions.size())
+            {
+                r.pc = 0;
+                r.repeats.clear();
+                r.branches.clear();
+            }
             const auto instruction = code.instructions[r.pc];
             const auto* b = instruction.op == Op::row ? nullptr : blockById(p, instruction.key);
             switch (instruction.op)
@@ -302,9 +541,15 @@ namespace OpenLoco::Rules
                 case Op::check:
                 case Op::otherwise:
                 {
-                    const auto result = instruction.op == Op::check ? evaluateBlock(*b, evaluate) : CheckResult{ true, r.branches.contains(b->parent) && !r.branches[b->parent], {} };
+                    const auto result = r.prechecked.contains(b->id) ? CheckResult{ true, r.prechecked[b->id], {} }
+                        : instruction.op == Op::check                ? evaluateBlock(*b, evaluate)
+                                                                     : CheckResult{ true, r.branches.contains(b->parent) && !r.branches[b->parent], {} };
+                    r.prechecked.erase(b->id);
                     r.branches[b->id] = result.available && result.passed;
-                    if (!result.available) r.status = result.reason.empty() ? "Check unavailable" : result.reason;
+                    if (!result.available)
+                    {
+                        r.status = result.reason.empty() ? "Check unavailable" : result.reason;
+                    }
                     r.pc = r.branches[b->id] ? r.pc + 1 : instruction.jump;
                     break;
                 }
@@ -313,29 +558,62 @@ namespace OpenLoco::Rules
                     ++r.pc;
                     break;
                 case Op::repeatEnd:
-                    if (r.repeats.contains(b->id) && r.repeats[b->id] > 1) { --r.repeats[b->id]; r.pc = instruction.jump; }
-                    else { r.repeats.erase(b->id); ++r.pc; }
+                    if (r.repeats.contains(b->id) && r.repeats[b->id] > 1)
+                    {
+                        --r.repeats[b->id];
+                        r.pc = instruction.jump;
+                    }
+                    else
+                    {
+                        r.repeats.erase(b->id);
+                        ++r.pc;
+                    }
                     break;
                 case Op::wait:
                 {
                     const auto result = evaluateBlock(*b, evaluate);
-                    if (result.available && result.passed) { r.waiting = 0; ++r.pc; break; }
-                    if (r.waiting != b->id) { r.waiting = b->id; r.waitStart = tick; }
+                    if (result.available && result.passed)
+                    {
+                        r.waiting = 0;
+                        ++r.pc;
+                        break;
+                    }
+                    if (r.waiting != b->id)
+                    {
+                        r.waiting = b->id;
+                        r.waitStart = tick;
+                    }
                     if (static_cast<uint32_t>(tick - r.waitStart) >= static_cast<uint32_t>(b->number) * 40)
                     {
-                        r.waiting = 0; r.status = "Time limit reached"; ++r.pc; break;
+                        r.waiting = 0;
+                        r.status = "Time limit reached";
+                        ++r.pc;
+                        break;
                     }
                     r.status = result.available ? "Waiting until the check passes" : result.reason;
                     return { RunKind::waiting, r.current, b->id };
                 }
                 case Op::skip:
+                    std::erase_if(r.repeats, [&](const auto& frame) {
+                        const auto* repeat = blockById(p, frame.first);
+                        return repeat == nullptr || (indexOf(p, repeat->last) <= indexOf(p, b->last) && indexOf(p, repeat->first) >= indexOf(p, b->first));
+                    });
                     r.pc = instruction.jump;
                     break;
                 case Op::goTo:
                 {
-                    if (!b->enabled) { r.status = "Go to destination is missing"; ++r.pc; break; }
+                    if (!b->enabled)
+                    {
+                        r.status = "Go to destination is missing";
+                        ++r.pc;
+                        break;
+                    }
                     auto target = code.entries.find(b->target);
-                    if (target == code.entries.end()) { r.status = "Go to destination is missing"; return { RunKind::fault, r.current, b->id }; }
+                    if (target == code.entries.end())
+                    {
+                        r.status = "Go to destination is missing";
+                        return { RunKind::fault, r.current, b->id };
+                    }
                     // Retain a repeat only when the destination is still inside it.
                     std::erase_if(r.repeats, [&](const auto& frame) {
                         const auto* repeat = blockById(p, frame.first);
@@ -348,5 +626,50 @@ namespace OpenLoco::Rules
         }
         r.status = "Continuing rules next tick";
         return { RunKind::yielded, r.current, 0 };
+    }
+    bool validRuntime(const Program& p, const Runtime& r)
+    {
+        const auto code = compile(p);
+        if (r.revision != p.revision || r.pc > code.instructions.size() || r.steps > 256 || r.repeats.size() > 4 || r.branches.size() > 256 || r.status.size() > 256)
+        {
+            return false;
+        }
+        if (r.current && indexOf(p, r.current) >= p.rows.size())
+        {
+            return false;
+        }
+        if (r.waiting)
+        {
+            const auto* b = blockById(p, r.waiting);
+            if (!b || b->kind != Kind::waitUntil || r.pc >= code.instructions.size() || code.instructions[r.pc].op != Op::wait || code.instructions[r.pc].key != r.waiting)
+            {
+                return false;
+            }
+        }
+        for (auto [key, count] : r.repeats)
+        {
+            const auto* b = blockById(p, key);
+            if (!b || b->kind != Kind::repeat || count < 1 || count > b->number)
+            {
+                return false;
+            }
+        }
+        for (auto [key, passed] : r.branches)
+        {
+            const auto* b = blockById(p, key);
+            if (!b || (b->kind != Kind::ifBlock && b->kind != Kind::otherwise))
+            {
+                return false;
+            }
+        }
+        for (auto [key, passed] : r.prechecked)
+        {
+            const auto* b = blockById(p, key);
+            if (!b || (b->kind != Kind::ifBlock && b->kind != Kind::otherwise))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "GameCommands/Vehicles/VehicleOrderUp.h"
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
@@ -55,6 +56,7 @@ namespace OpenLoco::GameCommands
         auto oldOffsetDiff = currentOrder.getOffset() - prevOrder->getOffset();
 
         // Actually swap the two orders
+        if (!Rules::movedPrivateOrder(enumValue(head->id), args.orderOffset, true)) return kFailure;
         const auto newOffsetDiff = Vehicles::OrderManager::swapAdjacentOrders(*prevOrder, currentOrder);
 
         // Compensate if we swapped the current order around

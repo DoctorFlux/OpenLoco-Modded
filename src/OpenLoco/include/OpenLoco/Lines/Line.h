@@ -216,6 +216,7 @@ namespace OpenLoco::Lines
     LineError removeOrder(uint16_t lineId, size_t index);
     LineError moveOrder(uint16_t lineId, size_t index, int delta);
     LineError reverseOrders(uint16_t lineId);
+    LineError replaceOrders(uint16_t lineId, std::vector<LineOrder> orders);
     LineOrder fromVehicleOrder(const Vehicles::Order& order);
     LineError assignVehicle(uint16_t lineId, uint16_t vehicleId, TransportMode mode);
     // Switches the line when it has no placed vehicles of another mode and its stops do not disagree.

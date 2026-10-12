@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "GameCommands/Vehicles/VehicleOrderSkip.h"
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
@@ -29,6 +30,7 @@ namespace OpenLoco::GameCommands
         Vehicles::OrderRingView orders(head->orderTableOffset, head->currentOrder);
         auto nextOrder = ++orders.begin();
         head->currentOrder = nextOrder->getOffset() - head->orderTableOffset;
+        Rules::manuallySkipped(enumValue(head->id));
         return 0;
     }
 
