@@ -388,6 +388,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
         {
             return routeProgram(window) ? Rules::programRowAt(routeLayout(window), y) : static_cast<size_t>(std::max<int>(0, y) / 10);
         }
+        static Rules::DropPosition routeDropAt(const Window& self, int16_t y)
+        {
+            const auto* program = routeProgram(self);
+            return program ? Rules::programDrop(*program, routeLayout(self), y) : Rules::DropPosition{ routeRowAt(self, y), 0 };
+        }
         static int16_t routeRowTop(const Window& window, size_t row)
         {
             if (!routeProgram(window))
@@ -4073,12 +4078,15 @@ namespace OpenLoco::Ui::Windows::Vehicle
         {
             const auto& view = self.widgets[widx::routeList];
             std::optional<size_t> destination;
+            Rules::Key into = 0;
             if (WindowManager::findAt(screenX, screenY) == &self && screenX >= self.x + view.left && screenX < self.x + view.right - 12 && screenY >= self.y + view.top && screenY <= self.y + view.bottom)
             {
-                destination = routeRowAt(self, static_cast<int16_t>(screenY - self.y - view.top - 1 + self.scrollAreas[0].contentOffsetY));
+                const auto position = routeDropAt(self, static_cast<int16_t>(screenY - self.y - view.top - 1 + self.scrollAreas[0].contentOffsetY));
+                destination = position.row;
+                into = position.into;
             }
             const auto owner = Rules::ownerForVehicle(self.number);
-            if (const auto edit = orderDrag.finish(owner, Rules::snapshot(owner), destination))
+            if (const auto edit = orderDrag.finish(owner, Rules::snapshot(owner), destination, into))
             {
                 Rules::submit(owner, *edit);
                 self.updateScrollWidgets();
@@ -4427,9 +4435,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
             int16_t orderNumber = 1;
             for (auto& order : getOrderTable(head))
             {
-                int16_t y = routeRowTop(self, rowNum);
+                int16_t y = program && static_cast<size_t>(rowNum) < layout.orderTops.size() ? layout.orderTops[rowNum] + 3 : static_cast<int16_t>(rowNum * 10);
                 const auto item = std::find_if(layout.items.begin(), layout.items.end(), [&](const Rules::ProgramVisual& item) { return !item.block && item.row == static_cast<size_t>(rowNum); });
-                const auto x = static_cast<int16_t>(8 + (item != layout.items.end() ? std::min<int>(item->depth, 8) * 8 : 0));
+                const auto x = static_cast<int16_t>(8 + (item != layout.items.end() ? Rules::visualIndent(*item, self.widgets[widx::routeList].width() - 14) : 0));
                 auto strFormat = StringIds::black_stringid;
                 if (self.orderTableIndex == rowNum)
                 {
@@ -4478,7 +4486,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             }
 
             // Output the end of orders
-            Ui::Point loc = { 8, static_cast<int16_t>(routeRowTop(self, rowNum)) };
+            Ui::Point loc = { 8, static_cast<int16_t>(program ? layout.height : rowNum * 10) };
             auto strFormat = StringIds::black_stringid;
             if (self.orderTableIndex == rowNum)
             {
@@ -4497,11 +4505,15 @@ namespace OpenLoco::Ui::Windows::Vehicle
             if (orderDrag.active && orderDrag.moved && orderDrag.owner == Rules::ownerForVehicle(self.number))
             {
                 const auto mouse = Input::getMouseLocation();
-                const auto destination = routeRowAt(self, static_cast<int16_t>(mouse.y - self.y - self.widgets[widx::routeList].top - 1 + self.scrollAreas[0].contentOffsetY));
+                const auto position = routeDropAt(self, static_cast<int16_t>(mouse.y - self.y - self.widgets[widx::routeList].top - 1 + self.scrollAreas[0].contentOffsetY));
+                const auto destination = position.row;
                 auto preview = orderDrag;
-                if (WindowManager::findAt(mouse.x, mouse.y) == &self && preview.finish(orderDrag.owner, Rules::snapshot(orderDrag.owner), destination))
+                if (WindowManager::findAt(mouse.x, mouse.y) == &self && preview.finish(orderDrag.owner, Rules::snapshot(orderDrag.owner), destination, position.into))
                 {
-                    drawingCtx.fillRect(0, static_cast<int16_t>(routeRowTop(self, destination)), self.widgets[widx::routeList].width() - 14, static_cast<int16_t>(routeRowTop(self, destination) + 1), PaletteIndex::black0, Gfx::RectFlags::none);
+                    const auto canvasY = static_cast<int16_t>(mouse.y - self.y - self.widgets[widx::routeList].top - 1 + self.scrollAreas[0].contentOffsetY);
+                    const auto* hit = Rules::programHit(layout, canvasY);
+                    const auto markerY = hit && hit->closing ? hit->top + 10 : routeRowTop(self, destination);
+                    drawingCtx.fillRect(0, markerY, self.widgets[widx::routeList].width() - 14, markerY + 1, PaletteIndex::black0, Gfx::RectFlags::none);
                 }
             }
         }

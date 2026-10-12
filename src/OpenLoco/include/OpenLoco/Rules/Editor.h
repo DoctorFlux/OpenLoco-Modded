@@ -40,6 +40,7 @@ namespace OpenLoco::Rules
         uint8_t depth = 0;
         int16_t bottom = 0;
         std::vector<std::string> lines;
+        bool closing = false; // Interior append slot and closing arm of a C block.
     };
     struct ProgramLayout
     {
@@ -51,7 +52,19 @@ namespace OpenLoco::Rules
     ProgramLayout programLayout(const Program& program, int16_t width, int16_t orderHeight = 10);
     const ProgramVisual* programHit(const ProgramLayout& layout, int16_t y);
     size_t programRowAt(const ProgramLayout& layout, int16_t y);
-    void drawProgramBlocks(Gfx::DrawingContext& context, const Program& program, const Runtime* runtime, const ProgramLayout& layout, int16_t width);
+    struct DropPosition
+    {
+        size_t row;
+        Key into = 0;
+    };
+    DropPosition programDrop(const Program& program, const ProgramLayout& layout, int16_t y);
+    int16_t visualIndent(const ProgramVisual& visual, int16_t width);
+    bool orderGripHit(const ProgramVisual& visual, int16_t x, int16_t origin, int16_t width);
+    std::optional<Edit> blockDrop(const Program& program, Kind kind, size_t first, size_t last, Key hovered = 0);
+    std::optional<Edit> paletteDrop(const Program& program, const ProgramLayout& layout, Kind kind, int16_t y, std::optional<std::pair<size_t, size_t>> selection = {});
+    void drawStackBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, Kind kind, Feedback feedback = Feedback::idle, bool selected = false);
+    void drawOrderBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, bool selected = false);
+    void drawProgramBlocks(Gfx::DrawingContext& context, const Program& program, const Runtime* runtime, const ProgramLayout& layout, int16_t width, int16_t origin = 0, Key selected = 0, bool labels = true);
     struct OrderFeedback
     {
         std::string sentence;
@@ -71,7 +84,7 @@ namespace OpenLoco::Rules
         bool active = false, moved = false;
         void begin(Owner owner, const Program& program, size_t row, int16_t x, int16_t y);
         void motion(int16_t x, int16_t y);
-        std::optional<Edit> finish(Owner owner, const Program& program, std::optional<size_t> destination);
+        std::optional<Edit> finish(Owner owner, const Program& program, std::optional<size_t> destination, Key into = 0);
         void cancel();
     };
     EditorLayout editorLayout(int16_t width, int16_t height);

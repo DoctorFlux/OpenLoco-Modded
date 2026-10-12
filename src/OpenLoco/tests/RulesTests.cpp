@@ -1,5 +1,7 @@
 #include <OpenLoco/Date.h>
 #include <OpenLoco/Entities/EntityManager.h>
+#include <OpenLoco/Graphics/RenderTarget.h>
+#include <OpenLoco/Graphics/SoftwareDrawingContext.h>
 #include <OpenLoco/Lines/Line.h>
 #include <OpenLoco/Map/MapSelection.h>
 #include <OpenLoco/Map/StationElement.h>
@@ -1238,9 +1240,14 @@ TEST(RulesTests, programLayoutContainsRealNestedBracketsAndConsistentHitTests)
             EXPECT_EQ(hit->row, item.row);
             EXPECT_EQ(hit->block, item.block);
             EXPECT_EQ(programRowAt(layout, item.top + 1), item.row);
-            if (item.block)
+            if (item.block && !item.closing)
             {
                 EXPECT_GT(item.bottom, item.top + item.height);
+            }
+            if (item.closing)
+            {
+                EXPECT_EQ(programDrop(p, layout, item.top + 1).row, item.row + 1);
+                EXPECT_EQ(programDrop(p, layout, item.top + 1).into, item.block);
             }
         }
         EXPECT_GT(layout.height, 10 * p.rows.size());
@@ -1333,7 +1340,7 @@ TEST(RulesTests, maximumBlockCountFitsNativeScrollOffsets)
     EXPECT_GT(layout.height, 0);
     EXPECT_LT(layout.height, 32767);
     EXPECT_EQ(programRowAt(layout, layout.orderTops.back()), 4);
-    EXPECT_EQ(layout.items.back().depth, 8);
+    EXPECT_EQ(layout.items[256].depth, 8);
 }
 TEST_F(GameRulesFixture, sharedOrderDraggingRefreshesTheAssignedVehiclesMapNumbers)
 {
@@ -1388,4 +1395,360 @@ TEST_F(GameRulesFixture, movingAWaypointRefreshesItsWorldNumberAndPosition)
     EXPECT_NE(Vehicles::OrderManager::displayFrames().front().frame.left[0], oldLeft);
     EXPECT_NE(vehicleNextStop(enumValue(head->id)).find("stop 2"), std::string::npos);
     World::resetMapSelectionFlags();
+}
+
+TEST(RulesTests, adjacentStopCanJoinIfWithoutMovingItsPhysicalOrder)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    const auto rows = p.rows;
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = move.last = move.destination = 1;
+    move.into = p.blocks[0].id;
+    ASSERT_TRUE(edit(p, move));
+    EXPECT_EQ(p.rows, rows);
+    EXPECT_EQ(p.blocks[0].last, p.rows[1].key);
+    Runtime run;
+    EXPECT_EQ(next(p, run, 0, no).order, p.rows[2].key);
+    EXPECT_EQ(next(p, run, 1, yes).order, p.rows[3].key);
+}
+TEST(RulesTests, explicitDropAppendsStopsAndWaypointsToEveryContainerKind)
+{
+    for (auto kind : { Kind::ifBlock, Kind::otherwise, Kind::elseIf, Kind::repeat, Kind::waitUntil, Kind::group })
+    {
+        auto p = route();
+        if (kind == Kind::otherwise || kind == Kind::elseIf)
+        {
+            ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+        }
+        auto block = section(p, kind, 1, 1);
+        if (kind == Kind::otherwise || kind == Kind::elseIf)
+        {
+            block.parent = p.blocks[0].id;
+        }
+        ASSERT_TRUE(add(p, block));
+        const auto target = p.blocks.back().id;
+        Edit move;
+        move.kind = EditKind::moveRows;
+        move.first = move.last = move.destination = 2; // Adjacent waypoint used to remain outside.
+        move.into = target;
+        ASSERT_TRUE(edit(p, move));
+        EXPECT_EQ(p.blocks.back().last, p.rows[2].key);
+        move.first = move.last = 4;
+        move.destination = 3;
+        ASSERT_TRUE(edit(p, move));
+        EXPECT_EQ(p.blocks.back().last, p.rows[3].key);
+        EXPECT_EQ(p.rows[2].raw & 7, 3);
+        EXPECT_EQ(p.rows[3].raw & 7, 1);
+    }
+}
+TEST(RulesTests, explicitDropGrowsNestedAncestorsAndAttachedActionsAtomically)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::repeat, 0, 1)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 1)));
+    auto skip = section(p, Kind::skip, 1, 1);
+    skip.parent = p.blocks[1].id;
+    ASSERT_TRUE(add(p, skip));
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = move.last = move.destination = 2;
+    move.into = p.blocks[1].id;
+    ASSERT_TRUE(edit(p, move));
+    for (const auto& block : p.blocks)
+    {
+        EXPECT_EQ(block.last, p.rows[2].key);
+    }
+    EXPECT_TRUE(validate(p));
+}
+TEST(RulesTests, dropIntoRejectsBadReferencesCrossingBracketsAndSelfContainment)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    ASSERT_TRUE(add(p, section(p, Kind::group, 1, 2)));
+    const auto before = p;
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = move.last = move.destination = 1;
+    move.into = p.blocks[0].id;
+    EXPECT_FALSE(edit(p, move)); // Would cross the Group.
+    EXPECT_EQ(p, before);
+    move.into = 9000;
+    EXPECT_FALSE(edit(p, move));
+    EXPECT_EQ(p, before);
+    move.into = p.blocks[0].id;
+    move.first = move.last = move.destination = 0;
+    EXPECT_FALSE(edit(p, move));
+    EXPECT_EQ(p, before);
+}
+TEST(RulesTests, explicitInsertionAtEitherEdgeJoinsWhileOrdinaryInsertionStaysOutside)
+{
+    for (size_t edge : { size_t{ 1 }, size_t{ 2 } })
+    {
+        auto p = route();
+        ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 1)));
+        Edit insert;
+        insert.kind = EditKind::insertRow;
+        insert.first = edge;
+        insert.raw = 3;
+        auto plain = p;
+        ASSERT_TRUE(edit(plain, insert));
+        EXPECT_NE(plain.blocks[0].first, plain.rows[edge].key);
+        EXPECT_NE(plain.blocks[0].last, plain.rows[edge].key);
+        insert.into = p.blocks[0].id;
+        ASSERT_TRUE(edit(p, insert));
+        EXPECT_LE(indexOf(p, p.blocks[0].first), edge);
+        EXPECT_GE(indexOf(p, p.blocks[0].last), edge);
+    }
+}
+TEST(RulesTests, paletteActionsUseEnclosingBranchWhenDroppedOnAnyInteriorOrder)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::repeat, 0, 3)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 3)));
+    for (auto kind : { Kind::skip, Kind::goTo, Kind::breakLoop })
+    {
+        const auto drop = blockDrop(p, kind, 2, 2);
+        ASSERT_TRUE(drop);
+        EXPECT_EQ(drop->block.parent, p.blocks[1].id);
+        EXPECT_EQ(drop->block.first, p.rows[1].key);
+        EXPECT_EQ(drop->block.last, p.rows[3].key);
+        if (kind == Kind::breakLoop)
+        {
+            EXPECT_EQ(drop->block.target, p.blocks[0].id);
+        }
+    }
+    const auto child = blockDrop(p, Kind::ifBlock, 2, 2);
+    ASSERT_TRUE(child);
+    auto nested = p;
+    ASSERT_TRUE(edit(nested, *child));
+    EXPECT_EQ(nested.blocks.back().first, p.rows[2].key);
+    EXPECT_EQ(nested.blocks.back().last, p.rows[2].key);
+}
+TEST(RulesTests, droppingElseOnItsHeaderChoosesFollowingSection)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 1)));
+    for (auto kind : { Kind::otherwise, Kind::elseIf })
+    {
+        const auto drop = blockDrop(p, kind, 0, 1, p.blocks[0].id);
+        ASSERT_TRUE(drop);
+        EXPECT_EQ(drop->block.parent, p.blocks[0].id);
+        EXPECT_EQ(drop->block.first, p.rows[2].key);
+    }
+}
+TEST(RulesTests, everyNestedGripAndAppendSlotIsReachableAtNarrowAndWideSizes)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::repeat, 0, 2)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    ASSERT_TRUE(add(p, section(p, Kind::group, 1, 2)));
+    for (int16_t width : { int16_t{ 138 }, int16_t{ 200 }, int16_t{ 460 } })
+    {
+        const auto layout = programLayout(p, width, 20);
+        std::set<Key> closing;
+        for (const auto& visual : layout.items)
+        {
+            if (visual.closing)
+            {
+                EXPECT_EQ(programDrop(p, layout, visual.top + 3).into, visual.block);
+                closing.insert(visual.block);
+            }
+            else if (!visual.block)
+            {
+                const auto grip = 142 + visualIndent(visual, width) + 8;
+                EXPECT_TRUE(orderGripHit(visual, grip, 138, width));
+                EXPECT_FALSE(orderGripHit(visual, grip + 20, 138, width));
+            }
+        }
+        EXPECT_EQ(closing.size(), p.blocks.size());
+        EXPECT_LE(visualIndent(layout.items[4], width), width - 92);
+    }
+}
+TEST(RulesTests, normalOrderDragCarriesTheExplicitAppendMembership)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    const Owner owner{ OwnerKind::line, 9 };
+    OrderDrag drag;
+    drag.begin(owner, p, 1, 0, 0);
+    drag.motion(20, 20);
+    const auto drop = drag.finish(owner, p, 1, p.blocks[0].id);
+    ASSERT_TRUE(drop);
+    EXPECT_EQ(drop->into, p.blocks[0].id);
+    ASSERT_TRUE(edit(p, *drop));
+    EXPECT_EQ(p.blocks[0].last, p.rows[1].key);
+}
+TEST(RulesTests, stackSilhouetteHasRoundedCornersNotchAndBottomConnector)
+{
+    using namespace OpenLoco;
+    std::vector<uint8_t> pixels(120 * 80, 255);
+    Gfx::SoftwareDrawingContext ctx;
+    ctx.pushRenderTarget({ pixels.data(), 0, 0, 120, 80, 0 });
+    drawStackBlock(ctx, 10, 10, 90, 24, Kind::ifBlock);
+    auto at = [&](int x, int y) { return pixels[y * 120 + x]; };
+    EXPECT_EQ(at(10, 10), 255); // Rounded outside corner.
+    EXPECT_NE(at(14, 10), 255);
+    EXPECT_EQ(at(35, 10), 255); // Top snap notch.
+    EXPECT_NE(at(35, 14), 255);
+    EXPECT_NE(at(35, 35), 255); // Bottom connector.
+    EXPECT_EQ(at(14, 35), 255);
+    EXPECT_EQ(at(35, 37), 255);
+    ctx.reset();
+}
+TEST_F(GameRulesFixture, addingAWaypointInsidePrivateIfPreservesReachedStopAndRoundTrips)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const auto owner = ownerForVehicle(id);
+    auto p = snapshot(owner);
+    Edit editCommand;
+    editCommand.block = section(p, Kind::ifBlock, 0, 0);
+    ASSERT_TRUE(submit(owner, editCommand));
+    const auto key = find(owner)->blocks[0].id;
+    Vehicles::OrderRouteWaypoint waypoint({ 16, 20 }, 0, 0, 0);
+    Vehicles::OrderManager::insertOrder(head, head->sizeOfOrderTable - 1, &waypoint);
+    const auto reached = head->currentOrder;
+    editCommand = {};
+    editCommand.kind = EditKind::moveRows;
+    editCommand.first = editCommand.last = 3;
+    editCommand.destination = 1;
+    editCommand.into = key;
+    ASSERT_TRUE(submit(owner, editCommand));
+    EXPECT_EQ(head->currentOrder, reached);
+    EXPECT_EQ(indexOf(*find(owner), find(owner)->blocks[0].last), 1);
+    const auto path = std::filesystem::temp_directory_path() / "openloco-inside-rules.SV5";
+    ASSERT_TRUE(saveCompanion(path));
+    const auto expected = *find(owner);
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_EQ(*find(owner), expected);
+    std::filesystem::remove(companionPath(path));
+}
+TEST_F(GameRulesFixture, sharedIfAcceptsSeveralStopsThroughTheSameValidatedCommand)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto line = Lines::createLine("Inside", TransportMode::rail, 2);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(head->id), TransportMode::rail).ok);
+    const Owner owner{ OwnerKind::line, line.id };
+    auto p = snapshot(owner);
+    Edit editCommand;
+    editCommand.block = section(p, Kind::ifBlock, 0, 0);
+    ASSERT_TRUE(submit(owner, editCommand));
+    const auto key = find(owner)->blocks[0].id;
+    editCommand = {};
+    editCommand.kind = EditKind::moveRows;
+    editCommand.first = editCommand.last = editCommand.destination = 1;
+    editCommand.into = key;
+    ASSERT_TRUE(submit(owner, editCommand));
+    editCommand.first = editCommand.last = editCommand.destination = 2;
+    ASSERT_TRUE(submit(owner, editCommand));
+    EXPECT_EQ(find(owner)->blocks[0].last, find(owner)->rows[2].key);
+    EXPECT_EQ(Lines::findLine(line.id)->orders.size(), 3);
+}
+
+TEST(RulesTests, expandingOneBranchKeepsItsWholePairedElseIfChainAndActionsAttached)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    auto skip = section(p, Kind::skip, 0, 0);
+    skip.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, skip));
+    auto middle = section(p, Kind::elseIf, 0, 0);
+    middle.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, middle));
+    skip.parent = p.blocks.back().id;
+    ASSERT_TRUE(add(p, skip));
+    auto last = section(p, Kind::otherwise, 0, 0);
+    last.parent = p.blocks[2].id;
+    ASSERT_TRUE(add(p, last));
+    Edit insert;
+    insert.kind = EditKind::insertRow;
+    insert.first = 1;
+    insert.raw = 3;
+    insert.into = p.blocks[0].id;
+    ASSERT_TRUE(edit(p, insert));
+    for (const auto& b : p.blocks)
+    {
+        EXPECT_EQ(b.last, p.rows[1].key);
+    }
+    EXPECT_TRUE(validate(p));
+}
+
+TEST(RulesTests, cShapeRasterLeavesAnOpenMouthAndIncludesFullClosingArm)
+{
+    using namespace OpenLoco;
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    const auto layout = programLayout(p, 200, 20);
+    std::vector<uint8_t> pixels(200 * layout.height, 255);
+    Gfx::SoftwareDrawingContext ctx;
+    ctx.pushRenderTarget({ pixels.data(), 0, 0, 200, layout.height, 0 });
+    drawProgramBlocks(ctx, p, nullptr, layout, 200, 0, 0, false); // Geometry uses no original font assets.
+    auto at = [&](int x, int y) { return pixels[y * 200 + x]; };
+    const auto body = layout.orderTops[1] + 7;
+    EXPECT_NE(at(5, body), 255);  // Thick C spine.
+    EXPECT_EQ(at(13, body), 255); // Open cavity before the inserted statement.
+    EXPECT_NE(at(30, body), 255); // The order's puzzle body.
+    const auto end = std::find_if(layout.items.begin(), layout.items.end(), [](const ProgramVisual& v) { return v.closing; });
+    ASSERT_NE(end, layout.items.end());
+    EXPECT_NE(at(150, end->top + 18), 255); // Full-width closing arm.
+    ctx.reset();
+}
+
+TEST(RulesTests, aWholeSelectedSectionCanSnapInsideAnotherBlock)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    ASSERT_TRUE(add(p, section(p, Kind::group, 2, 3)));
+    const auto group = p.blocks[1].id;
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = 2;
+    move.last = 3;
+    move.destination = 1;
+    move.into = p.blocks[0].id;
+    move.block.id = group;
+    ASSERT_TRUE(edit(p, move));
+    EXPECT_EQ(indexOf(p, p.blocks[0].last), 2);
+    EXPECT_EQ(indexOf(p, p.blocks[1].first), 1);
+    EXPECT_EQ(indexOf(p, p.blocks[1].last), 2);
+    Runtime run;
+    EXPECT_EQ(next(p, run, 0, no).order, p.rows[3].key);
+}
+
+TEST(RulesTests, paletteDropsUseTheInteriorSideOfTheClosingSlot)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    const auto layout = programLayout(p, 300, 20);
+    const auto close = std::find_if(layout.items.begin(), layout.items.end(), [](const ProgramVisual& v) { return v.closing; });
+    ASSERT_NE(close, layout.items.end());
+    for (auto kind : { Kind::ifBlock, Kind::repeat, Kind::waitUntil, Kind::group })
+    {
+        const auto drop = paletteDrop(p, layout, kind, close->top + 1);
+        ASSERT_TRUE(drop);
+        EXPECT_EQ(drop->block.first, p.rows[2].key);
+        EXPECT_EQ(drop->block.last, p.rows[2].key);
+    }
+    const auto skip = paletteDrop(p, layout, Kind::skip, close->top + 1);
+    ASSERT_TRUE(skip);
+    EXPECT_EQ(skip->block.parent, p.blocks[0].id);
+    const auto otherwise = paletteDrop(p, layout, Kind::otherwise, close->top + 1);
+    ASSERT_TRUE(otherwise);
+    EXPECT_EQ(otherwise->block.first, p.rows[3].key);
+    const auto selected = paletteDrop(p, layout, Kind::repeat, close->top + 1, std::pair<size_t, size_t>{ 1, 2 });
+    ASSERT_TRUE(selected);
+    EXPECT_EQ(selected->block.first, p.rows[1].key);
+    EXPECT_EQ(selected->block.last, p.rows[2].key);
+    EXPECT_FALSE(paletteDrop(p, layout, Kind::group, layout.height + 5));
 }

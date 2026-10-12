@@ -186,9 +186,64 @@ namespace OpenLoco::Rules
         }
         return { true, {} };
     }
+    static void resizeAttached(Program& p, const Block& old, Key first, Key last)
+    {
+        std::vector<Block> pending{ old };
+        std::set<Key> seen;
+        while (!pending.empty())
+        {
+            const auto parent = pending.back();
+            pending.pop_back();
+            if (!seen.insert(parent.id).second)
+            {
+                continue;
+            }
+            for (auto& child : p.blocks)
+            {
+                if (child.id == parent.id || (child.parent == parent.id && (action(child.kind) || ((child.kind == Kind::otherwise || child.kind == Kind::elseIf) && child.first == parent.first && child.last == parent.last))))
+                {
+                    if (child.id != parent.id)
+                    {
+                        pending.push_back(child);
+                    }
+                    child.first = first;
+                    child.last = last;
+                }
+            }
+        }
+    }
+    static void growInto(Program& p, const Program& before, Key into, Key first, Key last)
+    {
+        const auto* target = blockById(before, into);
+        for (const auto& old : before.blocks)
+        {
+            if (action(old.kind) || indexOf(before, old.first) > indexOf(before, target->first) || indexOf(before, old.last) < indexOf(before, target->last))
+            {
+                continue;
+            }
+            const auto* current = blockById(p, old.id);
+            const auto a = std::min(indexOf(p, current->first), indexOf(p, first));
+            const auto z = std::max(indexOf(p, current->last), indexOf(p, last));
+            resizeAttached(p, *current, p.rows[a].key, p.rows[z].key);
+        }
+    }
     Result edit(Program& original, const Edit& command)
     {
         Program p = original;
+        if (command.into)
+        {
+            const auto* target = blockById(p, command.into);
+            const auto boundary = command.kind == EditKind::insertRow ? command.first : command.destination;
+            if ((command.kind != EditKind::moveRows && command.kind != EditKind::insertRow) || !target || action(target->kind)
+                || boundary < indexOf(p, target->first) || boundary > indexOf(p, target->last) + 1)
+            {
+                return { false, "Choose a drop position inside this block" };
+            }
+            if (command.kind == EditKind::moveRows && command.first <= indexOf(p, target->first) && indexOf(p, target->last) <= command.last)
+            {
+                return { false, "A section cannot be dropped into itself" };
+            }
+        }
         switch (command.kind)
         {
             case EditKind::addBlock:
@@ -207,25 +262,7 @@ namespace OpenLoco::Rules
                 }
                 const auto old = *it;
                 *it = command.block;
-                // Branch actions and same-section Otherwise stay attached when their enclosing bracket grows.
-                std::set<Key> resized{ old.id };
-                for (auto& child : p.blocks)
-                {
-                    if (child.parent == old.id && (action(child.kind) || ((child.kind == Kind::otherwise || child.kind == Kind::elseIf) && child.first == old.first && child.last == old.last)))
-                    {
-                        child.first = command.block.first;
-                        child.last = command.block.last;
-                        resized.insert(child.id);
-                    }
-                }
-                for (auto& child : p.blocks)
-                {
-                    if (action(child.kind) && resized.contains(child.parent))
-                    {
-                        child.first = command.block.first;
-                        child.last = command.block.last;
-                    }
-                }
+                resizeAttached(p, old, command.block.first, command.block.last);
                 break;
             }
             case EditKind::removeBlock:
@@ -256,6 +293,10 @@ namespace OpenLoco::Rules
                     return { false, "Order no longer exists" };
                 }
                 p.rows.insert(p.rows.begin() + command.first, { p.nextKey++, command.raw });
+                if (command.into)
+                {
+                    growInto(p, original, command.into, p.rows[command.first].key, p.rows[command.first].key);
+                }
                 break;
             case EditKind::deleteRow:
             {
@@ -315,7 +356,12 @@ namespace OpenLoco::Rules
                 }
                 if (command.destination >= command.first && command.destination <= command.last + 1)
                 {
-                    return { true, {} };
+                    if (!command.into)
+                    {
+                        return { true, {} };
+                    }
+                    growInto(p, original, command.into, p.rows[command.first].key, p.rows[command.last].key);
+                    break;
                 }
                 std::vector<Row> section(p.rows.begin() + command.first, p.rows.begin() + command.last + 1);
                 // Moving a row out shrinks its original brackets; moving a complete bracket keeps it intact.
@@ -342,6 +388,10 @@ namespace OpenLoco::Rules
                     dest -= section.size();
                 }
                 p.rows.insert(p.rows.begin() + dest, section.begin(), section.end());
+                if (command.into)
+                {
+                    growInto(p, original, command.into, section.front().key, section.back().key);
+                }
                 if (command.first == command.last && command.block.id == 0)
                 {
                     std::erase_if(p.blocks, [&](const Block& b) { return b.kind == Kind::group && b.first == section.front().key && b.last == section.front().key; });

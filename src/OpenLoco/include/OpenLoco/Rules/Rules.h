@@ -125,6 +125,7 @@ namespace OpenLoco::Rules
         size_t last = 0;
         size_t destination = 0; // insertion boundary in the original list
         uint64_t raw = 0;
+        Key into = 0; // Explicit destination bracket for a row insertion/move; not persisted.
     };
     Result validate(const Program& program);
     Result edit(Program& program, const Edit& command); // validate a copy, then atomically commit

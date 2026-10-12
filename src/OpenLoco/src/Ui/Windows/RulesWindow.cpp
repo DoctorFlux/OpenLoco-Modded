@@ -91,6 +91,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         uint16_t messageFrames = 0;
         using Visual = ProgramVisual;
         std::vector<Visual> visuals;
+        ProgramLayout canvasLayout;
         enum class Drag
         {
             none,
@@ -104,6 +105,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         Kind draggedKind{};
         Key draggedBlock = 0;
         int dragFirst = -1, dragLast = -1, dropRow = -1;
+        Key dropInto = 0;
         int16_t dragX = 0, dragY = 0;
         bool dragged = false;
         std::vector<int> choices;
@@ -162,7 +164,8 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         {
             program = snapshot(selectedOwner);
             const auto layout = editorLayout(static_cast<int16_t>(layoutWidth), layoutHeight);
-            visuals = programLayout(program, static_cast<int16_t>(layoutWidth - layout.paletteWidth - 22), 20).items;
+            canvasLayout = programLayout(program, static_cast<int16_t>(layoutWidth - layout.paletteWidth - 26), 20);
+            visuals = canvasLayout.items;
             if (firstSelected >= static_cast<int>(program.rows.size()))
             {
                 firstSelected = lastSelected = -1;
@@ -232,9 +235,9 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             return text;
         }
         std::string blockText(const Block& b) { return blockSentence(program, b); }
-        void text(Gfx::DrawingContext& ctx, int16_t x, int16_t y, int16_t width, std::string value)
+        void text(Gfx::DrawingContext& ctx, int16_t x, int16_t y, int16_t width, std::string value, bool white = false)
         {
-            value.insert(value.begin(), static_cast<char>(ControlCodes::Colour::black));
+            value.insert(value.begin(), static_cast<char>(white ? ControlCodes::Colour::white : ControlCodes::Colour::black));
             auto renderer = Gfx::TextRenderer(ctx);
             renderer.setCurrentFont(Gfx::Font::medium_bold);
             renderer.clipString(width, value.data());
@@ -361,7 +364,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 }
             }
             text(ctx, 5, 19, window.width - 10, caption);
-            text(ctx, 5, 30, window.width - 10, "Drag = to move stops/waypoints; select rows to wrap, or drag the block end to resize.");
+            text(ctx, 5, 30, window.width - 10, "Drag = into + drop inside; drop blocks on orders to nest them.");
             auto footer = progressVehicle() != UINT16_MAX ? vehicleStatus(progressVehicle()) : "Select a vehicle on this line to see its running rule";
             if (!status.empty())
             {
@@ -394,11 +397,13 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 const auto height = static_cast<int16_t>(lines.size() * 12 + 8);
                 const auto x = static_cast<int16_t>(std::clamp<int>(mouse.x - window.x + 12, 4, window.width - width - 4));
                 const auto y = static_cast<int16_t>(std::clamp<int>(mouse.y - window.y + 16, 16, window.height - height - 4));
-                ctx.fillRect(x, y, x + width, y + height, PaletteIndex::black0, Gfx::RectFlags::none);
-                ctx.fillRect(x + 1, y + 1, x + width - 1, y + height - 1, Colours::getShade(Colour::yellow, 7), Gfx::RectFlags::none);
+                drawStackBlock(ctx, x, y, width, height, (drag == Drag::palette ? draggedKind : selected() ? selected()->kind
+                                                                                                           : Kind::group),
+                               Feedback::idle,
+                               true);
                 for (size_t i = 0; i < lines.size(); ++i)
                 {
-                    text(ctx, x + 5, static_cast<int16_t>(y + 4 + i * 12), width - 10, lines[i]);
+                    text(ctx, x + 5, static_cast<int16_t>(y + 4 + i * 12), width - 10, lines[i], true);
                 }
             }
         }
@@ -407,7 +412,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             const auto layout = editorLayout(window.width, window.height);
             const auto width = window.widgets[canvas].width() - 14;
             const auto* runtime = runtimeForVehicle(progressVehicle());
-            const auto currentBlock = runtime ? executingBlock(program, *runtime) : 0;
+            ctx.clear(Colours::getShade(Colour::white, 9));
 
             const auto columns = paletteColumns(window);
             const auto rows = (std::size(paletteKinds) + columns - 1) / columns;
@@ -417,70 +422,33 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 const auto step = paletteStep(window);
                 const auto x = static_cast<int16_t>(2 + (i / rows) * columnWidth);
                 const auto y = static_cast<int16_t>(window.scrollAreas[0].contentOffsetY + 2 + (i % rows) * step);
-                ctx.fillRect(x, y, x + columnWidth - 4, y + step - 3, PaletteIndex::grey1, Gfx::RectFlags::none);
-                text(ctx, x + 3, y + 1, columnWidth - 10, names[static_cast<unsigned>(paletteKinds[i])]);
+                drawStackBlock(ctx, x, y, columnWidth - 4, step - 4, paletteKinds[i]);
+                text(ctx, x + 5, y + 2, columnWidth - 12, names[static_cast<unsigned>(paletteKinds[i])], true);
             }
+            drawProgramBlocks(ctx, program, runtime, canvasLayout, static_cast<int16_t>(window.width - layout.paletteWidth - 26), layout.paletteWidth + 1, selectedBlock);
             int ordinal = 0;
             for (const auto& v : visuals)
             {
                 auto x = static_cast<int16_t>(layout.paletteWidth + 4);
                 if (v.block)
                 {
-                    const auto it = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == v.block; });
-                    const auto& b = *it;
-                    size_t depth = 0;
-                    for (const auto& enclosing : program.blocks)
+                    if (v.closing && dragged && dropRow == static_cast<int>(v.row + 1) && dropInto == v.block)
                     {
-                        if (enclosing.kind == Kind::skip || enclosing.kind == Kind::goTo || enclosing.kind == Kind::breakLoop || enclosing.id == b.id)
-                        {
-                            continue;
-                        }
-                        const auto a = indexOf(program, enclosing.first), z = indexOf(program, enclosing.last);
-                        if (a <= v.row && indexOf(program, b.last) <= z && (enclosing.first != b.first || enclosing.last != b.last || enclosing.id < b.id))
-                        {
-                            ++depth;
-                        }
+                        const auto left = x + visualIndent(v, static_cast<int16_t>(window.width - layout.paletteWidth - 26)) + 12;
+                        ctx.fillRect(left, v.top + 10, width - 3, v.top + 11, PaletteIndex::black0, Gfx::RectFlags::none);
                     }
-                    x += static_cast<int16_t>(std::min<size_t>(depth, 8) * 8);
-                    const auto feedback = blockFeedback(program, runtime, b.id);
-                    const auto colour = feedback == Feedback::passed ? Colours::getShade(Colour::green, 7) : feedback == Feedback::failed ? Colours::getShade(Colour::red, 7)
-                        : b.id == selectedBlock                                                                                           ? Colours::getShade(Colour::yellow, 7)
-                                                                                                                                          : PaletteIndex::grey1;
-                    ctx.fillRect(x, v.top, width, v.top + v.height - 3, colour, Gfx::RectFlags::none);
-                    if (currentBlock == b.id)
+                    if (v.closing && v.block == selectedBlock)
                     {
-                        ctx.fillRect(x + 3, v.top + 2, x + 5, v.top + v.height - 4, PaletteIndex::black0, Gfx::RectFlags::none);
-                    }
-                    for (size_t i = 0; i < v.lines.size(); ++i)
-                    {
-                        text(ctx, x + 5, static_cast<int16_t>(v.top + 3 + i * 12), width - x - 10, v.lines[i]);
-                    }
-                    int16_t bottom = v.top + v.height;
-                    for (const auto& end : visuals)
-                    {
-                        if (end.row == indexOf(program, b.last) && !end.block)
-                        {
-                            bottom = end.top + end.height - 1;
-                        }
-                    }
-                    if (b.id == selectedBlock && b.kind != Kind::skip && b.kind != Kind::goTo && b.kind != Kind::breakLoop)
-                    {
-                        ctx.fillRect(width - 12, bottom - 9, width, bottom, Colours::getShade(Colour::yellow, 7), Gfx::RectFlags::none);
-                        text(ctx, width - 10, bottom - 9, 10, "+");
-                    }
-                    if (b.kind == Kind::group || b.kind == Kind::ifBlock || b.kind == Kind::elseIf || b.kind == Kind::otherwise || b.kind == Kind::repeat || b.kind == Kind::waitUntil)
-                    {
-                        ctx.fillRect(x, v.top, x + 2, bottom, PaletteIndex::grey0, Gfx::RectFlags::none);
-                        ctx.fillRect(x, bottom - 2, x + 9, bottom, PaletteIndex::grey0, Gfx::RectFlags::none);
+                        text(ctx, width - 12, v.top + 12, 12, "+");
                     }
                 }
                 else
                 {
-                    x += static_cast<int16_t>(std::min<int>(v.depth, 8) * 8);
+                    x += visualIndent(v, static_cast<int16_t>(window.width - layout.paletteWidth - 26));
                     const auto& row = program.rows[v.row];
                     if (firstSelected <= static_cast<int>(v.row) && static_cast<int>(v.row) <= lastSelected && firstSelected >= 0)
                     {
-                        ctx.fillRect(x + 12, v.top, width, v.top + 19, Colours::getShade(Colour::yellow, 7), Gfx::RectFlags::none);
+                        drawOrderBlock(ctx, x, v.top, width - x, v.height, true);
                     }
                     text(ctx, x + 5, v.top + 4, 12, "=");
                     if (runtime && runtime->current == program.rows[v.row].key)
@@ -536,7 +504,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         void scrollSize(Window&, uint32_t, int32_t& width, int32_t& height)
         {
             width = 0;
-            height = std::max<int>(180, visuals.empty() ? 0 : visuals.back().top + visuals.back().height + 8);
+            height = std::max<int>(180, canvasLayout.height + 8);
         }
         void mouseDown(Window& window, int16_t x, int16_t y, uint8_t)
         {
@@ -549,8 +517,8 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             const auto layout = editorLayout(window.width, window.height);
             if (const auto* block = selected(); block && block->kind != Kind::skip && block->kind != Kind::goTo && block->kind != Kind::breakLoop && x >= window.widgets[canvas].width() - 28)
             {
-                const auto end = std::find_if(visuals.begin(), visuals.end(), [&](const Visual& visual) { return visual.block == 0 && visual.row == indexOf(program, block->last); });
-                if (end != visuals.end() && y >= end->top + end->height - 10 && y <= end->top + end->height)
+                const auto end = std::find_if(visuals.begin(), visuals.end(), [&](const Visual& visual) { return visual.closing && visual.block == block->id; });
+                if (end != visuals.end() && y >= end->top && y < end->top + end->height)
                 {
                     drag = Drag::resize;
                     draggedBlock = block->id;
@@ -586,7 +554,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 dragLast = static_cast<int>(indexOf(program, b->last));
                 drag = Drag::section;
             }
-            else if (x < layout.paletteWidth + 22)
+            else if (orderGripHit(*v, x, layout.paletteWidth, static_cast<int16_t>(window.width - layout.paletteWidth - 26)))
             {
                 dragFirst = static_cast<int>(v->row);
                 dragLast = dragFirst;
@@ -622,90 +590,27 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 command.block.last = program.rows[destination].key;
                 return command;
             }
+            const auto position = programDrop(program, canvasLayout, static_cast<int16_t>(canvasY));
             if (previous == Drag::row || previous == Drag::section)
             {
                 Edit e;
                 e.kind = EditKind::moveRows;
                 e.first = dragFirst;
                 e.last = dragLast;
-                e.destination = destination;
+                e.destination = position.row;
                 e.block.id = draggedBlock;
+                if (position.into)
+                {
+                    const auto target = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == position.into; });
+                    if (!(e.first <= indexOf(program, target->first) && indexOf(program, target->last) <= e.last))
+                    {
+                        e.into = position.into;
+                    }
+                }
                 return e;
             }
-            if (program.rows.empty() || destination >= static_cast<int>(program.rows.size()))
-            {
-                return std::nullopt;
-            }
-            int first = destination, last = destination;
-            if (firstSelected >= 0 && firstSelected <= destination && destination <= lastSelected)
-            {
-                first = firstSelected;
-                last = lastSelected;
-            }
-            if (const auto* v = at(canvasY); v && v->block)
-            {
-                const auto it = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == v->block; });
-                first = static_cast<int>(indexOf(program, it->first));
-                last = static_cast<int>(indexOf(program, it->last));
-            }
-            Block b;
-            b.kind = draggedKind;
-            b.first = program.rows[first].key;
-            b.last = program.rows[last].key;
-            b.number = b.kind == Kind::repeat ? 2 : 5;
-            b.name = "My section";
-            if (b.kind == Kind::skip || b.kind == Kind::goTo || b.kind == Kind::breakLoop || b.kind == Kind::otherwise || b.kind == Kind::elseIf)
-            {
-                for (const auto& parent : program.blocks)
-                {
-                    if (b.kind == Kind::otherwise || b.kind == Kind::elseIf)
-                    {
-                        if ((parent.kind == Kind::ifBlock || parent.kind == Kind::elseIf) && (indexOf(program, parent.last) < static_cast<size_t>(first) || (parent.first == b.first && parent.last == b.last && std::any_of(program.blocks.begin(), program.blocks.end(), [&](const Block& action) { return action.parent == parent.id && (action.kind == Kind::skip || action.kind == Kind::goTo || action.kind == Kind::breakLoop); }))))
-                        {
-                            b.parent = parent.id;
-                        }
-                    }
-                    else if ((parent.kind == Kind::ifBlock || parent.kind == Kind::elseIf || parent.kind == Kind::otherwise) && parent.first == b.first && parent.last == b.last)
-                    {
-                        b.parent = parent.id;
-                        if (const auto* hovered = at(canvasY); hovered && hovered->block == parent.id)
-                        {
-                            break;
-                        }
-                    }
-                }
-                if (b.kind == Kind::goTo)
-                {
-                    for (const auto& row : program.rows)
-                    {
-                        if (isRoutable(row.raw))
-                        {
-                            b.target = row.key;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (b.kind == Kind::breakLoop)
-            {
-                size_t smallest = program.rows.size() + 1;
-                for (const auto& loop : program.blocks)
-                {
-                    if (loop.kind != Kind::repeat)
-                    {
-                        continue;
-                    }
-                    const auto a = indexOf(program, loop.first), z = indexOf(program, loop.last);
-                    if (a <= static_cast<size_t>(first) && static_cast<size_t>(last) <= z && z - a <= smallest)
-                    {
-                        b.target = loop.id;
-                        smallest = z - a;
-                    }
-                }
-            }
-            Edit e;
-            e.block = b;
-            return e;
+            const auto selection = firstSelected >= 0 ? std::optional<std::pair<size_t, size_t>>{ { static_cast<size_t>(firstSelected), static_cast<size_t>(lastSelected) } } : std::nullopt;
+            return paletteDrop(program, canvasLayout, draggedKind, static_cast<int16_t>(canvasY), selection);
         }
         void mouseDrag(Window& window, int16_t x, int16_t y, uint8_t)
         {
@@ -726,7 +631,9 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 scroll.contentOffsetY = static_cast<int16_t>(std::clamp<int>(scroll.contentOffsetY + delta, 0, std::max<int>(0, contentHeight - height)));
                 ScrollView::updateThumbs(window, canvas);
             }
-            dropRow = rowAt(y);
+            const auto position = programDrop(program, canvasLayout, y);
+            dropRow = drag == Drag::resize ? rowAt(y) : static_cast<int>(position.row);
+            dropInto = drag == Drag::resize ? 0 : position.into;
             if (drag != Drag::selection)
             {
                 const auto proposed = routeDrop(drag, dropRow, y);
@@ -790,6 +697,9 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             const auto proposed = routeDrop(previous, destination, canvasY);
             if (!proposed)
             {
+                status = "Invalid drop: use an order or a drop-inside slot; Else needs following orders.";
+                messageFrames = 80;
+                window.invalidate();
                 return;
             }
             const auto key = program.nextKey;
