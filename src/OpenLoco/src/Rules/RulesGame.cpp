@@ -981,6 +981,29 @@ namespace OpenLoco::Rules
         const auto* program = find(it->second.owner);
         return program && it->second.runtime.revision == program->revision ? &it->second.runtime : nullptr;
     }
+    Key routeOrderForVehicle(uint16_t vehicle)
+    {
+        const auto* p = find(ownerForVehicle(vehicle));
+        const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+        const auto it = vehicles.find(vehicle);
+        if (!head || !p || p->blocks.empty() || it == vehicles.end() || !it->second.hasOrder || !runtimeForVehicle(vehicle))
+        {
+            return 0;
+        }
+        const auto& run = it->second;
+        const auto routable = [&](Key key) { const auto row = indexOf(*p, key); return row < p->rows.size() && isRoutable(p->rows[row].raw); };
+        if (routable(run.approaching))
+        {
+            return run.approaching;
+        }
+        // Loading scans and arrival-only execution can advance their own
+        // cursors. The vehicle is still at the reached stop until departure.
+        if ((head->status == Vehicles::Status::loading || head->status == Vehicles::Status::unloading || !run.ready) && routable(run.reachedOrder))
+        {
+            return run.reachedOrder;
+        }
+        return routable(run.runtime.current) ? run.runtime.current : 0;
+    }
     std::string vehicleStatus(uint16_t vehicle)
     {
         const auto* program = find(ownerForVehicle(vehicle));

@@ -224,6 +224,7 @@ namespace OpenLoco::Rules
     std::string vehicleStatus(uint16_t vehicle);
     std::string vehicleNextStop(uint16_t vehicle);
     const Runtime* runtimeForVehicle(uint16_t vehicle);
+    Key routeOrderForVehicle(uint16_t vehicle); // Committed travel/hold row, distinct from cargo/program cursors; 0 uses vanilla.
     bool saveCompanion(const std::filesystem::path& savePath);
     bool loadCompanion(const std::filesystem::path& savePath);
     std::filesystem::path companionPath(const std::filesystem::path& savePath);

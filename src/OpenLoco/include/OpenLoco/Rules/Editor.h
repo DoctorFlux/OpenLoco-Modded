@@ -65,6 +65,8 @@ namespace OpenLoco::Rules
     void drawStackBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, Kind kind, Feedback feedback = Feedback::idle, bool selected = false);
     void drawOrderBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, bool selected = false);
     void drawProgramBlocks(Gfx::DrawingContext& context, const Program& program, const Runtime* runtime, const ProgramLayout& layout, int16_t width, int16_t origin = 0, Key selected = 0, bool labels = true);
+    std::optional<Ui::Point> routeOrderMarkerPosition(const Program& program, const ProgramLayout& layout, Key order, int16_t width, int16_t origin = 0);
+    void drawRouteOrderMarker(Gfx::DrawingContext& context, const Program& program, const ProgramLayout& layout, Key order, int16_t width, int16_t origin = 0);
     struct OrderFeedback
     {
         std::string sentence;

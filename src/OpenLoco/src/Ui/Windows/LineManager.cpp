@@ -1568,13 +1568,11 @@ namespace OpenLoco::Ui::Windows::LineManager
             const auto x = static_cast<int16_t>((program ? 8 : 2) + (item != layout.items.end() ? Rules::visualIndent(*item, window.widgets[widx::orders].width() - 14) : 0));
             const auto y = program && static_cast<size_t>(row) < layout.orderTops.size() ? layout.orderTops[row] + 3 : static_cast<int16_t>(row * 10);
             drawOrderRow(drawingCtx, window, order, y, row, orderNumber, x);
-            const auto* runtime = Rules::runtimeForVehicle(progressVehicle());
-            if (program && runtime && runtime->current == program->rows[row].key)
-            {
-                auto marker = std::string(1, static_cast<char>(ControlCodes::Colour::black)) + ">";
-                tr.drawString({ static_cast<int16_t>(std::max<int>(0, x - 5)), static_cast<int16_t>(y - 1) }, Colour::black, marker.c_str());
-            }
             ++row;
+        }
+        if (program)
+        {
+            Rules::drawRouteOrderMarker(drawingCtx, *program, layout, Rules::routeOrderForVehicle(progressVehicle()), window.widgets[widx::orders].width() - 14);
         }
         if (orderDrag.active && orderDrag.moved && orderDrag.owner == Rules::Owner{ Rules::OwnerKind::line, _selectedLine })
         {

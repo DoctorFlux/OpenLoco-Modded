@@ -449,10 +449,6 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                         drawOrderBlock(ctx, x, v.top, width - x, v.height, true);
                     }
                     text(ctx, x + 5, v.top + 4, 12, "=");
-                    if (runtime && runtime->current == program.rows[v.row].key)
-                    {
-                        text(ctx, width - 12, v.top + 4, 12, ">");
-                    }
                     const auto* order = reinterpret_cast<const Vehicles::Order*>(&row.raw);
                     char buffer[256]{};
                     const auto converted = Lines::fromVehicleOrder(*order);
@@ -494,6 +490,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                     }
                 }
             }
+            drawRouteOrderMarker(ctx, program, canvasLayout, routeOrderForVehicle(progressVehicle()), static_cast<int16_t>(window.width - layout.paletteWidth - 26), layout.paletteWidth + 1);
             if (visuals.empty())
             {
                 text(ctx, layout.paletteWidth + 5, 5, width - layout.paletteWidth - 10, "Add stops in the vehicle Route tab or Lines first.");

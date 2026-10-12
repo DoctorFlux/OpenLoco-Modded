@@ -116,6 +116,8 @@ The window is placed with its left edge against the right edge of the window tha
 
 All three windows show two separate footer lines: the current program block/row with wait or fault status, and the next stop/waypoint. During an unfinished decision, the latter says "Next listed" and "after decision": that row is provisional until evaluation resumes. A shared-line window identifies the vehicle used for progress. There is no second inspector window.
 
+The outlined white arrow beside an order is the vehicle's committed travel or hold point, distinct from the active program block. It follows the selected stop/waypoint after Skip, Go to or a Repeat return. While approaching a rule stop, waiting, loading/unloading or choosing an unfinished decision, it stays at the approach/reached anchor instead of following a cargo scan or provisional next row. All three views use the same read-only stable-key lookup and nested row coordinates; the shared line uses its selected progress vehicle's independent state. No-block vehicle lists retain the native arrow (D38).
+
 ## How a vehicle runs the blocks
 
 Select an executable block and click **When**. Choose **Before travelling**, **On arrival**, or Automatic. Automatic uses Before travelling for If/Else if/Else, Repeat and standalone Break, On arrival for Wait until, and the parent branch's timing for Skip/Go to/conditional Break. Group remains a name and bracket rather than an executable decision. All three views include the effective timing in the block sentence; the When control reuses the previous Name slot, so it adds no overlapping controls.

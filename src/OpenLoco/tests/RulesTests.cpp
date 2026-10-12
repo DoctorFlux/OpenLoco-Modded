@@ -1,5 +1,6 @@
 #include <OpenLoco/Date.h>
 #include <OpenLoco/Entities/EntityManager.h>
+#include <OpenLoco/Graphics/Colour.h>
 #include <OpenLoco/Graphics/RenderTarget.h>
 #include <OpenLoco/Graphics/SoftwareDrawingContext.h>
 #include <OpenLoco/Lines/Line.h>
@@ -2512,4 +2513,287 @@ TEST_F(GameRulesFixture, truncatedAndInvalidPhysicalPhaseRecordsAreRejectedBefor
         EXPECT_EQ(runtimeForVehicle(id), nullptr);
     }
     std::filesystem::remove(companionPath(path));
+}
+
+TEST_F(GameRulesFixture, routeArrowUsesTheRuleSelectedSkipOrDiversionWithoutMutatingTheCursor)
+{
+    using namespace OpenLoco;
+    for (const auto kind : { Kind::skip, Kind::goTo })
+    {
+        auto* head = vehicle();
+        const auto id = enumValue(head->id);
+        const Owner owner{ OwnerKind::vehicle, id };
+        auto p = snapshot(owner);
+        Edit e;
+        e.block = section(p, Kind::ifBlock, 1, 1);
+        e.block.condition.check = Check::year;
+        e.block.condition.value = getCurrentYear();
+        ASSERT_TRUE(submit(owner, e));
+        e.block = section(*find(owner), kind, 1, 1);
+        e.block.parent = find(owner)->blocks[0].id;
+        e.block.target = p.rows[2].key;
+        ASSERT_TRUE(submit(owner, e));
+        reached(id);
+        ASSERT_TRUE(prepareVehicle(id));
+        ASSERT_EQ(head->currentOrder, 4);
+        head->currentOrder = 2; // A stale vanilla cursor must not move the UI arrow.
+        const auto pc = runtimeForVehicle(id)->pc;
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+        }
+        EXPECT_EQ(head->currentOrder, 2);
+        EXPECT_EQ(runtimeForVehicle(id)->pc, pc);
+    }
+}
+
+TEST_F(GameRulesFixture, routeArrowFollowsARepeatBackToItsFirstStop)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::repeat, 0, 1);
+    e.block.number = 2;
+    ASSERT_TRUE(submit(owner, e));
+    manuallySkipped(id); // Enter the newly added loop on a fresh route visit.
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[1].key);
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    EXPECT_EQ(runtimeForVehicle(id)->repeats.at(find(owner)->blocks[0].id), 1);
+}
+
+TEST_F(GameRulesFixture, routeArrowStaysOnTheWaypointThroughApproachAndCargoRowWait)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Literals;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    Vehicles::OrderRouteWaypoint waypoint({ 2, 1 }, 0, 0, 0);
+    Vehicles::OrderUnloadAll unload(0);
+    Vehicles::OrderManager::insertOrder(head, 0, &waypoint);
+    Vehicles::OrderManager::insertOrder(head, 6, &unload);
+    head->currentOrder = 0;
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(planArrival(id));
+    Vehicles::Vehicle train(*head);
+    train.veh2->currentSpeed = 40.0_mph;
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    EXPECT_FALSE(finishApproach(id));
+    train.veh2->currentSpeed = 0.0_mph;
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition;
+    EXPECT_FALSE(finishApproach(id));
+    ASSERT_EQ(runtimeForVehicle(id)->current, p.rows[1].key); // Program cursor is an unload row.
+    head->currentOrder = 7;
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    ScenarioManager::setScenarioTicks(40);
+    EXPECT_TRUE(finishApproach(id));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+}
+
+TEST_F(GameRulesFixture, routeArrowRemainsAtTheStationDuringCargoThenChangesOnDeparture)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    Vehicles::OrderUnloadAll unload(0);
+    Vehicles::OrderManager::insertOrder(head, 2, &unload);
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    head->status = Vehicles::Status::unloading;
+    head->currentOrder = 2;
+    processStationArrival(id);
+    ASSERT_EQ(runtimeForVehicle(id)->current, p.rows[1].key);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    head->status = Vehicles::Status::loading;
+    ScenarioManager::setScenarioTicks(40);
+    processStationArrival(id);
+    EXPECT_FALSE(holdAtStation(id));
+    EXPECT_EQ(head->currentOrder, 3);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    head->status = Vehicles::Status::stopped;
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+}
+
+TEST_F(GameRulesFixture, routeArrowDoesNotPointAtAnUndecidedDestinationDuringABudgetPause)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 1, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.value = getCurrentYear();
+    ASSERT_TRUE(submit(owner, e));
+    e.block = section(p, Kind::goTo, 1, 1);
+    e.block.parent = find(owner)->blocks[0].id;
+    e.block.target = p.rows[1].key;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    ASSERT_FALSE(prepareVehicle(id));
+    ASSERT_EQ(runtimeForVehicle(id)->steps, 256);
+    head->currentOrder = 2;
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    EXPECT_EQ(runtimeForVehicle(id)->steps, 256);
+}
+
+TEST_F(GameRulesFixture, sharedRouteArrowsUseEachVehiclesIndependentDestination)
+{
+    using namespace OpenLoco;
+    auto* a = vehicle();
+    auto* b = vehicle();
+    const auto ai = enumValue(a->id), bi = enumValue(b->id);
+    const auto line = Lines::createLine("Arrow destinations", TransportMode::rail, 2);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder o;
+        o.station = station;
+        ASSERT_TRUE(Lines::addOrder(line.id, o).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, ai, TransportMode::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, bi, TransportMode::rail).ok);
+    const Owner owner{ OwnerKind::line, line.id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::repeat, 0, 1);
+    e.block.number = 2;
+    ASSERT_TRUE(submit(owner, e));
+    reached(ai);
+    ASSERT_TRUE(prepareVehicle(ai));
+    EXPECT_EQ(routeOrderForVehicle(ai), p.rows[1].key);
+    EXPECT_EQ(routeOrderForVehicle(bi), p.rows[0].key);
+    ASSERT_TRUE(Lines::unassignVehicle(bi).ok);
+    EXPECT_EQ(routeOrderForVehicle(bi), 0U); // Fresh private runtime uses native fallback until prepared.
+    ASSERT_TRUE(prepareVehicle(bi));
+    EXPECT_EQ(routeOrderForVehicle(bi), p.rows[0].key);
+    EXPECT_EQ(routeOrderForVehicle(ai), p.rows[1].key);
+}
+
+TEST_F(GameRulesFixture, routeArrowKeepsStableKeysAcrossMovesAndFallsBackAfterDeletionOrWithoutRules)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    EXPECT_EQ(routeOrderForVehicle(id), 0U);
+    head->currentOrder = 2;
+    EXPECT_EQ(routeOrderForVehicle(id), 0U);
+    EXPECT_EQ(head->currentOrder, 2);
+    head->currentOrder = 0;
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::group, 1, 1);
+    ASSERT_TRUE(submit(owner, e));
+    const auto target = p.rows[0].key;
+    e = {};
+    e.kind = EditKind::moveRows;
+    e.first = e.last = 0;
+    e.destination = 3;
+    ASSERT_TRUE(submit(owner, e));
+    EXPECT_EQ(routeOrderForVehicle(id), target);
+    EXPECT_EQ(indexOf(*find(owner), target), 2U);
+    e.kind = EditKind::deleteRow;
+    e.first = 2;
+    ASSERT_TRUE(submit(owner, e));
+    EXPECT_EQ(routeOrderForVehicle(id), 0U);
+    EXPECT_EQ(routeOrderForVehicle(UINT16_MAX), 0U);
+}
+
+TEST_F(GameRulesFixture, routeArrowRestoresTheReachedStationFromASavedCargoWait)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    Vehicles::OrderUnloadAll unload(0);
+    Vehicles::OrderManager::insertOrder(head, 2, &unload);
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    head->status = Vehicles::Status::loading;
+    head->currentOrder = 2;
+    processStationArrival(id);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_route_arrow_wait_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_EQ(runtimeForVehicle(id)->current, p.rows[1].key);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST(RulesTests, routeArrowUsesTheWrappedNestedOrderRowAndRejectsCargoOrMissingRows)
+{
+    auto p = makeProgram({ 1, 4, 3, 9 }, true);
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    ASSERT_TRUE(add(p, section(p, Kind::repeat, 2, 2)));
+    for (int16_t width : { 180, 220, 360 })
+    {
+        const auto layout = programLayout(p, width);
+        const auto stop = routeOrderMarkerPosition(p, layout, p.rows[0].key, width);
+        const auto waypoint = routeOrderMarkerPosition(p, layout, p.rows[2].key, width);
+        ASSERT_TRUE(stop);
+        ASSERT_TRUE(waypoint);
+        EXPECT_GT(waypoint->x, stop->x);
+        EXPECT_EQ(programHit(layout, waypoint->y)->row, 2U);
+        EXPECT_EQ(programHit(layout, waypoint->y)->block, 0U);
+        EXPECT_GT(waypoint->y, 2 * 10); // Includes wrapped headers, not vanilla fixed row spacing.
+        const auto rules = routeOrderMarkerPosition(p, layout, p.rows[2].key, width, 139);
+        ASSERT_TRUE(rules);
+        EXPECT_EQ(rules->x - waypoint->x, 139);
+        EXPECT_EQ(rules->y, waypoint->y);
+        EXPECT_FALSE(routeOrderMarkerPosition(p, layout, p.rows[1].key, width));
+        EXPECT_FALSE(routeOrderMarkerPosition(p, layout, 0, width));
+        EXPECT_FALSE(routeOrderMarkerPosition(p, {}, p.rows[0].key, width));
+    }
+}
+
+TEST(RulesTests, routeArrowRemainsWhiteOverSelectedBlocksAndInsideAScrolledViewport)
+{
+    using namespace OpenLoco;
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    const auto layout = programLayout(p, 200);
+    const auto point = routeOrderMarkerPosition(p, layout, p.rows[1].key, 200);
+    ASSERT_TRUE(point);
+    const auto scrollTop = static_cast<int16_t>(point->y - 1);
+    std::vector<uint8_t> pixels(200 * 20, 255);
+    Gfx::SoftwareDrawingContext ctx;
+    ctx.pushRenderTarget({ pixels.data(), 0, scrollTop, 200, 20, 0 });
+    drawProgramBlocks(ctx, p, nullptr, layout, 200, 0, 0, false);
+    ctx.fillRect(0, layout.orderTops[1], 199, layout.orderTops[1] + 9, PaletteIndex::black0, Gfx::RectFlags::none);
+    drawRouteOrderMarker(ctx, p, layout, p.rows[1].key, 200);
+    EXPECT_EQ(pixels[(point->y - scrollTop + 4) * 200 + point->x + 3], static_cast<uint8_t>(Colours::getShade(Colour::white, 9)));
+    EXPECT_EQ(pixels[(point->y - scrollTop + 4) * 200 + point->x], static_cast<uint8_t>(PaletteIndex::black0));
+    ctx.reset();
 }

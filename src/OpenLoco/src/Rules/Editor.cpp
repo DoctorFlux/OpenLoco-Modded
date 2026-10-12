@@ -564,6 +564,40 @@ namespace OpenLoco::Rules
             }
         }
     }
+    std::optional<Ui::Point> routeOrderMarkerPosition(const Program& program, const ProgramLayout& layout, Key order, int16_t width, int16_t origin)
+    {
+        const auto row = indexOf(program, order);
+        if (row >= program.rows.size() || !isRoutable(program.rows[row].raw))
+        {
+            return {};
+        }
+        const auto item = std::find_if(layout.items.begin(), layout.items.end(), [row](const ProgramVisual& item) { return !item.block && item.row == row; });
+        if (item == layout.items.end())
+        {
+            return {};
+        }
+        return Ui::Point{ static_cast<int16_t>(origin + 1 + visualIndent(*item, width)), static_cast<int16_t>(item->top + 4) };
+    }
+    void drawRouteOrderMarker(Gfx::DrawingContext& context, const Program& program, const ProgramLayout& layout, Key order, int16_t width, int16_t origin)
+    {
+        const auto point = routeOrderMarkerPosition(program, layout, order, width, origin);
+        if (!point)
+        {
+            return;
+        }
+        // A white right-pointing arrow with a dark edge remains visible over
+        // category colours, selected rows and the inner mouth of a C block.
+        for (int row = 0; row < 9; ++row)
+        {
+            const auto length = 7 - std::abs(4 - row);
+            context.fillRect(point->x, point->y + row, point->x + length - 1, point->y + row, PaletteIndex::black0, Gfx::RectFlags::none);
+        }
+        for (int row = 0; row < 7; ++row)
+        {
+            const auto length = 5 - std::abs(3 - row);
+            context.fillRect(point->x + 1, point->y + row + 1, point->x + length, point->y + row + 1, Colours::getShade(Colour::white, 9), Gfx::RectFlags::none);
+        }
+    }
     OrderFeedback orderFeedback(const Program& program, const Runtime* runtime, size_t row)
     {
         OrderFeedback feedback;

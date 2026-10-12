@@ -4428,6 +4428,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
             const auto* program = routeProgram(self);
             const auto layout = routeLayout(self);
+            const auto routeOrder = program ? Rules::routeOrderForVehicle(self.number) : 0;
             if (program)
             {
                 Rules::drawProgramBlocks(drawingCtx, *program, Rules::runtimeForVehicle(self.number), layout, self.widgets[widx::routeList].width() - 14);
@@ -4476,7 +4477,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 }
 
                 drawOrderLabel(self, drawingCtx, strFormat, args, order, y, orderNumber, x);
-                if (head->currentOrder + head->orderTableOffset == order.getOffset())
+                if (!routeOrder && head->currentOrder + head->orderTableOffset == order.getOffset())
                 {
                     auto point = Point(std::max<int16_t>(0, x - 6), y - 1);
                     tr.drawStringLeft(point, Colour::black, StringIds::orders_current_order);
@@ -4485,6 +4486,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 rowNum++;
             }
 
+            if (program && routeOrder)
+            {
+                Rules::drawRouteOrderMarker(drawingCtx, *program, layout, routeOrder, self.widgets[widx::routeList].width() - 14);
+            }
             // Output the end of orders
             Ui::Point loc = { 8, static_cast<int16_t>(program ? layout.height : rowNum * 10) };
             auto strFormat = StringIds::black_stringid;
