@@ -1,5 +1,11 @@
 # Testing plan
 
+## Latest verified implementation — 2026-10-12
+
+Checkpoint `e42b1da8` on `codex/block-logic-programming`: successful Debug/Release builds, **365/365 tests passed in each configuration**, including **162 rules tests** and **25 generated-map tests** within that total. All five test executable paths were checked per configuration. Evidence: `build/windows/rule-refresh-stability-{debug,release}-{build,tests}.log` and `rule-refresh-stability-focused-tests.log`.
+
+This documentation-only status consolidation does not rebuild or rerun the suites. Earlier results below are historical. Current behavior follows D42 (Wait-only timing controls), D46 (whole-line current-condition diagrams) and D47 (retained routes through refreshes). Final native acceptance remains the user's manual work; see the consolidated [outstanding checks](DEVELOPMENT_STATUS.md#outstanding-user-acceptance). No automated game interaction is scheduled.
+
 GoogleTest is the runner. `ctest --test-dir build/windows -C Debug` or `-C Release` executes it. New libraries register tests through `loco_add_library`.
 
 The private upstream simulate/compare job needs repositories this fork does not have. Do not treat it as a local requirement.

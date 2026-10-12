@@ -6,12 +6,20 @@ States: `NOT STARTED`, `RESEARCHING`, `PLANNED`, `IN DEVELOPMENT`, `BLOCKED`, `T
 
 Baseline: OpenLoco `e71abfb3`, branch `dev/local-baseline`. Vanilla behaviour is the upstream game, not a framework feature.
 
+## Current delivery snapshot — 2026-10-12
+
+Phase 4 code is implemented on `codex/block-logic-programming` and remains **TESTING**. Latest implementation checkpoint: `e42b1da8` (retained paths through cache refreshes), pushed to origin. Local/remote master remains `c87b7867`; rollback release `v26.09-modded.1` remains at `2651ead8`. No merge or release has been performed.
+
+Both Debug and Release executables built successfully. The latest full suites each passed **365/365, zero failures**, including **162 rules tests** (85 model/editor, 52 game integration, 25 generated-map), **39 line tests**, **1 timetable test**, **25 path-signal tests** and **2 gameplay-option tests**. Configuration-specific discovery checked all five test executables in each configuration. These results belong to the implementation checkpoint; this status-only update changes no code and does not rerun builds or tests.
+
+Latest evidence: `build/windows/rule-refresh-stability-{debug,release}-{build,tests}.log` and `rule-refresh-stability-focused-tests.log`. Earlier sections below preserve historical implementation and QA results; their smaller test counts and superseded UI/map behavior are not the current release state. The latest native UI, physical braking/save behavior and final Path/All appearance still require the user's manual acceptance. No further automated game launch or mouse interaction is scheduled.
+
 ## Status
 
 | Feature | Spec | Implementation | Engine dependency | Mod dependency | UI | Save/load | Tests | Issues | Next step |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Repository audit and plan | COMPLETED | COMPLETED | None | None | n/a | n/a | Build verified earlier; see changelog | None | Keep status current |
-| Local Windows toolchain | COMPLETED | COMPLETED | VS 2022, CMake preset `windows` | None | n/a | n/a | 136 Release tests passed before this work | MFC not installed and not required | Use `README-LOCAL-SETUP.md` |
+| Local Windows toolchain | COMPLETED | COMPLETED | VS 2022, CMake preset `windows` | None | n/a | n/a | Latest Debug/Release builds succeeded; each full suite passed 365/365 | MFC not installed and not required | Use `README-LOCAL-SETUP.md` |
 | Mod loader and Hello World | REMOVED | REMOVED | None | None | Title-screen Mods button removed | n/a | Library, sample, and template deleted | Shared lines, timetables, and path signals stay in the game | None |
 | No breakdowns | COMPLETED | COMPLETED | Existing `breakdowns_disabled` | None | Options > Miscellaneous, already present | `openloco.yml` | Existing checkbox. Not duplicated | None | None |
 | No obsolescence | COMPLETED | TESTING | `isPastObsoleteYear` / `isAtOrPastObsoleteYear` | None | Options > Miscellaneous checkbox | `openloco.yml`, not SV5 | `GameplayOptionsTests.obsoleteOptionSuppressesYearChecks` passed | Object description text can still show the original end year | Click the checkbox in a running game |
@@ -28,6 +36,37 @@ Baseline: OpenLoco `e71abfb3`, branch `dev/local-baseline`. Vanilla behaviour is
 | Larger worlds | RESEARCHING | NOT STARTED | Coordinates, tiles, save container | Capability flag | NOT STARTED | Blocked | `TileManagerTests` assume 384 | Pitch is 512 | Do not change constants yet |
 | NSF / NOF | RESEARCHING | NOT STARTED | Upstream has no code here | n/a | n/a | SV5 only | None | Plans described in the v26.01 post | Re-check before design changes |
 | Multiplayer | RESEARCHING | NOT STARTED | Command stream, mod version check | All simulation mods | Hidden upstream | Checksums unused | None | Not reimplemented upstream | Do not claim support |
+
+## Phase 4 delivered work
+
+The following is implemented and covered by automated tests. Final native acceptance remains pending; these rows do not mark Phase 4 COMPLETED.
+
+| Area | Delivered behavior |
+| --- | --- |
+| Rule model and edits | Stable order keys, validated atomic commands, named contiguous groups, four enclosing control levels, 256 block records, valid destinations and ownership; insert/delete/move/reverse/station-removal integration; deleted targets disable their action instead of retargeting another row |
+| Blocks | If, Else if, Else, And/Or extra checks, finite Repeat 1–20 or Forever, Break, Wait until, Skip, Go to and Group; sections can span multiple stops, route-through orders, waypoints and cargo instructions; End stays outside blocks |
+| Conditions | Selected station cargo quantity and has/no-cargo presets; vehicle full/empty/space; physical rail-platform availability including wagons and excluding self; timetable late/on-time; year comparisons; unavailable data reports its reason |
+| Vehicle/shared integration | Private and shared owners use the same rules; independent counters/waits per vehicle; assignment preserves line definitions, detachment copies effective rules privately, clones get fresh runtime and deletion clears records; lists without blocks retain vanilla progression |
+| Execution and physical waits | Latched branches, nested repeats/Break and deterministic 256-step tick budget; actual station/cargo/route-through/waypoint transitions; native approach/braking before waits; station cargo handling continues; timeout uses 40 ticks/minute; next-trip checks can see loaded cargo |
+| Rules and ordinary order windows | Native MakeCode-style nested shapes in Rules, Vehicle Route and shared-line Orders; direct field clicks, native menus/value dialogs, paged choices, palette clicks, branch Actions and optional Details; default 560x320 and minimum 360x240; When shown only for Wait; related-window placement and movable overlap fallback |
+| Dragging and progress | Stops, waypoints, consecutive selections, blocks and complete groups drag with a mouse-following preview; explicit inside/append slots grow sections; invalid/outside/Escape/closure drops cancel; deletion bin; world order numbers refresh; program and next destination shown together; green/red decisions and white committed travel/hold arrows, including immediate manual Skip |
+| Live map diagrams | Path/All evaluates current conditions from the first row and omits inactive If/Else sections; moving vehicles/cursors do not add changing origin legs; atomic complete replacements, stable All lanes/admission and bounded polling/search/cache work; completed routes survive construction/AI refreshes; hidden-line edits and metadata changes avoid geometry flushes |
+| Persistence and isolated launch | `.orules` v1 with optional `PHASES 1`, loaded after lines; keyed identity/content validation; resumable approaches, branches, repeats, waits and pending decisions; safe temporary-file replacement and warnings; stale-state clearing; optional `--user_path`; packed Order/S5, lines v5 and signals v3 unchanged |
+
+Earlier native work remains delivered: gameplay options, shared lines with timetables and colour Schemes/Own support, path/chain signal flags and reservation viewing. Their individual acceptance status remains in the main table. The mod loader/Hello World was removed. Consists, shunting, cargo/passenger destinations, expanded limits, larger maps, NSF/NOF and multiplayer have not been implemented by this milestone.
+
+## Outstanding user acceptance
+
+Historical isolated QA passed the original Rules entry buttons, shared/private editing, some dragging/palette controls and placement. Later UI changes need rechecking. The user confirmed vehicles choose the correct stops; the later reported defects concerned the displayed path. Neither of the two latest map corrections has a recorded final in-game pass yet.
+
+| Manual check | Current status |
+| --- | --- |
+| Path/All at zero/positive station passengers; inactive multi-row If/Else route omitted; stable display through order advancement, AI/construction, recolouring and hidden-line edits | Latest corrections automated-tested; final user visual recheck pending |
+| Latest compact block shapes, clickable fields, both Rules entry buttons, private/shared captions, groups and drag/drop/cancellation/bin/world numbers; controls avoid overlap | Original QA partly passed; updated UI acceptance pending |
+| Else/Else if, Forever/Break, simultaneous program/next destination, green/red feedback and white arrows across skip/diversion/repeat/waits | Automated coverage passes; complete latest native matrix pending |
+| Physical stop/waypoint approach and braking before waits, timeout and continued station cargo handling | Automated integration passes; native acceptance pending |
+| Disposable save/reload during Repeat, Wait, pending evaluation and physical approach; matching companions and isolated user profile | Automated round trips pass; latest in-game acceptance pending |
+| Shared-line colour Schemes with multiple trains and one vehicle set to Own through the paint tool | Schemes previously opened/electric checkbox toggled; complete colour interaction check pending |
 
 ## Changelog
 
@@ -81,7 +120,7 @@ Baseline: OpenLoco `e71abfb3`, branch `dev/local-baseline`. Vanilla behaviour is
 
 ## Next actionable task
 
-Finish user-run Phase 4 acceptance in the isolated profile before marking block rules complete or merging. Restart a new executable and recheck the white route arrow during Skip/Go to, Repeat and station/waypoint waits: it should show the committed destination or reached hold point in all three views. Watch a Wait brake before starting its timeout and compare When > Before travelling with On arrival. Confirm station cargo handling continues and departure checks see the loaded vehicle; save/reload a disposable copy during approach and waiting. Record feedback alongside the existing block/drag/progress/loop/map-number and Schemes acceptance rows below. The user requested no automated game launch or mouse actions. Keep `v26.09-modded.1` as the rollback build and keep development on the feature branch.
+First, collect the user's manual recheck of the latest Path/All disappearance fix and zero/positive passenger If/Else route in the rebuilt executable. Then record the remaining checks in Outstanding user acceptance above, using an isolated profile and disposable saves. Fix any reported issue on `codex/block-logic-programming`; keep Phase 4 TESTING until required checks are recorded. The user controls the game and requested no further automated game launch or mouse actions. Preserve master and `v26.09-modded.1`; no merge or next milestone is authorized by this status update.
 
 ## Blockers
 
@@ -288,3 +327,9 @@ Changed code: `Lines/Line.h`, `Lines/Line.cpp`, `Lines/LinePath.cpp`, `Rules/Rul
 Verification: focused generated-map Debug suite **25 passed, zero failed**. Full serial Debug suite **365 passed, zero failed**; full serial Release suite **365 passed, zero failed**, including **162 rules tests**. Debug and Release builds succeeded without reported compiler/linker warnings. Five added regressions cover repeated topology invalidation before earlier searches finish in Path/All, hidden-line manual skips, immediate recolouring without new path work, explicit Rules/Lines snapshot clearing, and editing one line while retaining another line's cache/publication. Strengthened track-removal regression proves the old path stays visible during revalidation and disappears after replacement. Existing condition-exclusive route tests, all transport modes, saturation tests and per-update/cache/publication bounds still pass. Configuration-specific discovery verified all five executables in each configuration; formatting/diff checks passed.
 
 Logs: `build/windows/rule-refresh-stability-{debug,release}-{build,tests}.log`, `rule-refresh-stability-focused-tests.log`, `rule-refresh-stability-before-tests.log` (four expected original-defect failures), and `rule-refresh-stability-before-build.log`. No game launch, mouse interaction or player-save changes. Keep Phase 4 **TESTING**; native visual acceptance remains user-run. Next concrete task: user restart the rebuilt executable and recheck the intermittent same-route disappearance, including normal AI activity or a construction edit; continue outstanding manual acceptance when convenient. Master and `v26.09-modded.1` remain preserved.
+
+### Status consolidation (2026-10-12)
+
+Documentation-only task requested by the user. Consolidated all delivered Phase 4 work, earlier native features, the latest implementation checkpoint and automated evidence, superseded historical results, preserved branch/checkpoint boundaries and outstanding manual acceptance. Updated `DEVELOPMENT_STATUS.md`, `ROADMAP.md`, `FEATURE_MATRIX.md` and `TESTING_PLAN.md`. No code, saves or settings changed; no new decision or feature scope change.
+
+Verification: read the implementation history and latest Debug/Release logs, checked recorded test-family counts against configuration discovery, and checked documentation links/table structure and `git diff --check`. No builds, test suites or game interaction were rerun. Latest implementation results remain 365/365 in both configurations at `e42b1da8`. Blocker to completion remains unrecorded final user native acceptance; next task is the Path/All recheck followed by the consolidated outstanding acceptance rows. Phase 4 remains TESTING; master and `v26.09-modded.1` remain preserved.
