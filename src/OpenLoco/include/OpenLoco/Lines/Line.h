@@ -318,6 +318,8 @@ namespace OpenLoco::Lines
     uint8_t chosenOverlayColour(const OverlayClaim* claims, size_t count, uint16_t selectedLine);
 
     void invalidateRouteCache();
+    // Line metadata/visibility changed without changing the world graph.
+    void invalidateRouteView();
     void setRouteView(uint16_t selectedLine, bool showSelected, bool showAll, uint16_t vehicle = UINT16_MAX);
     void updateRouteView(); // One bounded path search per UI update; live rules sampled on a runtime copy.
     void invalidateRuleRouteCache(uint16_t line);

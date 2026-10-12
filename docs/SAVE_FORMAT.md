@@ -68,3 +68,5 @@ Manual Skip's selected stable row uses the existing saved `Runtime.current` fiel
 The stable Path/All fix adds transient published geometry, build pins, admission/limit state and fixed lane membership. None is saved. Loading previews read the existing ready/current state on a runtime copy and do not change simulation or saved state. Packed Order/S5, `.orules` v1/PHASES 1, `.olines` v5 and `.osignals` v3 remain unchanged (D45).
 
 D46's current-condition line diagram starts with fresh transient interpreter state. It does not import saved branches/waits/counters into the displayed route; the existing vehicle-progress projection still reads a copy when requested. No persisted model/runtime fields or companion versions change, and the `v26.09-modded.1` checkpoint remains untouched.
+
+The D47 geometry-pending/view-dirty flags are transient and are not serialized. Clearing Rules or Lines immediately clears the view/cache/publications, including before loading a different save; topology refreshes within the current game retain completed snapshots only until replacement. Existing `.orules`, `.olines`, `.osignals` and packed Order/S5 formats remain unchanged.

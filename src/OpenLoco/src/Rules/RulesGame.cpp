@@ -505,7 +505,7 @@ namespace OpenLoco::Rules
     {
         programs.clear();
         vehicles.clear();
-        Lines::invalidateRouteCache();
+        Lines::clearRouteView();
     }
     void assigned(uint16_t vehicle)
     {

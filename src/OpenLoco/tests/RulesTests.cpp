@@ -3873,10 +3873,144 @@ TEST_F(MapRulesFixture, topologyInvalidationRebuildsLegGeometryWithoutACondition
     const auto before = Lines::routeViewStats();
     World::TileManager::initialise(); // Remove the synthetic track while orders and facts remain identical.
     Lines::invalidateRouteCache();
+    Lines::updateRouteView();
+    EXPECT_TRUE(Lines::routeOverlayColour(384, 320, 4, 0, 0, 0)); // Keep the last complete display while rebuilding.
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes);
+    EXPECT_EQ(Lines::routePreviewStatus(line), "Map: updating preview");
     settle();
     EXPECT_FALSE(Lines::routeOverlayColour(384, 320, 4, 0, 0, 0));
     EXPECT_GT(Lines::routeViewStats().pathSearches, before.pathSearches);
     EXPECT_EQ(Lines::routeViewStats().pendingLegs, 0U);
+}
+TEST_F(MapRulesFixture, repeatedTopologyRefreshNeverBlanksPublishedPathOrAllRoutes)
+{
+    using namespace OpenLoco;
+    const auto selected = mapLine(Lines::LineKind::air, true);
+    yearBranch(selected, true);
+    const auto other = Lines::createLine("Other visible", TransportMode::air, 5);
+    ASSERT_TRUE(other.ok);
+    ASSERT_TRUE(Lines::replaceOrders(other.id, Lines::findLine(selected)->orders).ok);
+    yearBranch(other.id, true);
+    Lines::setRouteView(selected, true, true);
+    settle(32);
+    const auto before = Lines::routeViewStats();
+    ASSERT_EQ(before.publishedLegs, 6U);
+    const auto selectedLane = Lines::routeLaneOffset(selected), otherLane = Lines::routeLaneOffset(other.id);
+    for (int i = 0; i < 16; ++i)
+    {
+        Lines::invalidateRouteCache();             // Construction/AI events may arrive before previous work completes.
+        Lines::setRouteView(selected, true, true); // Native prepareDraw can run before the update.
+        EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 4);
+        EXPECT_EQ(Lines::surfaceOverlayColour(384, 320), 4);
+        EXPECT_EQ(Lines::routeViewStats().publishedLegs, 6U);
+        EXPECT_EQ(Lines::routeLaneOffset(selected), selectedLane);
+        EXPECT_EQ(Lines::routeLaneOffset(other.id), otherLane);
+        settle(1);
+        EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 4);
+        EXPECT_EQ(Lines::routeViewStats().publishedLegs, 6U);
+    }
+    settle(40);
+    EXPECT_GT(Lines::routeViewStats().pathSearches, before.pathSearches);
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes + 2);
+    EXPECT_EQ(Lines::routeViewStats().pendingLegs, 0U);
+    EXPECT_EQ(Lines::routeViewStats().publishedLegs, 6U);
+}
+TEST_F(MapRulesFixture, hiddenLineManualSkipsDoNotClearVisibleRouteGeometry)
+{
+    using namespace OpenLoco;
+    const auto shown = mapLine(Lines::LineKind::air, true);
+    yearBranch(shown, true);
+    const auto hidden = Lines::createLine("Hidden", TransportMode::air, 5);
+    ASSERT_TRUE(hidden.ok);
+    ASSERT_TRUE(Lines::replaceOrders(hidden.id, Lines::findLine(shown)->orders).ok);
+    yearBranch(hidden.id, true);
+    auto* head = vehicle();
+    head->mode = TransportMode::air;
+    head->vehicleType = VehicleType::aircraft;
+    const auto id = enumValue(head->id);
+    ASSERT_TRUE(Lines::assignVehicle(hidden.id, id, TransportMode::air).ok);
+    Lines::setRouteView(shown, true, false);
+    settle();
+    const auto before = Lines::routeViewStats();
+    for (const uint16_t cursor : { 2, 4, 0, 2, 4, 0 })
+    {
+        head->currentOrder = cursor;
+        manuallySkipped(id);
+        settle(1);
+        EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+        EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes);
+        EXPECT_EQ(Lines::routeViewStats().pathSearches, before.pathSearches);
+    }
+}
+TEST_F(MapRulesFixture, lineColourEditsReusePublishedGeometryWithoutBlankFrames)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    yearBranch(line, true);
+    Lines::setRouteView(line, true, false);
+    settle();
+    const auto before = Lines::routeViewStats();
+    for (uint8_t colour : { 5, 6, 4, 4 })
+    {
+        ASSERT_TRUE(Lines::setLineColours(line, colour, 1).ok);
+        Lines::setRouteView(line, true, false);
+        EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), colour);
+        settle(1);
+        EXPECT_EQ(Lines::routeViewStats().pathSearches, before.pathSearches);
+        EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes);
+    }
+}
+TEST_F(MapRulesFixture, clearingRulesOrLinesImmediatelyDropsPublishedSnapshots)
+{
+    using namespace OpenLoco;
+    for (const bool clearDefinitions : { true, false })
+    {
+        const auto line = mapLine(Lines::LineKind::air, true);
+        yearBranch(line, true);
+        Lines::setRouteView(line, true, false);
+        settle();
+        ASSERT_TRUE(Lines::surfaceOverlayColour(448, 448));
+        ASSERT_GT(Lines::routeViewStats().publishedLegs, 0U);
+        if (clearDefinitions)
+        {
+            clear();
+        }
+        else
+        {
+            Lines::clearLines();
+        }
+        EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+        EXPECT_EQ(Lines::routeViewStats().publishedLegs, 0U);
+        EXPECT_EQ(Lines::routeViewStats().cachedLegs, 0U);
+        settle(8);
+        EXPECT_EQ(Lines::routeViewStats().pathSearches, 0U);
+        EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    }
+}
+TEST_F(MapRulesFixture, editingOneLineRetainsOtherPublishedRoutesAndCachedLegs)
+{
+    using namespace OpenLoco;
+    const auto selected = mapLine(Lines::LineKind::air, true);
+    yearBranch(selected, true);
+    const auto other = Lines::createLine("Unchanged", TransportMode::air, 5);
+    ASSERT_TRUE(other.ok);
+    ASSERT_TRUE(Lines::replaceOrders(other.id, Lines::findLine(selected)->orders).ok);
+    yearBranch(other.id, true);
+    Lines::setRouteView(selected, true, true);
+    settle(32);
+    const auto before = Lines::routeViewStats();
+    Edit e;
+    e.kind = EditKind::updateBlock;
+    e.block = find({ OwnerKind::line, selected })->blocks.front();
+    e.block.condition.compare = Compare::greater;
+    ASSERT_TRUE(submit({ OwnerKind::line, selected }, e));
+    Lines::setRouteView(selected, true, true);
+    EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 4); // Previous snapshot survives prepareDraw.
+    settle(16);
+    EXPECT_EQ(Lines::surfaceOverlayColour(448, 448), 5); // Only the unedited line still visits this stop.
+    EXPECT_EQ(Lines::surfaceOverlayColour(384, 320), 4);
+    EXPECT_EQ(Lines::routeViewStats().pathSearches, before.pathSearches + 1);
+    EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes + 1);
 }
 TEST_F(MapRulesFixture, liveLegCacheRemainsBoundedAcrossManyVisibleLines)
 {

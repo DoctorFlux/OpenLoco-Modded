@@ -242,6 +242,7 @@ namespace OpenLoco::Lines
 
     void clearLines()
     {
+        clearRouteView();
         _lines.clear();
         _privateOrders.clear();
         _cursors.clear();
@@ -387,7 +388,7 @@ namespace OpenLoco::Lines
         }
         line->colour = colour;
         line->secondaryColour = colour;
-        invalidateRouteCache();
+        invalidateRouteView();
         return { true, 0, {} };
     }
 
@@ -484,7 +485,7 @@ namespace OpenLoco::Lines
         }
         line->colour = primary;
         line->secondaryColour = secondary;
-        invalidateRouteCache();
+        invalidateRouteView();
         if (line->paintVehicles)
         {
             paintAssignedVehicles(*line, true);
@@ -728,7 +729,7 @@ namespace OpenLoco::Lines
         edit.raw = raw; if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         line->orders.insert(line->orders.begin() + static_cast<std::ptrdiff_t>(index), std::move(order));
         syncLine(*line);
-        invalidateRouteCache();
+        invalidateRouteView();
         return { true, 0, {} };
     }
 
@@ -748,7 +749,7 @@ namespace OpenLoco::Lines
         if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         std::swap(line->orders[index], line->orders[static_cast<size_t>(destination)]);
         syncLine(*line);
-        invalidateRouteCache();
+        invalidateRouteView();
         return { true, 0, {} };
     }
 
@@ -762,7 +763,7 @@ namespace OpenLoco::Lines
         Rules::Edit edit; edit.kind = Rules::EditKind::reverseRows; if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         std::reverse(line->orders.begin(), line->orders.end());
         syncLine(*line);
-        invalidateRouteCache();
+        invalidateRouteView();
         return { true, 0, {} };
     }
 
@@ -786,7 +787,7 @@ namespace OpenLoco::Lines
             return { false, 0, "order table is full" };
         line->orders = std::move(orders);
         syncLine(*line);
-        invalidateRouteCache();
+        invalidateRouteView();
         return { true, 0, {} };
     }
 
@@ -801,7 +802,7 @@ namespace OpenLoco::Lines
         if (const auto rulesResult = Rules::noteOrderEdit({ Rules::OwnerKind::line, lineId }, edit); !rulesResult) return { false, 0, rulesResult.message };
         line->orders.erase(line->orders.begin() + static_cast<std::ptrdiff_t>(index));
         syncLine(*line);
-        invalidateRouteCache();
+        invalidateRouteView();
         return { true, 0, {} };
     }
 

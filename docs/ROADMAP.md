@@ -38,6 +38,8 @@ Path/All condition display now swaps complete per-line snapshots, stabilizes lan
 
 Phase 4 follow-up D46 separates whole-line Path/All diagrams from copied vehicle execution progress. It evaluates the first row with fresh state, omits inactive If/Else stops and waypoints entirely, and removes moving-origin legs. Current facts still refresh live through the bounded cache/publication path. Full Debug/Release suites each passed 360/360. Next concrete task: user recheck the stop 1/waypoint 2 versus Else waypoint 3 example with waypoint 4 after the branch, then finish remaining manual acceptance. Keep TESTING.
 
+D47 follow-up prevents completed Path/All routes disappearing during construction/cache refreshes, separates metadata invalidation and isolates hidden-line changes. Save/game resets clear publications immediately. Next concrete task: user recheck the previously intermittent same-route disappearance in the rebuilt executable; keep Phase 4 TESTING.
+
 1. Block list, checks the game can already answer, If/Else if/Else, Skip, Go to, finite/Forever Repeat, Break, and the 256-step budget. Tests load the blocks from memory.
 2. Run those blocks on a vehicle's own orders, and run the same blocks on a shared line. Each vehicle on a line keeps its own repeat count and wait.
 3. Rules window. Its own window, drag and drop inside it, placed so it does not cover the line window, the vehicle window, or schemes.

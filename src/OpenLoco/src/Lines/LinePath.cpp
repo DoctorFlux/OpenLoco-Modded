@@ -179,6 +179,7 @@ namespace OpenLoco::Lines
         bool _showSelected = false;
         bool _showAll = false;
         bool _dirty = true;
+        bool _geometryDirty = true;
         uint16_t _previewVehicle = UINT16_MAX;
         uint32_t _viewUpdates = 0;
         uint16_t _pollCursor = 0, _buildCursor = 0;
@@ -214,6 +215,7 @@ namespace OpenLoco::Lines
             std::optional<Published> published;
             bool capacityLimited = false;
             bool finishLimited = false;
+            bool geometryPending = false;
         };
         std::map<LegKey, CachedLeg> _legCache;
         std::map<uint16_t, LivePlan> _livePlans;
@@ -1220,7 +1222,7 @@ namespace OpenLoco::Lines
         }
         bool pendingPlan(const LivePlan& plan)
         {
-            return !plan.published || plan.published->legs.size() != plan.legs.size()
+            return plan.geometryPending || !plan.published || plan.published->legs.size() != plan.legs.size()
                 || !std::all_of(plan.legs.begin(), plan.legs.end(), [&](const LegKey& key) { return std::find(plan.published->legs.begin(), plan.published->legs.end(), key) != plan.published->legs.end(); });
         }
         std::pair<size_t, size_t> publishedSize(uint16_t except = 0)
@@ -1343,6 +1345,7 @@ namespace OpenLoco::Lines
                 }
                 const auto before = totals;
                 plan.published = std::move(next);
+                plan.geometryPending = false;
                 totals.first += plan.published->legCount;
                 totals.first -= oldLegs;
                 totals.second += units;
@@ -1486,9 +1489,10 @@ namespace OpenLoco::Lines
             _liveRoutes.clear();
             if (geometryDirty)
             {
+                // Construction invalidates build geometry, not the last complete
+                // display. Each retained plan must rebuild even if its legs match.
                 _legCache.clear();
                 _cachedUnits = 0;
-                previous.clear();
             }
             _viewUpdates = 0;
             _pollCursor = _buildCursor = 0;
@@ -1524,6 +1528,7 @@ namespace OpenLoco::Lines
                         plan = std::move(old->second);
                         plan.refresh = true;
                         plan.capacityLimited = false;
+                        plan.geometryPending |= geometryDirty;
                     }
                     else
                     {
@@ -1563,6 +1568,12 @@ namespace OpenLoco::Lines
     void invalidateRouteCache()
     {
         _dirty = true;
+        _geometryDirty = true;
+    }
+
+    void invalidateRouteView()
+    {
+        _dirty = true;
     }
 
     void setRouteView(uint16_t selectedLine, bool showSelected, bool showAll, uint16_t vehicle)
@@ -1580,8 +1591,9 @@ namespace OpenLoco::Lines
         _showSelected = showSelected;
         _showAll = showAll;
         _previewVehicle = vehicle;
-        const bool geometryDirty = _dirty;
+        const bool geometryDirty = _geometryDirty;
         _dirty = false;
+        _geometryDirty = false;
         rebuild(geometryDirty);
         Gfx::invalidateScreen();
     }
@@ -1593,9 +1605,11 @@ namespace OpenLoco::Lines
         {
             plan->second.refresh = true;
         }
-        else
+        else if (_showAll || (_showSelected && line == _selectedLine))
         {
-            _dirty = true;
+            // Creating/removing blocks on a visible static line changes layer
+            // membership. A hidden line must not reset any visible route.
+            invalidateRouteView();
         }
     }
     void updateRouteView()
@@ -1724,6 +1738,7 @@ namespace OpenLoco::Lines
         _showAll = false;
         _selectedLine = 0;
         _dirty = true;
+        _geometryDirty = true;
         _overlay.clear();
         _routes.clear();
         _markers.clear();
