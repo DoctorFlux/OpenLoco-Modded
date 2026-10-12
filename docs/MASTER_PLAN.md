@@ -124,3 +124,5 @@ The packaging decision is in `DECISIONS.md`: hybrid monorepo until a mod needs i
 Phase 4 is implemented on `codex/block-logic-programming` and remains TESTING until its required in-game checks are recorded. Native opt-in features supersede the original package-loader goal (D23). Preserve master and `v26.09-modded.1` while testing; no release or merge is implied. Consists, shunting, destinations, NSF/NOF and multiplayer remain later work.
 
 Phase 4 includes actual multi-row blocks in the vehicle Route, shared-line Orders and Rules windows; simultaneous current-program/next-destination feedback; Else/Else if; Forever repeats and Break. Native acceptance remains user-run before completing this milestone.
+
+Rules uses MakeCode-style shapes inside native windows (D34), with explicit inside slots that grow route sections. Classic order lists without blocks keep their existing presentation. Latest Phase 4 fixes remain in TESTING for user manual recheck.

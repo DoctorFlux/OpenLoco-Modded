@@ -183,3 +183,15 @@ The palette says Else and Else if. Else if links to its preceding If or Else if;
 Forever repeats and Break use the same 256-step tick budget and physical order transitions as finite loops. Break clears the selected loop's counters and those of nested loops, skips its remaining orders on this pass, and continues after it. Removing a loop also removes Break actions that target it. A budget pause keeps the decision pending and prevents physical progression until it resumes.
 
 The companion remains version 1. Existing kind value 2 is displayed as Else; Else if and Break append values 7 and 8. A Repeat definition and active counter of zero encode Forever. Finite loops still require a positive remaining count. Existing companions remain readable; builds predating these extra kinds cannot load a companion containing them. No packed Order, S5, lines or signals version changes.
+
+## Adding items inside a block
+
+Drag a stop or waypoint by its `=` grip into the block's `+ drop inside` slot. Each nested block has its own slot. The container grows to include the dropped orders, even when the dropped order was already next to its last row. Select consecutive rows, then drag their grip to insert several together. A grouped section moves with its blocks. Existing First/Last selectors and the selected block's end grip still resize sections.
+
+To add another logic block, drag it from the palette onto an order inside the existing block; select several interior orders first to wrap a larger child section. Skip, Go to and conditional Break attach to the enclosing If/Else-if/Else branch. Drop Else or Else if on a preceding header or its closing slot to use the following order section; add following orders in Route/Lines first when none exist. Invalid positions show no insertion marker; invalid release gives feedback and leaves the list intact.
+
+Explicit container drops grow enclosing sections and paired actions/Else chains in one validated command. They refresh the active map numbers and preserve the reached order. Ordinary insertions above/below a section remain outside it. Crossing sections, self-containment, invalid references, transport incompatibility and order-table capacity reject the whole edit.
+
+## MakeCode visual reference
+
+The [MakeCode editor](https://makecode.microbit.org/#editor) and [If block guide](https://makecode.microbit.org/blocks/logic/if) guide the shapes. Statements have rounded corners and top/bottom snap connectors; control blocks have a thick C spine, a visible inner cavity and a full closing arm. Boolean checks appear in hexagonal sockets and values in rounded white fields. Logic is blue, loops green, groups/orders purple and waits orange; recorded pass/fail colours override these on checked blocks. Adjacent Else/Else-if arms join their preceding branch. Palette items and pointer previews use the same silhouettes. All three order views use the shared native geometry, including reachable interior append slots and correctly indented grips. The native appearance awaits user manual acceptance.
