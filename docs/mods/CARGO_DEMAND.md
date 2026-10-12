@@ -22,7 +22,7 @@ Partial loads are normal. Waiting cargo ages with the existing age field.
 
 ## Dispatch
 
-Demand-based dispatch is a programmable-logic condition (`cargo waiting`, `freight destination`). It is not a separate scheduler.
+A rules check can read cargo waiting. Freight destination becomes a check in that same palette when this feature exists. The order list and its blocks remain the dispatch. There is no second scheduler.
 
 ## Tests
 

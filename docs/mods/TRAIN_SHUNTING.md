@@ -1,6 +1,6 @@
 # Train shunting
 
-Not implemented. Depends on programmable logic, on-track consists, and path reservations.
+Not implemented. Depends on on-track consists and path reservations. Yard rules also depend on block rules.
 
 ## Physical rules
 
@@ -38,29 +38,19 @@ Recovery:
 
 ## Programs
 
-Each shunter can have a program. Each yard can have a controller program. Both use programmable logic. The controller creates jobs. Shunters execute assigned jobs. A shunter without a program can still run jobs from the scheduler.
+A shunter and a yard use the same Rules window as a vehicle and a shared line. The player drags the same kind of blocks. The first palette does not include yard actions. When shunting exists, Couple, Uncouple, and the other rail-only blocks appear in that palette for a rail list.
 
-Example, in the text view of the instruction graph:
+Example, as blocks on a list rather than as typed code: If cargo waiting at the coal stop is at least 8, request a shunter, go to the coal wagons, couple 8, go to sorting road A, and uncouple. Otherwise, leave the list alone.
 
-```
-IF cargoWaiting(coal) >= 8
-    REQUEST shunter
-    MOVE_TO coalWagons
-    COUPLE 8
-    MOVE_TO sortingA
-    UNCOUPLE
-END
-```
-
-That text is not a second language. It prints the same instructions the editor shows.
+Those yard blocks are hidden until shunting exists. A shunter with no blocks can still run jobs from the scheduler.
 
 ## Scheduler
 
-Each tick, consider at most a fixed number of queued jobs, highest priority first, then oldest id. Assignment respects one shunter per job and one job per shunter. Do not scan every industry every tick; jobs are created by events (arrival, request, program wake).
+Each tick, consider at most a fixed number of queued jobs, highest priority first, then oldest id. Assignment respects one shunter per job and one job per shunter. Do not scan every industry every tick; jobs are created by events (arrival, request, a waiting block).
 
 ## Player controls
 
-Automatic or manual mode per yard. Track roles: arrival, departure, sort, storage, run-around. Wagon filters. Program editor. Priority. Assembly request from a freight line when cargo demand is installed. Without cargo demand, the player can still create a local request.
+Automatic or manual mode per yard. Track roles: arrival, departure, sort, storage, run-around. Wagon filters. The Rules window. Priority. Assembly request from a freight line when cargo demand is installed. Without cargo demand, the player can still create a local request.
 
 ## UI
 

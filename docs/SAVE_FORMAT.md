@@ -20,8 +20,8 @@ The January 2026 development post says NSF is planned to raise map and other lim
 1. Keep the SV5 importer byte-compatible for `0x62262`.
 2. When extended state is required, write a new file. Never replace the source SV5.
 3. Design that file as a versioned chunk container that can later be renamed or wrapped if upstream NSF lands. The chunk names used by mods stay stable even if the outer envelope changes.
-4. Reject a sidecar as the long-term authority. A sidecar can be separated from the save and will desync. A short-lived debug dump is allowed if it is clearly not loaded as truth. Two companions exist by user request until the container lands: `<save>.SV5.olines` for shared lines and `<save>.SV5.osignals` for signal types and pending reservations (D20).
-5. Old-format export is optional and only legal when every live feature can be represented in SV5. Parked-wagon jobs, logic programs, and larger maps cannot.
+4. Reject a sidecar as the long-term authority. A sidecar can be separated from the save and will desync. A short-lived debug dump is allowed if it is clearly not loaded as truth. Companions exist by user request until the container lands: `<save>.SV5.olines` for shared lines and `<save>.SV5.osignals` for signal types and pending reservations (D20). Block rules will use `<save>.SV5.orules` when they are implemented (D26). That file is not written yet.
+5. Old-format export is optional and only legal when every live feature can be represented in SV5. Parked-wagon jobs, block rules, and larger maps cannot.
 
 ## Proposed container, not implemented
 

@@ -14,9 +14,8 @@ This file is the authority for goals and sequencing. Detailed behaviour lives in
 
 ## Non-goals for the current milestone
 
-- No new gameplay in `OpenLoco.exe`.
-- No in-game mod window.
-- No zip installer, script runtime, or network download.
+- No Lua, Wasm, text script runtime, or network download.
+- No zip installer.
 - No NSF/NOF implementation and no edit to `S5::GameState`.
 - No claim that multiplayer works.
 
@@ -74,24 +73,25 @@ Audited at `e71abfb3`. Source map: `DEVELOPMENT-ROADMAP.md`.
 | Area | State |
 | --- | --- |
 | C++ reimplementation, SDL3, OpenAL, SV5/SC5 | Present |
-| Orders: End, StopAt, RouteThrough, RouteWaypoint, UnloadAll, WaitFor | Present. Three-bit type field. |
-| Block signals and a 64-entry routing ring | Present. Not path signals. |
+| Orders: End, StopAt, RouteThrough, RouteWaypoint, UnloadAll, WaitFor | Present. Three-bit type field. Block rules are specified and are not stored in that byte. |
+| Block signals and a 64-entry routing ring | Present. Path and chain are extra flags on a normal signal. |
 | Depot coupling, rearrange, reverse | Present. No on-track split or run-around. |
 | Cargo as quantities with an origin station | Present. No passenger destination. |
 | Map 384x384, pitch 512, fixed object and entity caps | Present and packed into the save |
 | Multiplayer sockets and unused checksum fields | Present as incomplete code. UI control hidden. |
-| NSF, NOF, mod packages, shared lines, timetables | Absent |
-| Mod manifest parser, discovery, and log-only activation | Implemented. Hello World logs one line when enabled. |
+| Shared lines, timetables, path and chain signals | In the game. Companions beside the SV5 |
+| NSF, NOF | Absent |
+| Mod loader | Removed |
 
 ## Sequencing
 
 Phases are detailed in `ROADMAP.md`. The short form:
 
 0. Audit and these documents. Done for this baseline.
-1. Mod manifest, discovery, dependency checks. Started.
-2. Packages and manager UI. The sample mod can be activated from the command line. The manager window is not started.
+1. Mod loader. Removed (D23).
+2. Packages and manager UI. Removed with the loader (D23).
 3. Shared lines, then timetables.
-4. One programmable-logic interpreter and a visual editor.
+4. Block rules on a vehicle's orders and on a shared line's orders, in one Rules window. Checkpoint before this step: `v26.09-modded.1`.
 5. Versioned save container and mod state. Align with upstream NSF.
 6. Dynamic consists and on-track coupling.
 7. Path reservations and signals.
@@ -101,7 +101,7 @@ Phases are detailed in `ROADMAP.md`. The short form:
 11. Object limits and larger worlds, aligned with NOF.
 12. Performance, packaging, release.
 
-Lines and logic can be designed before the save container, but they cannot be saved until phase 5. Shunting gameplay waits for consists and reservations. Timetables must work without shunting. Shunting must work without passenger destinations.
+Block rules save in a companion, as lines and signals already do, until the save container exists. Shunting gameplay waits for consists. Timetables already run without shunting. Shunting must work without passenger destinations.
 
 ## Repository layout
 

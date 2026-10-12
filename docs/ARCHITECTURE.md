@@ -41,7 +41,7 @@ These are interfaces to grow. They are not classes in the tree today.
 | `ConsistModel` | Ordered vehicles, orientation, couplers, service id | Shunting |
 | `ReservationMap` | Path occupancy beyond the 64-word routing ring | Signals, shunting |
 | `LineModel` | Shared order list referenced by many vehicles | Shared lines |
-| `LogicRuntime` | One bounded interpreter | Lines, yards, shunters |
+| `LogicRuntime` | One bounded block runner for a vehicle order list and a shared-line order list. Yards use it later | Rules window |
 | `SaveContainer` | Versioned chunks plus SV5 import | Every persistent feature |
 | `UiExtension` | Register windows in the existing widget style | Mod manager and editors |
 
@@ -49,9 +49,9 @@ Each service gets its own types and tests before a mod calls it. A mod never rea
 
 ## Commands
 
-A command is a plain value: type, issuer, arguments, and a predictable result code. The existing `GameCommands` table is the vanilla set. New commands are added beside it once the save container can record them. UI and scripts submit commands. They do not edit entities.
+A command is a plain value: type, issuer, arguments, and a predictable result code. The existing `GameCommands` table is the vanilla set. New commands are added beside it once the save container can record them. UI submits commands. It does not edit entities.
 
-Failure codes are part of the API: blocked, missing entity, incompatible vehicle, reservation conflict, timeout, cancelled, invalid program. Callers must handle them.
+Failure codes are part of the API: blocked, missing entity, incompatible vehicle, reservation conflict, timeout, cancelled, invalid block. Callers must handle them.
 
 ## Identity
 

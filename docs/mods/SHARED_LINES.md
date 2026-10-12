@@ -4,7 +4,7 @@ Implemented as an engine line list. A vehicle on a line uses that line's orders.
 
 ## Model
 
-A line has: id, name, transport mode, ordered stops, order program or vanilla order template, priority, and the set of vehicle ids assigned to it.
+A line has: id, name, transport mode, ordered stops, priority, and the set of vehicle ids assigned to it. Block rules are optional and live beside those orders. The spec is `docs/mods/PROGRAMMABLE_LOGIC.md`.
 
 Editing the line changes every assigned vehicle. Vehicles do not each own a copy. The current `orders[]` slice per vehicle is the vanilla path and remains for vehicles with no line.
 
@@ -14,7 +14,7 @@ Supported modes: train, bus, tram, truck, ship, aircraft. New line does not ask 
 
 - Add and remove vehicles without deleting the line.
 - Distribute departures only when a timetable is also installed. Without it, vehicles run the shared orders independently.
-- Conditional orders and dispatch come from programmable logic when that mod is installed. Without it, the line uses the vanilla order template only.
+- A line with no blocks uses the vanilla order rows only. Blocks, when a player adds them, are the Rules window on this same list.
 - Statistics: vehicles assigned, trips completed, last arrival tick. Counts update from events, not from a full vehicle scan.
 
 ## Window
@@ -33,7 +33,7 @@ Above the line list are All, train, bus, tram, aircraft, and ship, using the sam
 
 The Vehicles tab shows a horizontal diagram of the numbered stops and where each vehicle is, using the game's number markers, then combined monthly profit and running cost. A vehicle that is loading or unloading sits on that stop. Otherwise the marker is the share of the gap already covered: 20 tiles into a 100-tile gap is 20 percent, using the train itself rather than the routing head. A vehicle that has been picked up is not drawn on the bar until it is placed again. The stop bar is always `1---2---3---4---5---` when there is more than one stop. The last gap is the same width as the others and is 0 to 100 percent of the trip from the last stop back to the first. The train is shown on the first stop only when that gap is finished. The row says which two stops it is between and the percent along that leg. Add vehicle assigns one the player already owns. Buy vehicle opens the build window and assigns the new vehicle to the line.
 
-The vehicle route list is the normal order list. A Line button sits on the Local/Express row and chooses Private orders or a line. The list only contains lines that vehicle can use. While that route tab's tool is active, clicking a line in the line list assigns it to that vehicle, the same way clicking another vehicle's order list copies orders. A line of another transport mode is not assigned. While a vehicle is on a line, order changes in that vehicle window are written to the line.
+The vehicle route list is the normal order list. Rules opens a separate window and does not add widgets to this list. A Line button sits on the Local/Express row and chooses Private orders or a line. The list only contains lines that vehicle can use. While that route tab's tool is active, clicking a line in the line list assigns it to that vehicle, the same way clicking another vehicle's order list copies orders. A line of another transport mode is not assigned. While a vehicle is on a line, order changes in that vehicle window are written to the line.
 
 ## Vanilla
 

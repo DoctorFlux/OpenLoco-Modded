@@ -37,7 +37,7 @@ From `src/OpenLoco/include/OpenLoco/S5/Limits.h`:
 
 ## Identifier width
 
-Order types use 3 bits (`Order::_type & 0x7`). Two spare values remain. A wider order does not fit the current table.
+Order types use 3 bits (`Order::_type & 0x7`). Two spare values remain. A wider order does not fit the current table. Block rules do not use those spare values and do not widen `Order`.
 
 Vehicle and station references in the vanilla structs are the existing id types. They are not a substitute for persistent mod references.
 
@@ -49,7 +49,7 @@ Object caps should become dynamic only when the object file format can express t
 
 ## Performance bounds for new systems
 
-- Logic programs: a fixed instruction budget per tick, with a wait state when exhausted.
+- Block rules: a fixed budget of 256 block steps for one vehicle on one tick, then a wait until the next tick. Repeat has a required count, at most 20.
 - Reservations: lookup by track piece, not a scan of every train, once the map exists.
 - Passenger groups: aggregated counts per origin, destination, and line, not one agent per person.
 - Job scheduler: a bounded number of state transitions per tick.

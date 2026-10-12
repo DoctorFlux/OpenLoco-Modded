@@ -21,7 +21,7 @@ Tests must not open the Steam Locomotion directory or `%APPDATA%\OpenLoco`.
 | Saves | SV5 import, new file written elsewhere, checksum, missing mod, migration |
 | Lines | Two vehicles share one edit; a vehicle with no line keeps vanilla orders |
 | Timetables | Early vehicle waits; late vehicle does not freeze the game |
-| Logic | Each control structure, step budget, cancel, timeout, deterministic trace |
+| Logic | No blocks matches current order advance. A group of two stops and one waypoint is skipped or visited from a cargo check. Go to stays on the same list. Repeat is bounded. Two vehicles on one line share blocks and keep separate counts. Step budget, unavailable check, deterministic next order |
 | Consists | Uncouple, couple either end, parked wagons remain, reverse |
 | Reservations | Crossing paths conflict; parallel paths do not; release on cancel |
 | Shunting | Scenarios below |

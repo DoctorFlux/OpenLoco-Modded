@@ -10,7 +10,7 @@ Generation uses town population and a demand weight between towns, drawn from th
 
 ## Journeys
 
-A group picks a path over shared lines when that mod is installed. Without shared lines, the group can only board a vehicle whose vanilla orders include the destination. If no path exists, the group waits and ages out through the existing cargo-age rules.
+A group picks a path over shared lines when lines exist. With no shared line, the group can only board a vehicle whose orders include the destination. If no path exists, the group waits and ages out through the existing cargo-age rules. A "passengers going to" check joins the Rules palette when this feature exists. Until then the palette does not show it.
 
 Transfers are a group arriving at an intermediate station and becoming a new leg. Missed connections increase wait time. They do not spawn extra groups.
 

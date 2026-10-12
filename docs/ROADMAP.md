@@ -20,13 +20,17 @@ Implemented for the line record, assignment, vanilla order types, save companion
 
 Specs: `docs/mods/SHARED_LINES.md`, `docs/mods/TIMETABLES.md`.
 
-## Phase 4 — Programmable logic
+## Phase 4 — Block rules
 
-1. Instruction set and resource limits in `docs/mods/PROGRAMMABLE_LOGIC.md`.
-2. Interpreter with step budget, cancellation, and a trace.
-3. Save programs only after phase 5. Until then, tests load programs from memory.
-4. Visual editor using native widgets. Text form is a projection of the same graph, not a second language.
-5. Wire conditions that already exist (cargo waiting, date) before conditions that need new engine data.
+Release `v26.09-modded.1` is the checkpoint before this phase. Spec: `docs/mods/PROGRAMMABLE_LOGIC.md`.
+
+The phase is done when a vehicle and a shared line can both run the blocks, including a group of stops and waypoints, from the Rules window. A runner with no window, or a window that only edits one of the two lists, is not this phase.
+
+1. Block list, checks the game can already answer, skip, go to, repeat, and the 256-step budget. Tests load the blocks from memory.
+2. Run those blocks on a vehicle's own orders, and run the same blocks on a shared line. Each vehicle on a line keeps its own repeat count and wait.
+3. Rules window. Its own window, drag and drop inside it, placed so it does not cover the line window, the vehicle window, or schemes.
+4. Save `<save>.SV5.orules` when the tests above pass. A missing file leaves the orders as they are. This does not wait for phase 5 and does not widen `S5::GameState`.
+5. Passenger, freight-destination, and yard blocks stay out of the palette until those features exist. They use this same window.
 
 ## Phase 5 — Save container
 
@@ -59,7 +63,7 @@ Implemented ahead of the save container, using the `.osignals` companion (D20). 
 2. Single shunter sorts wagons.
 3. Two shunters in one yard.
 4. Run-around and push into a siding.
-5. Yard program and shunter program on the shared interpreter.
+5. Yard rules and shunter rules in the same Rules window.
 6. Freight requests only if cargo demand is also loaded.
 
 ## Phase 9 — Cargo demand
@@ -81,7 +85,7 @@ Profile large maps, package `.olmod` files, write install instructions, and keep
 ## Parallel work that is safe now
 
 - Documentation and loader tests.
-- Pure interpreter tests that do not touch `GameState`.
+- Block-rule tests that do not touch `GameState`.
 - Line and timetable data-model tests in memory.
 - Upstream tracking when OpenLoco publishes NSF or NOF notes.
 

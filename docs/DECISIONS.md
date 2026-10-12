@@ -7,7 +7,7 @@
 | D3 | 2026-10-10 | New saves will be a versioned chunk container, not a sidecar. | Sidecars split from the save and desync. | Container design must be able to wrap upstream NSF later. |
 | D4 | 2026-10-10 | `.olmod` is a proposed zip with `manifest.json`. | No official mod package exists. | Revisit if upstream defines one. Directory loader ships first. |
 | D5 | 2026-10-10 | No native DLL mods by default. | Untrusted code would have full process rights. | Scripts, when chosen, are sandboxed. |
-| D6 | 2026-10-10 | Script language is not chosen. | Lua, Wasm, and a custom logic graph have different costs. See below. | Programmable logic starts as an in-engine instruction graph. A text form is a view of that graph. |
+| D6 | 2026-10-10 | Script language is not chosen. | Lua, Wasm, and a custom logic graph have different costs. See below. | Closed by D26. The player uses blocks on the order list. |
 | D7 | 2026-10-10 | One logic runtime for lines, yards, and shunters. | Separate languages would drift. | Railway-only actions are capability-gated, not a second interpreter. |
 | D8 | 2026-10-10 | API compatibility is same major.minor and running patch >= required patch. | `0.x` minor breaks would be hidden by a looser rule. | Bump minor when the manifest or loader behaviour breaks. |
 | D9 | 2026-10-10 | Unknown manifest keys are ignored; nested objects are rejected. | Forward field adds should not break the loader. Arbitrary JSON should not become a hidden API. | Schema growth is explicit. |
@@ -26,6 +26,8 @@
 | D22 | 2026-10-10 | Plain block signals keep OpenLoco's own look. Path, chain, and combined posts use that same look: green while clear, red when the head passes, yellow on the signals behind that red, green again when the tail leaves. Reservation does not paint the post. Route-indicator lights stay vanilla. Companion version 3; version 2 loads clear stale route lights. | Claim colours left path and chain posts red until a train approached, then yellow, while the block signals beside them stayed green. | Block signals still turn red before trains reach them, as in OpenLoco. Saves from version 2 builds lose route-indicator housings on special signals until a train passes the junction again. |
 | D23 | 2026-10-11 | The mod loader, title-screen Mods window, `mods` command, and Hello World sample are removed. | Shared lines, timetables, and path and chain signals are edited in the game. The loader only logged a sample line. | D1, D4, and D8 through D18 described that loader. They are not a reason to add it back. |
 | D24 | 2026-10-11 | A line can paint vehicles with its main colours or with one of ten special schemes, the same types as the company colour tab. Bit 0 is steam through bit 9 ships. A vehicle marked Own keeps the paint-tool colours. Companion files are version 5. Versions 1 to 4 still load with the schemes off and the scheme colours equal to the line colours. | Line paint, company colours, and the vehicle paint brush have to apply at the same time, including one train in its own colours. | Company special schemes use bit 1 for steam. Line schemes use bit 0. An older companion has no Own list, so every assigned vehicle follows the line when Paint is on. |
+| D25 | 2026-10-12 | Release `v26.09-modded.1` is the checkpoint before block rules. | The next work changes orders for vehicles and shared lines. That release stays the build to return to. | Do not rewrite that tag. Block-rule work starts after it. |
+| D26 | 2026-10-12 | Player rules are MakeCode-style blocks on the order list, in one Rules window, for a vehicle and for a shared line. A group of stops and waypoints can share one block. A list with no blocks stays the current orders. | A text language, Lua, and WebAssembly are the wrong tool for a child editing a route. The order byte has no room for a new type. | Supersedes the open choice in D6. One runtime, as in D7, runs these blocks. Yard and cargo blocks join this palette later. The spec is `docs/mods/PROGRAMMABLE_LOGIC.md`. |
 
 ## Script language tradeoffs
 
@@ -37,7 +39,7 @@ Not selected.
 | WebAssembly | Stronger sandbox, language choice for authors. | Heavier toolchain, harder for players to edit, time and memory limits need a runtime. |
 | Instruction graph plus text view | Matches the visual editor, easy to bound and save, deterministic. | Not a general programming language. External authors cannot reuse an ecosystem. |
 
-Decision D6 stands until a milestone needs player-authored text. The first interpreter should execute the graph directly so the visual editor and the text view cannot diverge.
+D26 closes this choice. The player drags blocks. There is no text view to keep in step with a second language.
 
 ## Release artifacts
 

@@ -4,7 +4,7 @@
 
 Use the existing OpenLoco window widgets, colours, and string ids. Do not add a separate toolkit. Windows should look like the vehicle and station windows players already know.
 
-Advanced controls stay off the main toolbar. A player who has not installed a mod never sees its window.
+The Rules button sits on the vehicle window and the line window. The Rules window stays closed until the player opens it. It is specified in `docs/mods/PROGRAMMABLE_LOGIC.md`.
 
 ## Windows to add
 
@@ -16,9 +16,8 @@ Advanced controls stay off the main toolbar. A player who has not installed a mo
 | Mod config | Mod manager | Settings declared by the mod schema |
 | Shared lines | Vehicle or a lines button | Line name, mode, stops, assigned vehicles, status |
 | Timetable | A line | Interval, dwell, targets, lateness |
-| Logic editor | A line, yard, or shunter | Blocks for the instruction set, not a second language |
-| Logic inspector | The editor | Current instruction, variables, waits, recent events, failure |
-| Yard controller | A configured yard | Track roles, programs, job queue |
+| Rules | The empty tab slot between Finances and Route on a vehicle, or the empty 24 by 24 slot under the order down button on a line | One window. Palette on the left, that order list in the centre, blocks around one row or a group of stops and waypoints. Dragging stays inside the window. Footer shows the current block, the wait, or the last fault. Spec: `docs/mods/PROGRAMMABLE_LOGIC.md` |
+| Yard controller | A configured yard | Track roles, the Rules window, job queue |
 | Consist | A train | Order of vehicles, couplers, which end is powered |
 | Wagon requests | A freight line or yard | Open requests and assigned jobs |
 | Path signal | Signal tab checkboxes in rail construction | Path and chain checks on the normal signal, plus the existing one-way and two-way buttons. Arrows: white two-way path, yellow one-way path, red/blue/green chain aspect |
@@ -34,8 +33,10 @@ Advanced controls stay off the main toolbar. A player who has not installed a mo
 - Highlight the train, wagon group, or track under discussion. Do not rely on ids alone.
 - Destructive actions (discard mod state, delete a yard) name the save file they will write. They never overwrite the original SV5.
 - Disable buttons that do not apply to the transport mode. Ships do not get coupler controls.
-- Tooltips on logic blocks use the same words as the text form of the program.
+- Words on a block are the words in the tooltip.
+- The Rules window is placed beside the window that opened it. If that spot would cover the line window, the vehicle window, or schemes, it moves until it no longer covers them.
+- The vehicle route column already holds unload, wait, skip, delete, up, down, and reverse. The line orders tab already holds Local, Express, Loop, the timetable slot, and auto spacing. Rules does not take those widgets.
 
-## Not in the first UI milestone
+## Not built yet
 
-The mod manager is the first window. It can list directories the loader already understands. It must not imply that enablement is saved in a game until the save container exists.
+The Rules window is specified and has no widgets in the game. The mod manager described in older notes is gone.

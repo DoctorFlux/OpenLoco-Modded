@@ -10,7 +10,7 @@ For each stop: target arrival tick offset, target departure, minimum dwell, maxi
 
 - Even spacing uses the distance along the line. A vehicle that is picked up, stopped, or set to the red stop flag is not counted. Loading and unloading still count.
 - The even gap is the line length divided by the number of running vehicles. A vehicle holds while the distance to the next running vehicle in front is shorter than that gap. A vehicle behind, including one stop behind, does not release it and does not cancel a timetable slot. Two vehicles on the same spot: the lower id leaves and the other holds. The hold grows with the missing distance and stops at one even headway, or ten minutes when no round trip has been measured yet.
-- A late vehicle shortens dwell down to the minimum, then departs. It does not skip stops unless the line's recovery rule says so.
+- A late vehicle shortens dwell down to the minimum, then departs. A timetable does not skip stops. Skipping a stop or a group of stops is a block rule.
 - Recovery never teleports.
 - A shunt that delays a departure is just lateness. The timetable does not cancel the shunt.
 - Replacing a vehicle keeps the slot if the line assignment moves to the new vehicle in the same command.
