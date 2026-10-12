@@ -1,7 +1,6 @@
 #include "Entities/EntityManager.h"
 #include "Lines/Line.h"
 #include "Rules/Rules.h"
-#include "Vehicles/Vehicle2.h"
 #include "Vehicles/VehicleHead.h"
 
 #include "Graphics/Colour.h"
@@ -1172,37 +1171,9 @@ namespace OpenLoco::Lines
             }
             return UINT16_MAX;
         }
-        constexpr uint64_t kVehicleOrigin = uint64_t{ 1 } << 63;
-        std::optional<uint64_t> vehicleOrigin(uint16_t vehicle)
+        StopMark legStop(uint64_t raw)
         {
-            const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
-            if (!head || !head->isPlaced())
-            {
-                return {};
-            }
-            const Vehicles::Vehicle train(*head);
-            const auto pos = train.veh2->position;
-            if (pos.x < 0 || pos.y < 0)
-            {
-                return {};
-            }
-            // Vertical subpositions on a slope do not change the starting
-            // track tile. Surface searches also use the same fixed height.
-            const auto height = head->mode == TransportMode::rail || head->mode == TransportMode::road ? train.veh2->tileBaseZ * World::kSmallZStep : 16;
-            return kVehicleOrigin | static_cast<uint16_t>(pos.x & ~31) | (uint64_t(static_cast<uint16_t>(pos.y & ~31)) << 16) | (uint64_t(static_cast<uint16_t>(height)) << 32);
-        }
-        StopMark legStop(const Line& line, uint64_t raw)
-        {
-            if (!(raw & kVehicleOrigin))
-            {
-                return markStop(fromVehicleOrder(*reinterpret_cast<const Vehicles::Order*>(&raw)));
-            }
-            StopMark mark;
-            mark.centre = { static_cast<coord_t>(raw & 0xFFFF), static_cast<coord_t>((raw >> 16) & 0xFFFF) };
-            mark.height = static_cast<int32_t>((raw >> 32) & 0xFFFF);
-            mark.tiles.push_back(mark.centre);
-            mark.kinds = line.kinds;
-            return mark;
+            return markStop(fromVehicleOrder(*reinterpret_cast<const Vehicles::Order*>(&raw)));
         }
         bool refreshPlan(uint16_t id)
         {
@@ -1214,10 +1185,10 @@ namespace OpenLoco::Lines
             }
             auto& plan = _livePlans[id];
             plan.vehicle = previewVehicle(*line);
-            auto preview = Rules::previewLineRoute(id, plan.vehicle);
+            auto preview = Rules::previewLineRoute(id, plan.vehicle, Rules::RoutePreviewMode::currentConditions);
             ++_viewStats.rulePolls;
             std::vector<LegKey> legs;
-            auto previous = vehicleOrigin(plan.vehicle);
+            std::optional<uint64_t> previous;
             for (const auto key : preview.orders)
             {
                 const auto row = Rules::indexOf(*program, key);
@@ -1465,7 +1436,7 @@ namespace OpenLoco::Lines
                 _usedTraversals.clear();
                 _breakNext = true;
                 _pointPiece = 0;
-                searchLeg(*line, legStop(*line, key.from), legStop(*line, key.to), false);
+                searchLeg(*line, legStop(key.from), legStop(key.to), false);
                 _recording = nullptr;
                 _recordingPieces = nullptr;
                 leg.limited = leg.points.size() >= kMaxLegPoints || leg.pieces.size() >= kMaxLegPoints;
@@ -1739,7 +1710,7 @@ namespace OpenLoco::Lines
         {
             return "Map: " + plan->second.preview.reason;
         }
-        return plan->second.vehicle == UINT16_MAX ? "Map: no vehicle; current station checks" : "Map: current choices";
+        return plan->second.vehicle == UINT16_MAX ? "Map: no vehicle; current station checks" : "Map: current conditions";
     }
     int32_t routeLaneOffset(uint16_t line)
     {

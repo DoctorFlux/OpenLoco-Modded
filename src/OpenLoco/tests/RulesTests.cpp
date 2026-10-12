@@ -3363,6 +3363,37 @@ TEST(RulesTests, routePreviewUsesElseAndPreservesCommittedBranchChoices)
     const auto fresh = previewRoute(p, {}, 0, 10, no);
     EXPECT_EQ(fresh.orders, (std::vector<Key>{ p.rows[0].key, p.rows[3].key, p.rows[4].key, p.rows[0].key }));
 }
+TEST(RulesTests, freshDiagramSelectsOnlyStopAndWaypointSectionOrElseFromStationCargo)
+{
+    using namespace OpenLoco;
+    const Vehicles::OrderStopAt stop(static_cast<StationId>(10));
+    const Vehicles::OrderRouteWaypoint second({ 10, 14 }, 4, 0, 0), third({ 14, 14 }, 4, 0, 0), fourth({ 14, 10 }, 4, 0, 0);
+    auto p = makeProgram({ stop.getRaw(), second.getRaw(), third.getRaw(), fourth.getRaw() }, false);
+    auto block = section(p, Kind::ifBlock, 0, 1);
+    block.condition.check = Check::cargoWaiting;
+    block.condition.stop = p.rows[0].key;
+    block.condition.cargo = 0;
+    block.condition.compare = Compare::greater;
+    block.condition.value = 0;
+    ASSERT_TRUE(add(p, block));
+    block = section(p, Kind::otherwise, 2, 2);
+    block.parent = p.blocks.front().id;
+    ASSERT_TRUE(add(p, block));
+    Station station{};
+    for (const uint16_t quantity : { 0, 1, 50, 0, 1 })
+    {
+        station.cargoStats[0].quantity = quantity;
+        const auto facts = [&](const Condition& c) {
+            EXPECT_EQ(c.stop, p.rows[0].key);
+            EXPECT_EQ(c.cargo, 0);
+            return CheckResult{ true, station.cargoStats[c.cargo].quantity > c.value, {} };
+        };
+        const auto diagram = previewRoute(p, {}, 0, 0, facts);
+        EXPECT_EQ(diagram.orders, quantity == 0 ? (std::vector<Key>{ p.rows[2].key, p.rows[3].key, p.rows[2].key }) : (std::vector<Key>{ p.rows[0].key, p.rows[1].key, p.rows[3].key, p.rows[0].key }));
+        EXPECT_FALSE(diagram.limited);
+        EXPECT_FALSE(diagram.waiting);
+    }
+}
 TEST(RulesTests, routePreviewHandlesDiversionFiniteRepeatsAndInfiniteBudgetWithoutMutation)
 {
     auto p = route();
@@ -3950,7 +3981,7 @@ TEST_F(MapRulesFixture, loadingPreviewIncludesTheAlreadySelectedNextStop)
     EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
     EXPECT_EQ(head->status, Vehicles::Status::loading);
 }
-TEST_F(MapRulesFixture, slopeSubpositionsDoNotContinuouslyRebuildTheOrigin)
+TEST_F(MapRulesFixture, physicalMovementDoesNotContinuouslyRebuildTheLineDiagram)
 {
     using namespace OpenLoco;
     const auto line = mapLine(Lines::LineKind::rail);
@@ -3967,7 +3998,7 @@ TEST_F(MapRulesFixture, slopeSubpositionsDoNotContinuouslyRebuildTheOrigin)
     for (int i = 0; i < 24; ++i)
     {
         train.veh2->position.z = static_cast<coord_t>(16 + i % 8);
-        train.veh2->position.x = static_cast<coord_t>(320 + i % 16);
+        train.veh2->position.x = static_cast<coord_t>(320 + i * 8);
         Lines::updateRouteView();
         EXPECT_TRUE(Lines::routeOverlayColour(384, 320, 4, 0, 0, 0));
     }
@@ -4058,7 +4089,8 @@ TEST_F(MapRulesFixture, previewLegRotationDoesNotRepublishTheSameRouteGeometry)
     head->vehicleType = VehicleType::aircraft;
     const auto id = enumValue(head->id);
     ASSERT_TRUE(Lines::assignVehicle(line, id, TransportMode::air).ok);
-    head->tileX = -1; // No physical origin; isolate cyclic route geometry from movement.
+    Vehicles::Vehicle train(*head);
+    train.veh2->position = { 320, 320, 16 };
     yearBranch(line, true);
     ASSERT_TRUE(prepareVehicle(id));
     const auto p = snapshot({ OwnerKind::line, line });
@@ -4069,12 +4101,129 @@ TEST_F(MapRulesFixture, previewLegRotationDoesNotRepublishTheSameRouteGeometry)
     {
         head->currentOrder = offset;
         manuallySkipped(id);
+        train.veh2->position.x += 32;
         settle(8);
         EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
     }
     EXPECT_EQ(Lines::routeViewStats().routePublishes, before.routePublishes);
     EXPECT_EQ(Lines::routeViewStats().pathSearches, before.pathSearches);
     EXPECT_EQ(p.rows.size(), 3U);
+}
+
+TEST_F(MapRulesFixture, lineDiagramOmitsInactiveMultiRowBranchDespiteCommittedTravel)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    ASSERT_TRUE(Lines::removeOrder(line, 2).ok);
+    ASSERT_TRUE(Lines::removeOrder(line, 1).ok);
+    for (const auto tile : { World::Pos2{ 10, 14 }, World::Pos2{ 14, 14 }, World::Pos2{ 14, 10 } })
+    {
+        Lines::LineOrder waypoint;
+        waypoint.type = Vehicles::OrderType::RouteWaypoint;
+        waypoint.tileX = tile.x;
+        waypoint.tileY = tile.y;
+        waypoint.baseZ = 4;
+        ASSERT_TRUE(Lines::addOrder(line, waypoint).ok);
+    }
+    auto* head = vehicle();
+    head->mode = TransportMode::air;
+    head->vehicleType = VehicleType::aircraft;
+    const auto id = enumValue(head->id);
+    ASSERT_TRUE(Lines::assignVehicle(line, id, TransportMode::air).ok);
+    const Owner owner{ OwnerKind::line, line };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 0, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::greater;
+    e.block.condition.value = year;
+    ASSERT_TRUE(submit(owner, e));
+    e.block = section(p, Kind::otherwise, 2, 2);
+    e.block.parent = find(owner)->blocks.front().id;
+    ASSERT_TRUE(submit(owner, e));
+
+    setCurrentYear(year + 1);
+    ASSERT_TRUE(prepareVehicle(id)); // Latch If and physically commit to stop 1.
+    const auto before = *runtimeForVehicle(id);
+    const auto cursor = head->currentOrder;
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+    Lines::setRouteView(line, true, false, id);
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(320, 320));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(320, 448));
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+
+    setCurrentYear(year); // Current facts now choose only waypoint 3 -> 4 -> 3.
+    settle();
+    EXPECT_EQ(previewLineRoute(line, id, RoutePreviewMode::currentConditions).orders, (std::vector<Key>{ p.rows[2].key, p.rows[3].key, p.rows[2].key }));
+    EXPECT_FALSE(Lines::surfaceOverlayColour(320, 320));
+    EXPECT_FALSE(Lines::surfaceOverlayColour(320, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 320));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 384));
+    EXPECT_EQ(Lines::routeViewStats().publishedLegs, 2U);
+    EXPECT_EQ(head->currentOrder, cursor);
+    EXPECT_EQ(runtimeForVehicle(id)->pc, before.pc);
+    EXPECT_EQ(runtimeForVehicle(id)->branches, before.branches);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[0].key);
+
+    // Conversely an Else travel commitment must not contaminate a fresh If diagram.
+    head->currentOrder = 8; // Stop (2 bytes), first waypoint (6 bytes).
+    manuallySkipped(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+    setCurrentYear(year + 1);
+    settle();
+    EXPECT_TRUE(Lines::surfaceOverlayColour(320, 320));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(320, 448));
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(448, 320));
+    EXPECT_EQ(Lines::routeViewStats().publishedLegs, 3U);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+
+    // All uses the same fresh conditions, even while this vehicle is travelling Else.
+    Lines::setRouteView(0, false, true);
+    for (const bool passed : { false, true, false, true })
+    {
+        setCurrentYear(year + passed);
+        settle();
+        EXPECT_EQ(Lines::surfaceOverlayColour(320, 320).has_value(), passed);
+        EXPECT_EQ(Lines::surfaceOverlayColour(320, 448).has_value(), passed);
+        EXPECT_EQ(Lines::surfaceOverlayColour(448, 448).has_value(), !passed);
+        EXPECT_TRUE(Lines::surfaceOverlayColour(448, 320));
+        EXPECT_EQ(Lines::routeViewStats().publishedLegs, passed ? 3U : 2U);
+        EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+    }
+}
+
+TEST_F(MapRulesFixture, lineDiagramEvaluatesEnclosingConditionBeforeInactiveManualCursor)
+{
+    using namespace OpenLoco;
+    const auto line = mapLine(Lines::LineKind::air, true);
+    auto* head = vehicle();
+    head->mode = TransportMode::air;
+    head->vehicleType = VehicleType::aircraft;
+    const auto id = enumValue(head->id);
+    ASSERT_TRUE(Lines::assignVehicle(line, id, TransportMode::air).ok);
+    const Owner owner{ OwnerKind::line, line };
+    const auto p = snapshot(owner);
+    yearBranch(line, false);
+    Edit e;
+    e.block = section(p, Kind::otherwise, 2, 2);
+    e.block.parent = find(owner)->blocks.front().id;
+    ASSERT_TRUE(submit(owner, e));
+    head->currentOrder = 2;
+    manuallySkipped(id); // Cursor points inside the inactive If.
+    const auto before = *runtimeForVehicle(id);
+    const auto diagram = previewLineRoute(line, id, RoutePreviewMode::currentConditions);
+    EXPECT_EQ(diagram.orders, (std::vector<Key>{ p.rows[0].key, p.rows[2].key, p.rows[0].key }));
+    Lines::setRouteView(line, true, false, id);
+    settle();
+    EXPECT_FALSE(Lines::surfaceOverlayColour(448, 448));
+    EXPECT_TRUE(Lines::surfaceOverlayColour(384, 320));
+    EXPECT_EQ(runtimeForVehicle(id)->pc, before.pc);
+    EXPECT_EQ(runtimeForVehicle(id)->current, before.current);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[1].key);
 }
 
 TEST_F(MapRulesFixture, mapBranchChainMatchesIfElseIfAndElseForLiveFacts)

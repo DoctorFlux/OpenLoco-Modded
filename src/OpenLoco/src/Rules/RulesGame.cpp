@@ -1051,7 +1051,7 @@ namespace OpenLoco::Rules
         }
         return routable(run.runtime.current) ? run.runtime.current : cursor();
     }
-    RoutePreview previewLineRoute(uint16_t line, uint16_t vehicle)
+    RoutePreview previewLineRoute(uint16_t line, uint16_t vehicle, RoutePreviewMode mode)
     {
         const auto* p = find({ OwnerKind::line, line });
         const auto* record = Lines::findLine(line);
@@ -1066,25 +1066,30 @@ namespace OpenLoco::Rules
         }
         Runtime runtime;
         Key committed = 0;
-        if (const auto it = vehicles.find(vehicle); head && it != vehicles.end() && it->second.owner == Owner{ OwnerKind::line, line } && it->second.runtime.revision == p->revision && it->second.hasOrder)
+        if (mode == RoutePreviewMode::vehicleProgress)
         {
-            runtime = it->second.runtime;
-            committed = routeOrderForVehicle(vehicle);
-            const auto row = indexOf(*p, runtime.current);
-            if (it->second.ready && row < p->rows.size() && isRoutable(p->rows[row].raw))
+            if (const auto it = vehicles.find(vehicle); head && it != vehicles.end() && it->second.owner == Owner{ OwnerKind::line, line } && it->second.runtime.revision == p->revision && it->second.hasOrder)
             {
-                // The white arrow can stay on the loading station while the
-                // runner has already selected departure. Its pc is after that
-                // destination, so the preview must include it explicitly.
-                committed = runtime.current;
+                runtime = it->second.runtime;
+                committed = routeOrderForVehicle(vehicle);
+                const auto row = indexOf(*p, runtime.current);
+                if (it->second.ready && row < p->rows.size() && isRoutable(p->rows[row].raw))
+                {
+                    // Progress projections include the selected departure even
+                    // while the white arrow stays at the loading station.
+                    committed = runtime.current;
+                }
+            }
+            else
+            {
+                const auto row = head ? rowAtOffset(*p, head->currentOrder) : 0;
+                runtime.revision = p->revision - 1;
+                runtime.current = p->rows.empty() ? 0 : p->rows[row < p->rows.size() ? row : 0].key;
             }
         }
-        else
-        {
-            const auto row = head ? rowAtOffset(*p, head->currentOrder) : 0;
-            runtime.revision = p->revision - 1;
-            runtime.current = p->rows.empty() ? 0 : p->rows[row < p->rows.size() ? row : 0].key;
-        }
+        // A whole-line diagram must not seed a previously selected destination,
+        // latched branch, wait or loop counter. That would display an inactive
+        // section before evaluating the currently selected route next circuit.
         // A check may appear on many loop visits. Read it once per projection,
         // including physical platform occupation and cargo compartments.
         std::vector<std::pair<Condition, CheckResult>> facts;

@@ -195,7 +195,14 @@ namespace OpenLoco::Rules
     };
     // Current facts projected on a runtime copy, at most 256 steps and 64 destinations.
     RoutePreview previewRoute(const Program& program, Runtime runtime, Key committed, uint32_t tick, const Evaluate& evaluate);
-    RoutePreview previewLineRoute(uint16_t line, uint16_t vehicle = UINT16_MAX);
+    enum class RoutePreviewMode : uint8_t
+    {
+        vehicleProgress,
+        currentConditions
+    };
+    // Whole-line diagrams evaluate from the beginning with fresh control state.
+    // The vehicle supplies facts only; its committed destination/branch stays separate.
+    RoutePreview previewLineRoute(uint16_t line, uint16_t vehicle = UINT16_MAX, RoutePreviewMode mode = RoutePreviewMode::vehicleProgress);
     void markArrived(const Program& program, Runtime& runtime, Key order);
     bool requiresArrivalStop(const Program& program, const Runtime& runtime);
     Key executingBlock(const Program& program, const Runtime& runtime);
