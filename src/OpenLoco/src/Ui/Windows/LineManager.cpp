@@ -1697,7 +1697,8 @@ namespace OpenLoco::Ui::Windows::LineManager
             if (const auto* hit = Rules::programHit(layout, y); hit && hit->block)
             {
                 orderDrag.cancel();
-                RulesWindow::open({ Rules::OwnerKind::line, line->id }, window, progressVehicle(), hit->row, hit->block);
+                const auto* field = Rules::blockFieldHit(layout, x, y, window.widgets[widx::orders].width() - 14);
+                RulesWindow::open({ Rules::OwnerKind::line, line->id }, window, progressVehicle(), hit->row, hit->block, field ? field->field : Rules::BlockField::none, field && field->extra);
                 return;
             }
         }

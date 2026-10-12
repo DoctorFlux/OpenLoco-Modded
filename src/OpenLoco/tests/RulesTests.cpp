@@ -403,7 +403,7 @@ TEST(RulesTests, compactAndDefaultEditorControlsStaySeparate)
     {
         for (int16_t height : { 240, 360, 700 })
         {
-            auto l = editorLayout(width, height);
+            auto l = editorLayout(width, height, true);
             EXPECT_LT(l.canvasTop, l.canvasBottom);
             EXPECT_LT(l.canvasBottom, l.controlsTop);
             EXPECT_LT(l.controlsTop + 43, l.binTop);
@@ -418,7 +418,7 @@ TEST(RulesTests, editorPlacementAvoidsRelatedWindowsWhenTheyFit)
     auto p = placeEditor(opener, 1280, 800, { opener });
     EXPECT_EQ(p.x, 420);
     EXPECT_EQ(p.y, 28);
-    EXPECT_EQ(p.width, 600);
+    EXPECT_EQ(p.width, 560);
     auto small = placeEditor(opener, 800, 600, { opener });
     EXPECT_EQ(small.x, 420);
     EXPECT_EQ(small.y, 28);
@@ -1107,7 +1107,7 @@ TEST(RulesTests, ordinaryRowGeometryOnlyExpandsWhenRulesExist)
     EXPECT_EQ(orderRowHeight(&p), 10);
     ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
     EXPECT_EQ(orderRowHeight(&p), 20);
-    const auto layout = editorLayout(360, 240);
+    const auto layout = editorLayout(360, 240, true);
     const auto width = (360 - 10) / 6;
     EXPECT_GT(width - 3, 50);
     EXPECT_LT(layout.canvasBottom, layout.controlsTop);
@@ -1698,11 +1698,11 @@ TEST(RulesTests, cShapeRasterLeavesAnOpenMouthAndIncludesFullClosingArm)
     auto at = [&](int x, int y) { return pixels[y * 200 + x]; };
     const auto body = layout.orderTops[1] + 7;
     EXPECT_NE(at(5, body), 255);  // Thick C spine.
-    EXPECT_EQ(at(13, body), 255); // Open cavity before the inserted statement.
+    EXPECT_EQ(at(12, body), 255); // Open cavity before the inserted statement.
     EXPECT_NE(at(30, body), 255); // The order's puzzle body.
     const auto end = std::find_if(layout.items.begin(), layout.items.end(), [](const ProgramVisual& v) { return v.closing; });
     ASSERT_NE(end, layout.items.end());
-    EXPECT_NE(at(150, end->top + 18), 255); // Full-width closing arm.
+    EXPECT_NE(at(150, end->top + 15), 255); // Full-width closing arm.
     ctx.reset();
 }
 
@@ -2796,4 +2796,373 @@ TEST(RulesTests, routeArrowRemainsWhiteOverSelectedBlocksAndInsideAScrolledViewp
     EXPECT_EQ(pixels[(point->y - scrollTop + 4) * 200 + point->x + 3], static_cast<uint8_t>(Colours::getShade(Colour::white, 9)));
     EXPECT_EQ(pixels[(point->y - scrollTop + 4) * 200 + point->x], static_cast<uint8_t>(PaletteIndex::black0));
     ctx.reset();
+}
+
+TEST(RulesTests, compactFieldsExposeBothChecksAndKeepEveryHitInsideItsDrawnSocket)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 0, 3);
+    b.condition.check = Check::cargoWaiting;
+    b.condition.stop = p.rows[0].key;
+    b.condition.value = 1000000;
+    b.join = Join::andCheck;
+    b.extra = b.condition;
+    b.extra.stop = p.rows[3].key;
+    ASSERT_TRUE(add(p, b));
+    for (int16_t width : { 146, 196, 220, 438 })
+    {
+        const auto layout = programLayout(p, width);
+        const auto& visual = layout.items.front();
+        ASSERT_EQ(visual.fields.size(), 12U);
+        bool primaryValue = false, extraValue = false;
+        for (const auto& field : visual.fields)
+        {
+            EXPECT_GE(field.top, visual.top);
+            EXPECT_LE(field.top + field.height, visual.top + visual.height);
+            EXPECT_LE(3 + visualIndent(visual, width) + field.left + field.width, width - 2);
+            const auto x = static_cast<int16_t>(3 + visualIndent(visual, width) + field.left + field.width / 2);
+            const auto y = static_cast<int16_t>(field.top + field.height / 2);
+            EXPECT_EQ(blockFieldHit(layout, x, y, width), &field);
+            EXPECT_EQ(blockFieldHit(layout, x + 139, y, width, 139), &field);
+            primaryValue |= field.field == BlockField::value && !field.extra;
+            extraValue |= field.field == BlockField::value && field.extra;
+            for (const auto& other : visual.fields)
+            {
+                if (&other == &field)
+                {
+                    continue;
+                }
+                EXPECT_FALSE(field.left < other.left + other.width && other.left < field.left + field.width && field.top < other.top + other.height && other.top < field.top + field.height);
+            }
+        }
+        EXPECT_TRUE(primaryValue);
+        EXPECT_TRUE(extraValue);
+        EXPECT_EQ(blockFieldHit(layout, 0, visual.top, width), nullptr); // Header drag area is separate.
+        EXPECT_EQ(blockFieldHit(layout, 10, layout.orderTops[0] + 4, width), nullptr);
+    }
+}
+
+TEST(RulesTests, numericFieldsEditOnlyTheClickedOperandAndRejectMalformedValuesAtomically)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 0, 2);
+    b.condition.check = Check::year;
+    b.condition.value = 1990;
+    b.join = Join::orCheck;
+    b.extra.check = Check::cargoWaiting;
+    b.extra.stop = p.rows[0].key;
+    b.extra.value = 30;
+    ASSERT_TRUE(add(p, b));
+    const auto key = p.blocks[0].id;
+    Edit command;
+    ASSERT_TRUE(fieldTextEdit(p, key, BlockField::value, true, "75", command));
+    EXPECT_EQ(p.blocks[0].extra.value, 30); // Proposal itself does not mutate the model.
+    ASSERT_TRUE(edit(p, command));
+    EXPECT_EQ(p.blocks[0].condition.value, 1990);
+    EXPECT_EQ(p.blocks[0].extra.value, 75);
+    const auto before = p;
+    for (std::string_view invalid : { "", "-1", "3.5", "12oops", "1000001", "999999999999999999" })
+    {
+        EXPECT_FALSE(fieldTextEdit(p, key, BlockField::value, false, invalid, command));
+        EXPECT_EQ(p, before);
+    }
+    EXPECT_FALSE(fieldTextEdit(p, key, BlockField::when, false, "2", command));
+    EXPECT_FALSE(fieldTextEdit(p, 0, BlockField::value, false, "2", command));
+}
+
+TEST(RulesTests, repeatAndWaitFieldsValidateTheirOwnRangesIncludingForever)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::repeat, 0, 1)));
+    ASSERT_TRUE(add(p, section(p, Kind::waitUntil, 2, 3)));
+    const auto loop = p.blocks[0].id, wait = p.blocks[1].id;
+    Edit command;
+    ASSERT_TRUE(fieldTextEdit(p, loop, BlockField::repeat, false, "Forever", command));
+    ASSERT_TRUE(edit(p, command));
+    EXPECT_EQ(p.blocks[0].number, 0);
+    ASSERT_TRUE(fieldTextEdit(p, loop, BlockField::repeat, false, "20", command));
+    ASSERT_TRUE(edit(p, command));
+    EXPECT_EQ(p.blocks[0].number, 20);
+    EXPECT_FALSE(fieldTextEdit(p, loop, BlockField::repeat, false, "21", command));
+    EXPECT_FALSE(fieldTextEdit(p, wait, BlockField::timeout, false, "0", command));
+    EXPECT_FALSE(fieldTextEdit(p, wait, BlockField::timeout, false, "1441", command));
+    ASSERT_TRUE(fieldTextEdit(p, wait, BlockField::timeout, false, "1440", command));
+    ASSERT_TRUE(edit(p, command));
+    EXPECT_EQ(p.blocks[1].number, 1440);
+    EXPECT_FALSE(fieldTextEdit(p, wait, BlockField::value, false, "30", command)); // Full has no numeric operand.
+}
+
+TEST(RulesTests, groupNameIsClickableAndTextEditsCannotInventFields)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
+    Edit command;
+    ASSERT_TRUE(fieldTextEdit(p, p.blocks[0].id, BlockField::name, false, "Mill and harbour", command));
+    ASSERT_TRUE(edit(p, command));
+    EXPECT_EQ(p.blocks[0].name, "Mill and harbour");
+    EXPECT_FALSE(fieldTextEdit(p, p.blocks[0].id, BlockField::name, false, std::string(81, 'x'), command));
+    EXPECT_FALSE(fieldTextEdit(p, p.blocks[0].id, BlockField::value, false, "5", command));
+    const auto layout = programLayout(p, 220);
+    ASSERT_EQ(layout.items[0].fields.size(), 1U);
+    EXPECT_EQ(layout.items[0].fields[0].field, BlockField::name);
+}
+
+TEST(RulesTests, inlineEditSessionRejectsChangedOwnersDeletedBlocksAndStructuralEdits)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    const Owner owner{ OwnerKind::vehicle, 5 };
+    const auto key = p.blocks[0].id;
+    const auto revision = p.revision;
+    EXPECT_TRUE(fieldEditStillValid(owner, owner, p, key, revision));
+    EXPECT_FALSE(fieldEditStillValid(owner, { OwnerKind::line, 5 }, p, key, revision));
+    EXPECT_FALSE(fieldEditStillValid(owner, owner, p, 0, revision));
+    Edit e;
+    e.kind = EditKind::moveRows;
+    e.first = e.last = 4;
+    e.destination = 0;
+    ASSERT_TRUE(edit(p, e));
+    EXPECT_FALSE(fieldEditStillValid(owner, owner, p, key, revision));
+    EXPECT_TRUE(fieldEditStillValid(owner, owner, p, key, p.revision));
+    e.kind = EditKind::removeBlock;
+    e.block.id = key;
+    ASSERT_TRUE(edit(p, e));
+    EXPECT_FALSE(fieldEditStillValid(owner, owner, p, key, p.revision));
+}
+
+TEST(RulesTests, menuPagingReachesEveryStopAndGroupWithoutExceedingNativeCapacity)
+{
+    for (size_t count : { 0U, 1U, 30U, 31U, 63U, 319U })
+    {
+        std::set<int> visited;
+        for (size_t page = 0; page <= count / 30; ++page)
+        {
+            const auto items = menuPageItems(count, page);
+            EXPECT_LE(items.size(), 32U);
+            for (auto index : items)
+            {
+                if (index >= 0)
+                {
+                    EXPECT_TRUE(visited.insert(index).second);
+                }
+                else
+                {
+                    EXPECT_TRUE(index == -1 || index == -2);
+                }
+            }
+        }
+        EXPECT_EQ(visited.size(), count);
+        EXPECT_TRUE(menuPageItems(count, count + 1).empty());
+    }
+}
+
+TEST(RulesTests, compactCanvasGainsSpaceAndSimpleBlocksUseOneFieldRow)
+{
+    for (int16_t width : { 360, 560, 1000 })
+    {
+        for (int16_t height : { 240, 320, 700 })
+        {
+            const auto compact = editorLayout(width, height);
+            const auto details = editorLayout(width, height, true);
+            EXPECT_GT(compact.canvasBottom - compact.canvasTop, details.canvasBottom - details.canvasTop);
+            EXPECT_EQ(compact.canvasBottom - details.canvasBottom, 58);
+            EXPECT_LT(compact.canvasBottom, compact.binTop);
+            EXPECT_LT(compact.binTop + 19, compact.footerTop);
+        }
+    }
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    const auto layout = programLayout(p, 438, 16);
+    EXPECT_EQ(layout.items[0].height, 23);
+    EXPECT_EQ(layout.items[0].fields[1].field, BlockField::check);
+    EXPECT_EQ(layout.items[0].fields.back().field, BlockField::join);
+}
+
+TEST(RulesTests, everyFieldKindAndSecondCheckRemainAccessibleInAllBlockShapes)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    auto go = section(p, Kind::goTo, 0, 2);
+    go.parent = p.blocks[0].id;
+    go.target = p.rows[4].key;
+    ASSERT_TRUE(add(p, go));
+    auto loop = section(p, Kind::repeat, 0, 3);
+    ASSERT_TRUE(add(p, loop));
+    auto br = section(p, Kind::breakLoop, 1, 1);
+    br.target = p.blocks[2].id;
+    ASSERT_TRUE(add(p, br));
+    auto wait = section(p, Kind::waitUntil, 4, 4);
+    wait.condition.check = Check::platformFree;
+    wait.condition.stop = p.rows[4].key;
+    ASSERT_TRUE(add(p, wait));
+    const auto layout = programLayout(p, 196);
+    std::set<BlockField> fields;
+    for (const auto& visual : layout.items)
+    {
+        for (const auto& field : visual.fields)
+        {
+            fields.insert(field.field);
+        }
+    }
+    for (auto field : { BlockField::when, BlockField::check, BlockField::target, BlockField::repeat, BlockField::timeout, BlockField::cargo, BlockField::stop, BlockField::join })
+    {
+        EXPECT_TRUE(fields.contains(field));
+    }
+    const auto closing = std::find_if(layout.items.begin(), layout.items.end(), [](const ProgramVisual& v) { return v.closing; });
+    ASSERT_NE(closing, layout.items.end());
+    EXPECT_EQ(blockFieldHit(layout, 30, closing->top + 3, 196), nullptr); // Append slot still accepts dragging.
+}
+
+TEST(RulesTests, maximumJoinedWaitFieldsFitNativeScrollOffsetsInCompactViews)
+{
+    auto p = route();
+    for (size_t i = 0; i < 256; ++i)
+    {
+        auto wait = section(p, Kind::waitUntil, 0, 4);
+        wait.number = 1440;
+        wait.condition.check = Check::cargoWaiting;
+        wait.condition.stop = p.rows[4].key;
+        wait.condition.value = 1000000;
+        wait.join = Join::andCheck;
+        wait.extra = wait.condition;
+        ASSERT_TRUE(add(p, wait));
+    }
+    for (int16_t width : { 196, 220, 438 })
+    {
+        const auto layout = programLayout(p, width, 16);
+        EXPECT_GT(layout.height, 0);
+        EXPECT_LT(layout.height, 32767);
+        EXPECT_EQ(programRowAt(layout, layout.orderTops.back()), 4U);
+    }
+}
+
+TEST_F(GameRulesFixture, directNumericFieldEditUsesValidatedPrivateCommandsAndPreservesTheTravelRow)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.value = 2000;
+    ASSERT_TRUE(submit(owner, e));
+    const auto block = find(owner)->blocks[0].id;
+    const auto target = routeOrderForVehicle(id);
+    ASSERT_TRUE(fieldTextEdit(*find(owner), block, BlockField::value, false, "2050", e));
+    ASSERT_TRUE(submit(owner, e));
+    EXPECT_EQ(find(owner)->blocks[0].condition.value, 2050);
+    EXPECT_EQ(routeOrderForVehicle(id), target);
+    const auto before = *find(owner);
+    EXPECT_FALSE(fieldTextEdit(before, block, BlockField::timeout, false, "0", e));
+    EXPECT_EQ(*find(owner), before);
+}
+
+TEST_F(GameRulesFixture, sharedFieldEditsKeepTheSameOwnerAndRoundTripWithoutChangingCompanionVersions)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const auto line = Lines::createLine("Inline fields", TransportMode::rail, 2);
+    for (uint16_t station : { 10, 20 })
+    {
+        Lines::LineOrder o;
+        o.station = station;
+        ASSERT_TRUE(Lines::addOrder(line.id, o).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, id, TransportMode::rail).ok);
+    const Owner owner{ OwnerKind::line, line.id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::repeat, 0, 1);
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(fieldTextEdit(*find(owner), find(owner)->blocks[0].id, BlockField::repeat, false, "Forever", e));
+    ASSERT_TRUE(submit(owner, e));
+    EXPECT_EQ(find({ OwnerKind::vehicle, id }), nullptr);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_inline_fields_test.sv5";
+    const auto saved = *find(owner);
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(find(owner), nullptr);
+    EXPECT_EQ(*find(owner), saved);
+    EXPECT_EQ(find(owner)->blocks[0].number, 0);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST(RulesTests, paletteClickAndBranchActionsUseTheSameValidatedSectionCommands)
+{
+    auto p = route();
+    const auto click = blockDrop(p, Kind::ifBlock, 1, 2);
+    ASSERT_TRUE(click);
+    ASSERT_TRUE(edit(p, *click));
+    const auto ifKey = p.blocks[0].id;
+    const auto addElseIf = blockDrop(p, Kind::elseIf, 1, 2, ifKey);
+    ASSERT_TRUE(addElseIf);
+    ASSERT_TRUE(edit(p, *addElseIf));
+    EXPECT_EQ(p.blocks[1].first, p.rows[3].key);
+    const auto addElse = blockDrop(p, Kind::otherwise, 3, 3, p.blocks[1].id);
+    ASSERT_TRUE(addElse);
+    ASSERT_TRUE(edit(p, *addElse));
+    EXPECT_EQ(p.blocks[2].first, p.rows[4].key);
+    Edit remove;
+    remove.kind = EditKind::removeBlock;
+    remove.block.id = ifKey;
+    ASSERT_TRUE(edit(p, remove));
+    EXPECT_TRUE(p.blocks.empty());
+    EXPECT_EQ(p.rows.size(), 5U);
+}
+
+TEST_F(GameRulesFixture, acceptingAnUnchangedInlineValueDoesNotRestartALiveWait)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.number = 2;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    ASSERT_FALSE(prepareVehicle(id));
+    const auto before = *runtimeForVehicle(id);
+    const auto revision = find(owner)->revision;
+    ScenarioManager::setScenarioTicks(50);
+    ASSERT_TRUE(fieldTextEdit(*find(owner), find(owner)->blocks[0].id, BlockField::timeout, false, "2", e));
+    ASSERT_TRUE(submit(owner, e));
+    EXPECT_EQ(find(owner)->revision, revision);
+    ASSERT_NE(runtimeForVehicle(id), nullptr);
+    EXPECT_EQ(runtimeForVehicle(id)->waiting, before.waiting);
+    EXPECT_EQ(runtimeForVehicle(id)->waitStart, before.waitStart);
+    EXPECT_EQ(runtimeForVehicle(id)->branches, before.branches);
+    ScenarioManager::setScenarioTicks(80);
+    EXPECT_TRUE(prepareVehicle(id));
+}
+
+TEST(RulesTests, textDialogInitialValuesKeepFullGroupNamesAndTheCorrectNumericOperand)
+{
+    auto p = route();
+    auto group = section(p, Kind::group, 0, 3);
+    group.name = std::string(80, 'A');
+    ASSERT_TRUE(add(p, group));
+    EXPECT_EQ(fieldTextValue(p, p.blocks[0].id, BlockField::name, false), group.name);
+    auto branch = section(p, Kind::ifBlock, 0, 2);
+    branch.condition.check = Check::year;
+    branch.condition.value = 2050;
+    branch.join = Join::andCheck;
+    branch.extra.check = Check::year;
+    branch.extra.value = 2060;
+    ASSERT_TRUE(add(p, branch));
+    EXPECT_EQ(fieldTextValue(p, p.blocks[1].id, BlockField::value, false), "2050");
+    EXPECT_EQ(fieldTextValue(p, p.blocks[1].id, BlockField::value, true), "2060");
+    auto loop = section(p, Kind::repeat, 0, 3);
+    loop.number = 0;
+    ASSERT_TRUE(add(p, loop));
+    EXPECT_EQ(fieldTextValue(p, p.blocks[2].id, BlockField::repeat, false), "Forever");
+    EXPECT_TRUE(fieldTextValue(p, 0, BlockField::name, false).empty());
 }

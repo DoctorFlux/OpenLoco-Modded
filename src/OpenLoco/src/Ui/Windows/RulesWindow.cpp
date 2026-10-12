@@ -38,6 +38,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
     namespace
     {
         constexpr WidgetId closeId{ "close" }, canvasId{ "canvas" }, checkId{ "check" }, compareId{ "compare" }, stopId{ "stop" }, cargoId{ "cargo" }, numberId{ "number" }, joinId{ "join" }, extraId{ "extra" }, targetId{ "target" }, nameId{ "name" }, limitId{ "limit" }, firstId{ "first" }, lastId{ "last" }, binId{ "bin" };
+        constexpr WidgetId detailsId{ "details" }, actionsId{ "actions" };
         enum widx
         {
             frame,
@@ -57,7 +58,9 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             limit,
             firstRow,
             lastRow,
-            bin
+            bin,
+            details,
+            actions
         };
         static constexpr auto widgets = makeWidgets(
             Widgets::Frame({ 0, 0 }, { 600, 360 }, WindowColour::primary),
@@ -77,7 +80,9 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             Widgets::Button(limitId, { 476, 286 }, { 120, 20 }, WindowColour::secondary, StringIds::rules_minutes),
             Widgets::Button(firstId, { 4, 262 }, { 90, 20 }, WindowColour::secondary, StringIds::rules_first_row),
             Widgets::Button(lastId, { 4, 286 }, { 90, 20 }, WindowColour::secondary, StringIds::rules_last_row),
-            Widgets::Button(binId, { 4, 320 }, { 592, 20 }, WindowColour::secondary, StringIds::rules_bin));
+            Widgets::Button(binId, { 4, 320 }, { 592, 20 }, WindowColour::secondary, StringIds::rules_bin),
+            Widgets::Button(detailsId, { 4, 30 }, { 66, 11 }, WindowColour::secondary, StringIds::rules_details),
+            Widgets::Button(actionsId, { 74, 30 }, { 66, 11 }, WindowColour::secondary, StringIds::rules_actions));
         Owner selectedOwner{};
         uint16_t selectedVehicle = UINT16_MAX;
         bool followVehicle = false;
@@ -85,6 +90,13 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         Key selectedBlock = 0;
         Owner inputOwner{};
         Key inputBlock = 0;
+        uint32_t inputRevision = 0;
+        bool inputExtra = false;
+        BlockField inputField = BlockField::none;
+        bool showDetails = false;
+        std::optional<EditorRect> inlineAnchor;
+        WidgetId inlineDropdownId = WidgetId::none;
+        std::optional<std::pair<BlockField, bool>> focusField;
         int firstSelected = -1, lastSelected = -1;
         bool editingExtra = false;
         std::string status;
@@ -112,12 +124,17 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         std::vector<Key> stopChoices;
         std::vector<Platform> platformChoices;
         std::vector<std::string> choiceLabels;
+        size_t choicePage = 0;
+        std::vector<int> pageItems;
+        EditorRect menuAnchor{};
+        WidgetIndex_t menuWidget = canvas;
         const char* names[] = { "Group", "If", "Else", "Repeat", "Wait until", "Skip", "Go to", "Else if", "Break" };
         constexpr Kind paletteKinds[] = { Kind::group, Kind::ifBlock, Kind::elseIf, Kind::otherwise, Kind::repeat, Kind::waitUntil, Kind::skip, Kind::goTo, Kind::breakLoop };
         const char* checkNames[] = { "Cargo waiting", "This vehicle is full", "This vehicle is empty", "This vehicle has space", "Platform is free", "This vehicle is late", "This vehicle is on time", "The year" };
         int32_t layoutWidth = 600;
         int16_t layoutHeight = 360;
         std::string blockText(const Block& b);
+        void editInlineField(Window& window, const Visual& visual, const FieldVisual& field);
         std::vector<std::string> wrapBlock(std::string value, int16_t width)
         {
             std::vector<std::string> lines;
@@ -150,7 +167,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             return lines;
         }
-        int paletteColumns(const Window& window) { return window.widgets[canvas].height() < 150 ? 2 : 1; }
+        int paletteColumns(const Window& window) { return showDetails && window.widgets[canvas].height() < 150 ? 2 : 1; }
         int16_t paletteStep(const Window& window)
         {
             return paletteColumns(window) == 2 ? 15 : static_cast<int16_t>(std::min<int>(22, (window.widgets[canvas].height() - 4) / 9));
@@ -163,8 +180,8 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         void refresh()
         {
             program = snapshot(selectedOwner);
-            const auto layout = editorLayout(static_cast<int16_t>(layoutWidth), layoutHeight);
-            canvasLayout = programLayout(program, static_cast<int16_t>(layoutWidth - layout.paletteWidth - 26), 20);
+            const auto layout = editorLayout(static_cast<int16_t>(layoutWidth), layoutHeight, showDetails);
+            canvasLayout = programLayout(program, static_cast<int16_t>(layoutWidth - layout.paletteWidth - 26), 16);
             visuals = canvasLayout.items;
             if (firstSelected >= static_cast<int>(program.rows.size()))
             {
@@ -186,11 +203,14 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         }
         void apply(Window& window, Edit e)
         {
+            const auto offset = window.scrollAreas[0].contentOffsetY;
             const auto result = submit(selectedOwner, e);
             status = result ? "Rules updated" : result.message;
             messageFrames = 80;
             refresh();
             window.initScrollWidgets();
+            window.scrollAreas[0].contentOffsetY = static_cast<int16_t>(std::clamp<int>(offset, 0, std::max<int>(0, std::max<int>(180, canvasLayout.height + 8) - window.widgets[canvas].height() + 3)));
+            ScrollView::updateThumbs(window, canvas);
             window.invalidate();
         }
         std::string conditionText(const Condition& c)
@@ -251,7 +271,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 layoutHeight = window.height;
                 refresh();
             }
-            auto layout = editorLayout(window.width, window.height);
+            auto layout = editorLayout(window.width, window.height, showDetails);
             window.widgets[frame].right = window.width - 1;
             window.widgets[frame].bottom = window.height - 1;
             window.widgets[title].right = window.width - 2;
@@ -261,6 +281,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             window.widgets[panel].bottom = window.height - 1;
             window.widgets[canvas].right = window.width - 5;
             window.widgets[canvas].bottom = layout.canvasBottom;
+            window.widgets[canvas].top = layout.canvasTop;
             const auto buttonWidth = static_cast<int16_t>((window.width - 10) / 6);
             const int controls[2][6] = { { check, compare, stop, cargo, number, firstRow }, { join, extra, target, name, limit, lastRow } };
             for (int row = 0; row < 2; ++row)
@@ -272,6 +293,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                     w.right = w.left + buttonWidth - 3;
                     w.top = layout.controlsTop + row * 24;
                     w.bottom = w.top + 19;
+                    w.hidden = !showDetails;
                 }
             }
             window.widgets[bin].right = window.width - 5;
@@ -282,11 +304,15 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             window.widgets[number].text = b && b->kind == Kind::repeat ? (b->number ? StringIds::rules_times : StringIds::rules_forever) : StringIds::rules_number;
             window.widgets[target].text = b && b->kind == Kind::breakLoop ? StringIds::rules_loop : StringIds::rules_target;
             window.widgets[cargo].text = b && (editingExtra ? b->extra.check : b->condition.check) == Check::platformFree ? StringIds::rules_platform : StringIds::rules_cargo;
-            window.activatedWidgets = editingExtra ? uint64_t(1) << extra : 0;
+            window.activatedWidgets = (editingExtra ? uint64_t(1) << extra : 0) | (showDetails ? uint64_t(1) << details : 0);
             window.disabledWidgets = 0;
             for (int i = check; i <= lastRow; ++i)
             {
                 window.disabledWidgets |= uint64_t(1) << i;
+            }
+            if (!b)
+            {
+                window.disabledWidgets |= uint64_t(1) << actions;
             }
             if (b)
             {
@@ -362,11 +388,11 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 }
             }
             text(ctx, 5, 19, window.width - 10, caption);
-            text(ctx, 5, 30, window.width - 10, "Drag = into + drop inside; drop blocks on orders to nest them.");
+            text(ctx, 146, 30, window.width - 152, "Click fields; drag headers or =.");
             auto footer = progressVehicle() != UINT16_MAX ? vehicleStatus(progressVehicle()) : "Select a vehicle on this line to see its running rule";
             if (!status.empty())
             {
-                footer += " | " + status;
+                footer = status + " | " + footer;
             }
             text(ctx, 5, window.height - 28, window.width - 10, footer);
             text(ctx, 5, window.height - 15, window.width - 10, vehicleNextStop(progressVehicle()));
@@ -407,7 +433,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         }
         void drawScroll(Window& window, Gfx::DrawingContext& ctx, uint32_t)
         {
-            const auto layout = editorLayout(window.width, window.height);
+            const auto layout = editorLayout(window.width, window.height, showDetails);
             const auto width = window.widgets[canvas].width() - 14;
             const auto* runtime = runtimeForVehicle(progressVehicle());
             ctx.clear(Colours::getShade(Colour::white, 9));
@@ -437,7 +463,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                     }
                     if (v.closing && v.block == selectedBlock)
                     {
-                        text(ctx, width - 12, v.top + 12, 12, "+");
+                        text(ctx, width - 12, v.top + 4, 12, "+");
                     }
                 }
                 else
@@ -509,7 +535,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             dragY = y;
             dropRow = -1;
             draggedBlock = 0;
-            const auto layout = editorLayout(window.width, window.height);
+            const auto layout = editorLayout(window.width, window.height, showDetails);
             if (const auto* block = selected(); block && block->kind != Kind::skip && block->kind != Kind::goTo && block->kind != Kind::breakLoop && x >= window.widgets[canvas].width() - 28)
             {
                 const auto end = std::find_if(visuals.begin(), visuals.end(), [&](const Visual& visual) { return visual.closing && visual.block == block->id; });
@@ -542,7 +568,17 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             if (v->block)
             {
+                if (const auto* field = blockFieldHit(canvasLayout, x, y, static_cast<int16_t>(window.width - layout.paletteWidth - 26), layout.paletteWidth + 1))
+                {
+                    selectedBlock = v->block;
+                    firstSelected = lastSelected = -1;
+                    drag = Drag::none;
+                    editInlineField(window, *v, *field);
+                    window.invalidate();
+                    return;
+                }
                 selectedBlock = draggedBlock = v->block;
+                firstSelected = lastSelected = -1;
                 editingExtra = false;
                 const auto* b = selected();
                 dragFirst = static_cast<int>(indexOf(program, b->first));
@@ -614,7 +650,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 return;
             }
             dragged |= std::abs(x - dragX) + std::abs(y - dragY) > 4;
-            if (dragged && x > editorLayout(window.width, window.height).paletteWidth)
+            if (dragged && x > editorLayout(window.width, window.height, showDetails).paletteWidth)
             {
                 auto& scroll = window.scrollAreas[0];
                 const auto visibleY = y - scroll.contentOffsetY;
@@ -633,7 +669,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             {
                 const auto proposed = routeDrop(drag, dropRow, y);
                 auto preview = program;
-                if (x <= editorLayout(window.width, window.height).paletteWidth || !proposed || !edit(preview, *proposed))
+                if (x <= editorLayout(window.width, window.height, showDetails).paletteWidth || !proposed || !edit(preview, *proposed))
                 {
                     dropRow = -1;
                 }
@@ -650,6 +686,24 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         {
             const auto previous = drag;
             drag = Drag::none;
+            if (!dragged && previous == Drag::palette && !program.rows.empty())
+            {
+                const auto first = firstSelected >= 0 ? static_cast<size_t>(firstSelected) : selected() ? indexOf(program, selected()->first)
+                                                                                                        : 0;
+                const auto last = lastSelected >= 0 ? static_cast<size_t>(lastSelected) : selected() ? indexOf(program, selected()->last)
+                                                                                                     : first;
+                const auto command = blockDrop(program, draggedKind, first, last, selectedBlock);
+                if (command)
+                {
+                    const auto key = program.nextKey;
+                    apply(window, *command);
+                    if (program.nextKey > key)
+                    {
+                        selectedBlock = key;
+                    }
+                }
+                return;
+            }
             if (!dragged || previous == Drag::none || previous == Drag::selection)
             {
                 return;
@@ -683,7 +737,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 return;
             }
             const auto& view = window.widgets[canvas];
-            if (x < view.left + editorLayout(window.width, window.height).paletteWidth || x >= view.right - 12 || y < view.top || y > view.bottom)
+            if (x < view.left + editorLayout(window.width, window.height, showDetails).paletteWidth || x >= view.right - 12 || y < view.top || y > view.bottom)
             {
                 return;
             }
@@ -704,21 +758,50 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 selectedBlock = key;
             }
         }
+        void showMenuPage(Window& window)
+        {
+            pageItems = menuPageItems(choiceLabels.size(), choicePage);
+            for (size_t i = 0; i < pageItems.size(); ++i)
+            {
+                const auto entry = pageItems[i];
+                const char* label = entry == -1 ? "Previous page" : entry == -2 ? "Next page"
+                                                                                : choiceLabels[entry].c_str();
+                Dropdown::add(i, StringIds::line_name_raw, { label });
+            }
+            Input::setPressedWindowType(window.type);
+            Input::setPressedWindowNumber(window.number);
+            Input::setPressedWidgetIndex(menuWidget);
+            Dropdown::showText(static_cast<int16_t>(menuAnchor.x), static_cast<int16_t>(menuAnchor.y), static_cast<int16_t>(menuAnchor.width), static_cast<int16_t>(menuAnchor.height), window.getColour(WindowColour::secondary), pageItems.size(), 0);
+        }
         void menu(Window& window, WidgetIndex_t widget, const std::vector<std::string>& labels)
         {
             choiceLabels = labels;
-            for (size_t i = 0; i < choiceLabels.size(); ++i)
-            {
-                Dropdown::add(i, StringIds::line_name_raw, { choiceLabels[i].c_str() });
-            }
+            choicePage = 0;
+            inputOwner = selectedOwner;
+            inputBlock = selectedBlock;
+            inputRevision = program.revision;
+            inputExtra = editingExtra;
+            inputField = BlockField::none;
             const auto& w = window.widgets[widget];
-            Dropdown::showText(window.x + w.left, window.y + w.top, w.width(), w.height(), window.getColour(WindowColour::secondary), static_cast<int16_t>(labels.size()), 0);
+            menuAnchor = inlineAnchor.value_or(EditorRect{ window.x + w.left, window.y + w.top, w.width(), w.height() });
+            menuWidget = inlineAnchor ? canvas : widget;
+            showMenuPage(window);
         }
         void onMouseDown(Window& window, WidgetIndex_t widget, WidgetId id)
         {
             const auto* b = selected();
             if (!b)
             {
+                return;
+            }
+            if (id == actionsId)
+            {
+                menu(window, widget, { "Add Else if", "Add Else", "Remove block" });
+                if (b->kind != Kind::ifBlock && b->kind != Kind::elseIf)
+                {
+                    Dropdown::setItemDisabled(0);
+                    Dropdown::setItemDisabled(1);
+                }
                 return;
             }
             const auto& c = editingExtra ? b->extra : b->condition;
@@ -831,7 +914,23 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                         }
                     }
                     stopChoices.push_back(row.key);
-                    labels.push_back("Stop / waypoint " + std::to_string(number));
+                    std::string label = "Stop / waypoint " + std::to_string(number);
+                    const auto* order = reinterpret_cast<const Vehicles::Order*>(&row.raw);
+                    if (const auto* station = order->as<Vehicles::OrderStation>(); station && StationManager::get(station->getStation()) && !StationManager::get(station->getStation())->empty())
+                    {
+                        char name[128]{};
+                        FormatArguments args;
+                        station->setFormatArguments(args);
+                        StringManager::formatString(name, sizeof(name), StringIds::orders_stop_at, args);
+                        label += ": ";
+                        label += name;
+                    }
+                    else if ((row.raw & 7) == 3)
+                    {
+                        const auto waypoint = Lines::fromVehicleOrder(*order);
+                        label = "Waypoint " + std::to_string(number) + " (" + std::to_string(waypoint.tileX) + ", " + std::to_string(waypoint.tileY) + ")";
+                    }
+                    labels.push_back(std::move(label));
                 }
             }
             else if (id == cargoId)
@@ -870,16 +969,63 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             {
                 menu(window, widget, labels);
             }
+            else
+            {
+                status = "No compatible choices are available for this field";
+                messageFrames = 80;
+                window.invalidate();
+            }
         }
         void dropdown(Window& window, WidgetIndex_t, WidgetId id, int16_t index)
         {
+            if (id == canvasId)
+            {
+                id = inlineDropdownId;
+            }
             const auto* selectedValue = selected();
-            if (!selectedValue || index < 0 || static_cast<size_t>(index) >= choiceLabels.size())
+            if (!selectedValue || inputBlock != selectedBlock || !fieldEditStillValid(inputOwner, selectedOwner, program, inputBlock, inputRevision) || !fieldEditStillValid(inputOwner, selectedOwner, snapshot(selectedOwner), inputBlock, inputRevision) || inputField != BlockField::none || index < 0 || static_cast<size_t>(index) >= pageItems.size())
             {
                 return;
             }
+            index = static_cast<int16_t>(pageItems[index]);
+            if (index < 0)
+            {
+                choicePage = index == -1 ? choicePage - 1 : choicePage + 1;
+                showMenuPage(window);
+                return;
+            }
+            if (id == actionsId)
+            {
+                if (index == 2)
+                {
+                    Edit e;
+                    e.kind = EditKind::removeBlock;
+                    e.block.id = selectedBlock;
+                    apply(window, e);
+                }
+                else
+                {
+                    const auto command = blockDrop(program, index == 0 ? Kind::elseIf : Kind::otherwise, indexOf(program, selectedValue->first), indexOf(program, selectedValue->last), selectedBlock);
+                    if (command)
+                    {
+                        const auto key = program.nextKey;
+                        apply(window, *command);
+                        if (program.nextKey > key)
+                        {
+                            selectedBlock = key;
+                        }
+                    }
+                    else
+                    {
+                        status = "Add a following order section for this branch";
+                        messageFrames = 80;
+                        window.invalidate();
+                    }
+                }
+                return;
+            }
             auto b = *selectedValue;
-            auto& c = editingExtra ? b.extra : b.condition;
+            auto& c = inputExtra ? b.extra : b.condition;
             if (id == nameId && b.kind != Kind::group)
             {
                 b.when = static_cast<Timing>(index);
@@ -890,6 +1036,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             }
             else if (id == checkId)
             {
+                const auto previousCheck = c.check;
                 const auto choice = choices[index];
                 c.check = choice >= 256 ? Check::cargoWaiting : static_cast<Check>(choice);
                 if (choice >= 256)
@@ -899,13 +1046,17 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 }
                 if (c.check == Check::cargoWaiting || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
                 {
-                    c.stop = 0;
-                    for (const auto& row : program.rows)
+                    const auto previousStop = indexOf(program, c.stop);
+                    if (previousStop >= program.rows.size() || ((program.rows[previousStop].raw & 7) != 1 && (program.rows[previousStop].raw & 7) != 2))
                     {
-                        if ((row.raw & 7) == 1 || (row.raw & 7) == 2)
+                        c.stop = 0;
+                        for (const auto& row : program.rows)
                         {
-                            c.stop = row.key;
-                            break;
+                            if ((row.raw & 7) == 1 || (row.raw & 7) == 2)
+                            {
+                                c.stop = row.key;
+                                break;
+                            }
                         }
                     }
                     if (c.check == Check::platformFree && c.stop)
@@ -920,7 +1071,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                         }
                     }
                 }
-                if (c.check == Check::year)
+                if (c.check == Check::year && previousCheck != Check::year)
                 {
                     c.value = 2000;
                 }
@@ -940,7 +1091,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             else if (id == joinId)
             {
                 b.join = static_cast<Join>(index);
-                if (b.join != Join::none)
+                if (b.join != Join::none && selectedValue->join == Join::none)
                 {
                     b.extra = {};
                 }
@@ -974,6 +1125,53 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             e.block = b;
             apply(window, e);
         }
+        void beginTextInput(Window& window, WidgetIndex_t widget, BlockField field, bool extraField)
+        {
+            const auto* b = selected();
+            if (!b)
+            {
+                return;
+            }
+            const auto value = fieldTextValue(program, selectedBlock, field, extraField);
+            inputOwner = selectedOwner;
+            inputBlock = selectedBlock;
+            inputRevision = program.revision;
+            inputExtra = extraField;
+            inputField = field;
+            Input::state(Input::State::normal);
+            TextInput::openTextInput(&window, StringIds::rules_title, field == BlockField::name ? StringIds::rules_name_prompt : StringIds::rules_number_prompt, StringIds::line_name_raw, widget, FormatArguments::common(value.c_str()), field == BlockField::name ? 80 : 9);
+        }
+        void editInlineField(Window& window, const Visual& visual, const FieldVisual& field)
+        {
+            selectedBlock = visual.block;
+            editingExtra = field.extra;
+            if (field.field == BlockField::value || field.field == BlockField::repeat || field.field == BlockField::timeout || field.field == BlockField::name)
+            {
+                beginTextInput(window, field.field == BlockField::timeout ? limit : field.field == BlockField::name ? name
+                                                                                                                    : number,
+                               field.field,
+                               field.extra);
+                return;
+            }
+            WidgetIndex_t widget = check;
+            switch (field.field)
+            {
+                case BlockField::check: widget = check; break;
+                case BlockField::compare: widget = compare; break;
+                case BlockField::stop: widget = stop; break;
+                case BlockField::cargo: widget = cargo; break;
+                case BlockField::join: widget = join; break;
+                case BlockField::when: widget = name; break;
+                case BlockField::target: widget = target; break;
+                default: return;
+            }
+            const auto layout = editorLayout(window.width, window.height, showDetails);
+            const auto left = layout.paletteWidth + 4 + visualIndent(visual, static_cast<int16_t>(window.width - layout.paletteWidth - 26)) + field.left;
+            inlineAnchor = EditorRect{ window.x + window.widgets[canvas].left + 1 + left, window.y + window.widgets[canvas].top + 1 + field.top - window.scrollAreas[0].contentOffsetY, field.width, field.height };
+            inlineDropdownId = window.widgets[widget].id;
+            onMouseDown(window, widget, inlineDropdownId);
+            inlineAnchor.reset();
+        }
         void onMouseUp(Window& window, WidgetIndex_t widget, WidgetId id)
         {
             if (id == closeId)
@@ -981,11 +1179,21 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 WindowManager::close(&window);
                 return;
             }
+            if (id == detailsId)
+            {
+                const auto offset = window.scrollAreas[0].contentOffsetY;
+                showDetails = !showDetails;
+                refresh();
+                prepare(window);
+                window.initScrollWidgets();
+                window.scrollAreas[0].contentOffsetY = static_cast<int16_t>(std::clamp<int>(offset, 0, std::max<int>(0, canvasLayout.height - window.widgets[canvas].height() + 3)));
+                ScrollView::updateThumbs(window, canvas);
+                window.invalidate();
+                return;
+            }
             if (id == extraId)
             {
                 editingExtra = !editingExtra;
-                status = editingExtra ? "Editing the second check" : "Editing the first check";
-                messageFrames = 80;
                 window.invalidate();
                 return;
             }
@@ -994,63 +1202,38 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             {
                 return;
             }
-            if ((id == numberId && b->kind == Kind::repeat) || (id == nameId && b->kind != Kind::group))
+            if (id == numberId && b->kind != Kind::repeat)
             {
-                return;
+                beginTextInput(window, widget, BlockField::value, editingExtra);
             }
-            if (id == numberId || id == nameId || id == limitId)
+            if (id == nameId && b->kind == Kind::group)
             {
-                const auto value = id == nameId ? b->name : std::to_string(b->kind == Kind::repeat || id == limitId ? b->number : (editingExtra ? b->extra.value : b->condition.value));
-                auto* buffer = StringManager::getBufferString(StringIds::buffer_2039);
-                std::strncpy(buffer, value.c_str(), StringManager::kUserStringSize - 1);
-                buffer[StringManager::kUserStringSize - 1] = 0;
-                inputOwner = selectedOwner;
-                inputBlock = selectedBlock;
-                TextInput::openTextInput(&window, StringIds::rules_title, id == nameId ? StringIds::rules_name_prompt : StringIds::rules_number_prompt, StringIds::buffer_2039, widget, {}, id == nameId ? 60 : 9);
+                beginTextInput(window, widget, BlockField::name, false);
+            }
+            if (id == limitId)
+            {
+                beginTextInput(window, widget, BlockField::timeout, false);
             }
         }
-        void textInput(Window& window, WidgetIndex_t, WidgetId id, const char* value)
+        void textInput(Window& window, WidgetIndex_t, WidgetId, const char* value)
         {
-            if (!value || !selected() || inputOwner != selectedOwner || inputBlock != selectedBlock)
+            if (!value || !selected() || inputBlock != selectedBlock || !fieldEditStillValid(inputOwner, selectedOwner, program, inputBlock, inputRevision) || !fieldEditStillValid(inputOwner, selectedOwner, snapshot(selectedOwner), inputBlock, inputRevision) || inputField == BlockField::none)
             {
                 return;
             }
-            auto b = *selected();
-            if (id == nameId)
+            Edit command;
+            const auto result = fieldTextEdit(program, inputBlock, inputField, inputExtra, value, command);
+            inputField = BlockField::none;
+            if (result)
             {
-                b.name = value;
+                apply(window, command);
             }
             else
             {
-                int32_t numberValue = 0;
-                const auto result = std::from_chars(value, value + std::strlen(value), numberValue);
-                if (result.ec != std::errc{} || *result.ptr != 0 || numberValue < 0 || numberValue > 1000000)
-                {
-                    status = "Enter a whole number from 0 to 1000000";
-                    messageFrames = 80;
-                    window.invalidate();
-                    return;
-                }
-                if (b.kind == Kind::repeat || id == limitId)
-                {
-                    if (numberValue > 1440)
-                    {
-                        status = "That number is too large";
-                        messageFrames = 80;
-                        window.invalidate();
-                        return;
-                    }
-                    b.number = static_cast<uint16_t>(numberValue);
-                }
-                else
-                {
-                    (editingExtra ? b.extra : b.condition).value = numberValue;
-                }
+                status = result.message;
+                messageFrames = 80;
+                window.invalidate();
             }
-            Edit e;
-            e.kind = EditKind::updateBlock;
-            e.block = b;
-            apply(window, e);
         }
         bool keyUp(Window& window, uint32_t, uint32_t key)
         {
@@ -1061,6 +1244,15 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             drag = Drag::none;
             dragged = false;
             dropRow = -1;
+            focusField.reset();
+            inputField = BlockField::none;
+            inputBlock = 0;
+            if (Input::isDropdownActive(window.type, window.number))
+            {
+                WindowManager::close(WindowType::dropdown, 0);
+                Input::resetFlag(Input::Flags::widgetPressed);
+                Input::state(Input::State::normal);
+            }
             window.invalidate();
             return true;
         }
@@ -1087,6 +1279,9 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 {
                     selectedOwner = nextOwner;
                     selectedBlock = 0;
+                    focusField.reset();
+                    inputField = BlockField::none;
+                    inputBlock = 0;
                     drag = Drag::none;
                     refresh();
                 }
@@ -1098,10 +1293,41 @@ namespace OpenLoco::Ui::Windows::RulesWindow
                 refresh();
                 window.initScrollWidgets();
             }
+            if (focusField && selected())
+            {
+                const auto focus = *focusField;
+                focusField.reset();
+                for (const auto& visual : visuals)
+                {
+                    if (visual.block != selectedBlock || visual.closing)
+                    {
+                        continue;
+                    }
+                    const auto field = std::find_if(visual.fields.begin(), visual.fields.end(), [&](const FieldVisual& f) { return f.field == focus.first && f.extra == focus.second; });
+                    if (field == visual.fields.end())
+                    {
+                        break;
+                    }
+                    window.scrollAreas[0].contentOffsetY = static_cast<int16_t>(std::clamp<int>(visual.top, 0, std::max<int>(0, canvasLayout.height - window.widgets[canvas].height() + 3)));
+                    ScrollView::updateThumbs(window, canvas);
+                    editInlineField(window, visual, *field);
+                    break;
+                }
+            }
             window.invalidate();
         }
         static const WindowEventList events = {
-            .onClose = [](Window&) { drag = Drag::none; },
+            .onClose = [](Window& window) {
+                drag = Drag::none;
+                inputField = BlockField::none;
+                inputBlock = 0;
+                focusField.reset();
+                if (Input::isDropdownActive(window.type, window.number))
+                {
+                    WindowManager::close(WindowType::dropdown, 0);
+                    Input::resetFlag(Input::Flags::widgetPressed);
+                    Input::state(Input::State::normal);
+                } },
             .onMouseUp = onMouseUp,
             .onResize = [](Window& w) { w.setSizeBounds({ 360, 240 }, { 1000, 700 }); prepare(w); },
             .onMouseDown = onMouseDown,
@@ -1118,7 +1344,7 @@ namespace OpenLoco::Ui::Windows::RulesWindow
             .keyUp = keyUp,
         };
     }
-    Window* open(Owner owner, Window& opener, uint16_t vehicle, std::optional<size_t> row, Key focusedBlock)
+    Window* open(Owner owner, Window& opener, uint16_t vehicle, std::optional<size_t> row, Key focusedBlock, BlockField field, bool extraField)
     {
         selectedOwner = owner;
         selectedVehicle = vehicle;
@@ -1128,6 +1354,11 @@ namespace OpenLoco::Ui::Windows::RulesWindow
         status.clear();
         drag = Drag::none;
         editingExtra = false;
+        inputField = BlockField::none;
+        inputBlock = 0;
+        inlineDropdownId = WidgetId::none;
+        inlineAnchor.reset();
+        focusField = field == BlockField::none ? std::nullopt : std::optional{ std::pair{ field, extraField } };
         refresh();
         if (row && *row < program.rows.size())
         {

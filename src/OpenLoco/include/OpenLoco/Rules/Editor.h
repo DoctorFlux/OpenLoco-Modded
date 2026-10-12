@@ -3,6 +3,7 @@
 #include <OpenLoco/Engine/Ui/Point.hpp>
 #include <OpenLoco/Engine/Ui/Size.hpp>
 #include <optional>
+#include <string_view>
 
 namespace OpenLoco::Gfx
 {
@@ -32,6 +33,28 @@ namespace OpenLoco::Rules
     };
     Feedback blockFeedback(const Program& program, const Runtime* runtime, Key block);
     bool blockIsCurrent(const Program& program, const Runtime* runtime, Key block);
+    enum class BlockField : uint8_t
+    {
+        none,
+        check,
+        compare,
+        value,
+        stop,
+        cargo,
+        join,
+        repeat,
+        timeout,
+        when,
+        target,
+        name
+    };
+    struct FieldVisual
+    {
+        BlockField field = BlockField::none;
+        bool extra = false;
+        int16_t left = 0, top = 0, width = 0, height = 14;
+        std::string label;
+    };
     struct ProgramVisual
     {
         int16_t top = 0, height = 0;
@@ -41,6 +64,7 @@ namespace OpenLoco::Rules
         int16_t bottom = 0;
         std::vector<std::string> lines;
         bool closing = false; // Interior append slot and closing arm of a C block.
+        std::vector<FieldVisual> fields;
     };
     struct ProgramLayout
     {
@@ -51,6 +75,11 @@ namespace OpenLoco::Rules
     std::string blockSentence(const Program& program, const Block& block);
     ProgramLayout programLayout(const Program& program, int16_t width, int16_t orderHeight = 10);
     const ProgramVisual* programHit(const ProgramLayout& layout, int16_t y);
+    const FieldVisual* blockFieldHit(const ProgramLayout& layout, int16_t x, int16_t y, int16_t width, int16_t origin = 0);
+    Result fieldTextEdit(const Program& program, Key block, BlockField field, bool extra, std::string_view value, Edit& command);
+    std::string fieldTextValue(const Program& program, Key block, BlockField field, bool extra);
+    std::vector<int> menuPageItems(size_t count, size_t page); // At most 32 native entries; -1/-2 are previous/next.
+    bool fieldEditStillValid(Owner expectedOwner, Owner currentOwner, const Program& program, Key block, uint32_t revision);
     size_t programRowAt(const ProgramLayout& layout, int16_t y);
     struct DropPosition
     {
@@ -89,7 +118,7 @@ namespace OpenLoco::Rules
         std::optional<Edit> finish(Owner owner, const Program& program, std::optional<size_t> destination, Key into = 0);
         void cancel();
     };
-    EditorLayout editorLayout(int16_t width, int16_t height);
+    EditorLayout editorLayout(int16_t width, int16_t height, bool details = false);
     struct EditorRect
     {
         int32_t x, y, width, height;
@@ -98,5 +127,5 @@ namespace OpenLoco::Rules
 }
 namespace OpenLoco::Ui::Windows::RulesWindow
 {
-    Window* open(Rules::Owner owner, Window& opener, uint16_t vehicle = UINT16_MAX, std::optional<size_t> row = {}, Rules::Key block = 0);
+    Window* open(Rules::Owner owner, Window& opener, uint16_t vehicle = UINT16_MAX, std::optional<size_t> row = {}, Rules::Key block = 0, Rules::BlockField field = Rules::BlockField::none, bool extra = false);
 }

@@ -3976,7 +3976,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 if (const auto* hit = Rules::programHit(layout, y); hit && hit->block)
                 {
                     orderDrag.cancel();
-                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number, hit->row, hit->block);
+                    const auto* field = Rules::blockFieldHit(layout, x, y, self.widgets[widx::routeList].width() - 14);
+                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number, hit->row, hit->block, field ? field->field : Rules::BlockField::none, field && field->extra);
                     return;
                 }
             }

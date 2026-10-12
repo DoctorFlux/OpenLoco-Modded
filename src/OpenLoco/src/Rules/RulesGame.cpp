@@ -377,6 +377,12 @@ namespace OpenLoco::Rules
         {
             return result;
         }
+        // Reading a field and accepting its current value must not restart a
+        // live wait or clear the branch choices of an unchanged program.
+        if (updated.rows == old.rows && updated.blocks == old.blocks && updated.nextKey == old.nextKey)
+        {
+            return { true, {} };
+        }
         if (command.kind == EditKind::insertRow)
         {
             const auto* order = reinterpret_cast<const Vehicles::Order*>(&command.raw);

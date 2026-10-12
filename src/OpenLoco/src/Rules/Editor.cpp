@@ -7,6 +7,7 @@
 #include "Objects/CargoObject.h"
 #include "Objects/ObjectManager.h"
 #include <algorithm>
+#include <charconv>
 
 namespace OpenLoco::Rules
 {
@@ -121,7 +122,200 @@ namespace OpenLoco::Rules
     }
     int16_t visualIndent(const ProgramVisual& visual, int16_t width)
     {
-        return static_cast<int16_t>(std::min<int>(visual.depth * 12, std::max<int>(0, width - 92)));
+        return static_cast<int16_t>(std::min<int>(visual.depth * 10, std::max<int>(0, width - 146)));
+    }
+    static std::vector<FieldVisual> blockFields(const Program& program, const Block& b)
+    {
+        std::vector<FieldVisual> fields;
+        auto add = [&](BlockField field, std::string label, bool extra = false) { fields.push_back({ field, extra, 0, 0, 0, 14, std::move(label) }); };
+        auto ordinal = [&](Key key) {
+            size_t number = 0;
+            for (const auto& row : program.rows)
+            {
+                number += isRoutable(row.raw);
+                if (row.key == key)
+                {
+                    return number;
+                }
+            }
+            return size_t{ 0 };
+        };
+        if (b.kind != Kind::group)
+        {
+            add(BlockField::when, timingOf(program, b) == Timing::onArrival ? "arrive" : "before");
+        }
+        auto condition = [&](const Condition& c, bool extra) {
+            constexpr const char* checks[] = { "cargo", "full", "empty", "space", "platform", "late", "on time", "year" };
+            add(BlockField::check, checks[static_cast<unsigned>(c.check)], extra);
+            if (c.check == Check::cargoWaiting || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
+            {
+                add(BlockField::stop, ordinal(c.stop) ? "stop " + std::to_string(ordinal(c.stop)) : "missing", extra);
+            }
+            if (c.check == Check::cargoWaiting)
+            {
+                std::string label = "cargo " + std::to_string(c.cargo + 1);
+                if (const auto* cargo = ObjectManager::get<CargoObject>(c.cargo))
+                {
+                    char name[128]{};
+                    StringManager::formatString(name, sizeof(name), cargo->name);
+                    label = name;
+                }
+                add(BlockField::cargo, label, extra);
+            }
+            if (c.check == Check::platformFree)
+            {
+                add(BlockField::cargo, "plat " + std::to_string(c.platform), extra);
+            }
+            if (c.check == Check::cargoWaiting || c.check == Check::year)
+            {
+                add(BlockField::compare, c.compare == Compare::less ? "<" : c.compare == Compare::greater ? ">"
+                                                                                                          : "=",
+                    extra);
+                add(BlockField::value, std::to_string(c.value), extra);
+            }
+        };
+        if (b.kind == Kind::ifBlock || b.kind == Kind::elseIf || b.kind == Kind::waitUntil)
+        {
+            condition(b.condition, false);
+            add(BlockField::join, b.join == Join::none ? "+" : b.join == Join::andCheck ? "and"
+                                                                                        : "or");
+            if (b.join != Join::none)
+            {
+                condition(b.extra, true);
+            }
+        }
+        if (b.kind == Kind::repeat)
+        {
+            add(BlockField::repeat, b.number ? std::to_string(b.number) + " times" : "Forever");
+        }
+        if (b.kind == Kind::waitUntil)
+        {
+            add(BlockField::timeout, std::to_string(b.number) + " min");
+        }
+        if (b.kind == Kind::group)
+        {
+            add(BlockField::name, b.name);
+        }
+        if (b.kind == Kind::goTo)
+        {
+            add(BlockField::target, ordinal(b.target) ? "to " + std::to_string(ordinal(b.target)) : "missing");
+        }
+        if (b.kind == Kind::breakLoop)
+        {
+            add(BlockField::target, "loop");
+        }
+        return fields;
+    }
+    std::string fieldTextValue(const Program& program, Key block, BlockField field, bool extra)
+    {
+        const auto b = std::find_if(program.blocks.begin(), program.blocks.end(), [block](const Block& b) { return b.id == block; });
+        if (b == program.blocks.end())
+        {
+            return {};
+        }
+        if (field == BlockField::name && b->kind == Kind::group)
+        {
+            return b->name;
+        }
+        if (field == BlockField::repeat && b->kind == Kind::repeat)
+        {
+            return b->number ? std::to_string(b->number) : "Forever";
+        }
+        if (field == BlockField::timeout && b->kind == Kind::waitUntil)
+        {
+            return std::to_string(b->number);
+        }
+        if (field == BlockField::value)
+        {
+            const auto& c = extra ? b->extra : b->condition;
+            if ((!extra || b->join != Join::none) && (c.check == Check::year || c.check == Check::cargoWaiting))
+            {
+                return std::to_string(c.value);
+            }
+        }
+        return {};
+    }
+    Result fieldTextEdit(const Program& program, Key block, BlockField field, bool extra, std::string_view value, Edit& command)
+    {
+        const auto b = std::find_if(program.blocks.begin(), program.blocks.end(), [block](const Block& b) { return b.id == block; });
+        if (b == program.blocks.end())
+        {
+            return { false, "This block no longer exists" };
+        }
+        const auto fields = blockFields(program, *b);
+        if (!std::any_of(fields.begin(), fields.end(), [&](const FieldVisual& f) { return f.field == field && f.extra == extra; }))
+        {
+            return { false, "This field is not available on this block" };
+        }
+        Edit proposed;
+        proposed.kind = EditKind::updateBlock;
+        proposed.block = *b;
+        if (field == BlockField::name)
+        {
+            proposed.block.name = value;
+        }
+        else
+        {
+            int32_t number = 0;
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+            if (field == BlockField::repeat && (value == "Forever" || value == "forever" || value == "infinite"))
+            {
+                number = 0;
+            }
+            else if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || number < 0 || number > 1000000)
+            {
+                return { false, "Enter a whole number from 0 to 1000000" };
+            }
+            if (field == BlockField::repeat || field == BlockField::timeout)
+            {
+                if (number > 1440)
+                {
+                    return { false, "That number is too large" };
+                }
+                proposed.block.number = static_cast<uint16_t>(number);
+            }
+            else if (field == BlockField::value)
+            {
+                (extra ? proposed.block.extra : proposed.block.condition).value = number;
+            }
+            else
+            {
+                return { false, "Choose this field from its dropdown" };
+            }
+        }
+        auto preview = program;
+        const auto result = edit(preview, proposed);
+        if (result)
+        {
+            command = std::move(proposed);
+        }
+        return result;
+    }
+    bool fieldEditStillValid(Owner expectedOwner, Owner currentOwner, const Program& program, Key block, uint32_t revision)
+    {
+        return expectedOwner == currentOwner && revision == program.revision && std::any_of(program.blocks.begin(), program.blocks.end(), [block](const Block& b) { return b.id == block; });
+    }
+    std::vector<int> menuPageItems(size_t count, size_t page)
+    {
+        std::vector<int> items;
+        const auto first = page * 30;
+        if (first >= count)
+        {
+            return items;
+        }
+        for (size_t i = first; i < std::min(count, first + 30); ++i)
+        {
+            items.push_back(static_cast<int>(i));
+        }
+        if (page)
+        {
+            items.push_back(-1);
+        }
+        if (first + 30 < count)
+        {
+            items.push_back(-2);
+        }
+        return items;
     }
     bool orderGripHit(const ProgramVisual& visual, int16_t x, int16_t origin, int16_t width)
     {
@@ -132,7 +326,7 @@ namespace OpenLoco::Rules
     {
         ProgramLayout layout;
         int16_t y = 4;
-        orderHeight = std::max<int16_t>(18, orderHeight);
+        orderHeight = std::max<int16_t>(16, orderHeight);
         for (size_t row = 0; row < program.rows.size(); ++row)
         {
             std::vector<const Block*> opening;
@@ -159,39 +353,26 @@ namespace OpenLoco::Rules
                     }
                 }
                 ProgramVisual v{ y, 0, row, block->id, depth, 0, {} };
-                const auto available = std::max<int>(40, width - 24 - visualIndent(v, width));
-                auto sentence = blockSentence(program, *block);
-                sentence.erase(0, std::min(sentence.size(), std::string(kindName(block->kind)).size() + 1));
-                const bool condition = block->kind == Kind::ifBlock || block->kind == Kind::elseIf || block->kind == Kind::waitUntil;
-                const auto prefixWidth = static_cast<int>(std::string(kindName(block->kind)).size()) * 6 + 14;
-                const bool inlineValue = condition && static_cast<int>(sentence.size()) * 6 < available - prefixWidth;
-                while (!sentence.empty() && v.lines.size() < 6)
+                const auto right = std::max<int>(34, width - visualIndent(v, width) - 11);
+                int16_t left = static_cast<int16_t>(std::min<int>(right, static_cast<int>(std::string(kindName(block->kind)).size()) * 6 + 16));
+                int16_t top = 4;
+                v.fields = blockFields(program, *block);
+                for (auto& field : v.fields)
                 {
-                    size_t length = std::min(sentence.size(), static_cast<size_t>(available / 6));
-                    while (length > 1 && std::max<int>(Gfx::TextRenderer::getStringWidth(Gfx::Font::medium_bold, sentence.substr(0, length).c_str()), static_cast<int>(length) * 6) > available)
+                    const auto cap = field.field == BlockField::cargo ? 60 : field.field == BlockField::value ? 40
+                                                                                                              : 80;
+                    const auto desired = std::clamp<int>(static_cast<int>(field.label.size()) * 4 + 12, 20, cap);
+                    field.width = static_cast<int16_t>(std::min<int>(desired, right - 8));
+                    if (left + field.width > right)
                     {
-                        --length;
+                        left = 8;
+                        top += 16;
                     }
-                    if (length < sentence.size())
-                    {
-                        const auto space = sentence.rfind(' ', length);
-                        if (space != std::string::npos && space > 0)
-                        {
-                            length = space;
-                        }
-                    }
-                    if (v.lines.size() == 5)
-                    {
-                        length = sentence.size();
-                    }
-                    v.lines.push_back(sentence.substr(0, length));
-                    sentence.erase(0, length);
-                    while (!sentence.empty() && sentence.front() == ' ')
-                    {
-                        sentence.erase(0, 1);
-                    }
+                    field.left = left;
+                    field.top = v.top + top;
+                    left += field.width + 3;
                 }
-                v.height = inlineValue ? 26 : static_cast<int16_t>(std::max<int>(22, 24 + static_cast<int>(v.lines.size()) * 12));
+                v.height = static_cast<int16_t>(top + 19);
                 layout.items.push_back(std::move(v));
                 y += layout.items.back().height;
             }
@@ -225,9 +406,9 @@ namespace OpenLoco::Rules
             for (auto i : closing)
             {
                 const auto v = layout.items[i];
-                layout.items[i].bottom = y + 21;
-                layout.items.push_back({ y, 26, row, v.block, v.depth, static_cast<int16_t>(y + 21), {}, true });
-                y += 26;
+                layout.items[i].bottom = y + 17;
+                layout.items.push_back({ y, 18, row, v.block, v.depth, static_cast<int16_t>(y + 17), {}, true });
+                y += 18;
             }
         }
         layout.height = y;
@@ -237,6 +418,23 @@ namespace OpenLoco::Rules
     {
         const auto it = std::find_if(layout.items.begin(), layout.items.end(), [y](const ProgramVisual& v) { return v.top <= y && y < v.top + v.height; });
         return it == layout.items.end() ? nullptr : &*it;
+    }
+    const FieldVisual* blockFieldHit(const ProgramLayout& layout, int16_t x, int16_t y, int16_t width, int16_t origin)
+    {
+        const auto* item = programHit(layout, y);
+        if (!item || !item->block || item->closing)
+        {
+            return nullptr;
+        }
+        const auto left = origin + 3 + visualIndent(*item, width);
+        for (const auto& field : item->fields)
+        {
+            if (left + field.left <= x && x < left + field.left + field.width && field.top <= y && y < field.top + field.height)
+            {
+                return &field;
+            }
+        }
+        return nullptr;
     }
     size_t programRowAt(const ProgramLayout& layout, int16_t y)
     {
@@ -487,11 +685,11 @@ namespace OpenLoco::Rules
             context.fillRect(x + inset, y + row, x + width - inset - 1, y + row, colour, Gfx::RectFlags::none);
         }
     }
-    static void blockText(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, std::string text, bool white)
+    static void blockText(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, std::string text, bool white, Gfx::Font font = Gfx::Font::medium_bold)
     {
         text.insert(text.begin(), static_cast<char>(white ? ControlCodes::Colour::white : ControlCodes::Colour::black));
         auto renderer = Gfx::TextRenderer(context);
-        renderer.setCurrentFont(Gfx::Font::medium_bold);
+        renderer.setCurrentFont(font);
         renderer.clipString(width, text.data());
         renderer.drawString({ x, y }, Colour::black, text.c_str());
     }
@@ -519,7 +717,7 @@ namespace OpenLoco::Rules
                 }
                 if (nextClause == program.blocks.end())
                 {
-                    stackShape(context, x, visual.top + 12, static_cast<int16_t>(right - x), 10, Colours::getShade(colour, 5));
+                    stackShape(context, x, visual.top + 11, static_cast<int16_t>(right - x), 7, Colours::getShade(colour, 5));
                 }
                 else
                 {
@@ -546,16 +744,13 @@ namespace OpenLoco::Rules
             {
                 context.fillRect(x, visual.top + visual.height - 3, x + 7, visual.bottom, Colours::getShade(colour, 5), Gfx::RectFlags::none);
             }
-            const bool condition = b->kind == Kind::ifBlock || b->kind == Kind::elseIf || b->kind == Kind::waitUntil;
-            if (!visual.lines.empty())
+            for (const auto& field : visual.fields)
             {
-                const auto inlineValue = condition && visual.height == 26;
-                const auto left = static_cast<int16_t>(inlineValue ? x + std::string(kindName(b->kind)).size() * 6 + 16 : x + 8);
-                const auto top = static_cast<int16_t>(visual.top + (inlineValue ? 4 : 19));
-                socketShape(context, left, top, static_cast<int16_t>(right - left - 7), static_cast<int16_t>(visual.lines.size() * 12 + 4), Colours::getShade(condition ? colour : Colour::white, condition ? 2 : 9), condition);
-                for (size_t i = 0; labels && i < visual.lines.size(); ++i)
+                const auto boolean = field.field == BlockField::check;
+                socketShape(context, x + field.left, field.top, field.width, field.height, Colours::getShade(boolean ? colour : Colour::white, boolean ? 2 : 9), boolean);
+                if (labels)
                 {
-                    blockText(context, left + 8, static_cast<int16_t>(top + 2 + i * 12), static_cast<int16_t>(right - left - 22), visual.lines[i], condition);
+                    blockText(context, x + field.left + 5, field.top + 4, field.width - 10, field.label, boolean, Gfx::Font::small);
                 }
             }
             if (currentBlock == b->id)
@@ -707,9 +902,9 @@ namespace OpenLoco::Rules
         auto preview = program;
         return edit(preview, editCommand) ? std::optional<Edit>{ editCommand } : std::nullopt;
     }
-    EditorLayout editorLayout(int16_t width, int16_t height)
+    EditorLayout editorLayout(int16_t width, int16_t height, bool details)
     {
-        return { static_cast<int16_t>((width < 500 || height < 308) ? 138 : 112), 42, static_cast<int16_t>(height - 117), static_cast<int16_t>(height - 112), static_cast<int16_t>(height - 54), static_cast<int16_t>(height - 17) };
+        return { static_cast<int16_t>(details && (width < 500 || height < 308) ? 138 : 96), 42, static_cast<int16_t>(height - (details ? 117 : 59)), static_cast<int16_t>(height - 112), static_cast<int16_t>(height - 54), static_cast<int16_t>(height - 17) };
     }
     EditorRect placeEditor(EditorRect opener, int16_t screenWidth, int16_t screenHeight, const std::vector<EditorRect>& obstacles)
     {
@@ -723,7 +918,7 @@ namespace OpenLoco::Rules
             }
             return false;
         };
-        for (auto size : { Ui::Size{ 600, 360 }, Ui::Size{ 360, 240 } })
+        for (auto size : { Ui::Size{ 560, 320 }, Ui::Size{ 360, 240 } })
         {
             if (size.width > screenWidth || size.height > screenHeight - 28)
             {

@@ -27,7 +27,7 @@
 
 | Feature | Player-visible surface | Still works without opting in |
 | --- | --- | --- |
-| Block rules | Actual nested blocks in Rules and normal order lists; current program plus next destination, green/red decisions, Else/Else if, Forever/Break; explicit inside slots grow sections; nested palette blocks and grips; MakeCode-style shapes; dragging refreshes map numbers; When chooses before-travel or physical-arrival checks, and waits finish native braking before arming | Orders and lines with no blocks |
+| Block rules | Actual nested blocks in Rules and normal order lists; current program plus next destination, green/red decisions, Else/Else if, Forever/Break; explicit inside slots grow sections; nested palette blocks and grips; MakeCode-style shapes with clickable fields, compact layout, optional Details and paged selectors; palette clicks and branch Actions; dragging refreshes map numbers; When chooses before-travel or physical-arrival checks, and waits finish native braking before arming | Orders and lines with no blocks |
 | Shared lines | Line window | Per-vehicle orders |
 | Timetables | Timetable window on a line | Lines without schedules |
 | Path signals | Native signal flags and train reservation view | Block signals |

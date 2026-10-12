@@ -30,6 +30,8 @@ Arrival timing is implemented: When selects Before travelling/On arrival; waits 
 
 The route-arrow fix uses a shared read-only committed travel/hold key in all three views, with a visible outlined white marker on the nested order row (D38). Recheck it during Skip/Go to, Repeat, waits and cargo handling in the user's next manual run; the program marker and provisional next-destination footer serve their separate purposes.
 
+Phase 4 editing now includes clickable fields in all three block views, native value dialogs/dropdowns, paged long selectors, palette clicks and Else/Else-if/removal Actions. Rules defaults to 560x320 with optional Details and the same 360x240 minimum (D39–D41). Final full Debug and Release suites passed 329/329 each. Next concrete task is the user's short direct-editing/compact-layout check followed by the outstanding manual acceptance rows; Phase 4 remains TESTING.
+
 1. Block list, checks the game can already answer, If/Else if/Else, Skip, Go to, finite/Forever Repeat, Break, and the 256-step budget. Tests load the blocks from memory.
 2. Run those blocks on a vehicle's own orders, and run the same blocks on a shared line. Each vehicle on a line keeps its own repeat count and wait.
 3. Rules window. Its own window, drag and drop inside it, placed so it does not cover the line window, the vehicle window, or schemes.
