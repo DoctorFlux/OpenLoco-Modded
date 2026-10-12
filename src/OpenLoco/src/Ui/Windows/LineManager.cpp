@@ -1,3 +1,4 @@
+#include "Rules/Editor.h"
 #include "Audio/Audio.h"
 #include "Entities/EntityManager.h"
 #include "Graphics/Colour.h"
@@ -113,6 +114,7 @@ namespace OpenLoco::Ui::Windows::LineManager
         showAllLines,
         paintVehicles,
         schemes,
+        rules,
     };
 
     namespace Widx
@@ -150,6 +152,7 @@ namespace OpenLoco::Ui::Windows::LineManager
         constexpr WidgetId kShowAllLines{ "show_all_lines" };
         constexpr WidgetId kPaintVehicles{ "paint_vehicles" };
         constexpr WidgetId kSchemes{ "schemes" };
+        constexpr WidgetId kRules{ "rules" };
     }
 
     static constexpr auto _widgets = makeWidgets(
@@ -187,7 +190,8 @@ namespace OpenLoco::Ui::Windows::LineManager
         Widgets::Button(Widx::kShowPath, { 36, 196 }, { 46, 14 }, WindowColour::secondary, StringIds::line_show_path),
         Widgets::Button(Widx::kShowAllLines, { 84, 196 }, { 40, 14 }, WindowColour::secondary, StringIds::line_show_all),
         Widgets::Button(Widx::kPaintVehicles, { 126, 196 }, { 60, 14 }, WindowColour::secondary, StringIds::line_paint_vehicles),
-        Widgets::Button(Widx::kSchemes, { 4, 214 }, { 70, 14 }, WindowColour::secondary, StringIds::line_colour_schemes)
+        Widgets::Button(Widx::kSchemes, { 4, 214 }, { 70, 14 }, WindowColour::secondary, StringIds::line_colour_schemes),
+        Widgets::Button(Widx::kRules, { 392, 148 }, { 24, 24 }, WindowColour::secondary, StringIds::rules_title)
 
     );
 
@@ -801,6 +805,11 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void onMouseUp(Ui::Window& window, [[maybe_unused]] WidgetIndex_t widgetIndex, const WidgetId id)
     {
+        if (id == Widx::kRules)
+        {
+            if (const auto* line = selectedLine()) RulesWindow::open({ Rules::OwnerKind::line, line->id }, window, line->vehicles.empty() ? UINT16_MAX : line->vehicles.front());
+            return;
+        }
         if (id == Widx::kClose)
         {
             WindowManager::close(window.type);
@@ -1028,6 +1037,8 @@ namespace OpenLoco::Ui::Windows::LineManager
         window.widgets[widx::orderDelete].hidden = !showingOrders;
         window.widgets[widx::orderUp].hidden = !showingOrders;
         window.widgets[widx::orderDown].hidden = !showingOrders;
+        window.widgets[widx::rules].hidden = !showingOrders;
+        if (line == nullptr) window.disabledWidgets |= 1ULL << widx::rules;
         window.widgets[widx::addVehicle].hidden = showingOrders || line == nullptr;
         window.widgets[widx::buyVehicle].hidden = showingOrders || line == nullptr;
         window.widgets[widx::addSlot].hidden = !showingOrders || line == nullptr;

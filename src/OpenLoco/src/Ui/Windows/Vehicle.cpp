@@ -1,3 +1,4 @@
+#include "Rules/Editor.h"
 #include "Vehicles/Vehicle.h"
 #include "Audio/Audio.h"
 #include "Config.h"
@@ -115,6 +116,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             tabCargo = 6,
             tabFinances = 7,
             tabRoute = 8,
+            rules = 9,
         };
 
         namespace Widx
@@ -128,6 +130,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             constexpr WidgetId kTabCargo{ "tabCargo" };
             constexpr WidgetId kTabFinances{ "tabFinances" };
             constexpr WidgetId kTabRoute{ "tabRoute" };
+            constexpr WidgetId kRules{ "rules" };
         }
 
         static constexpr auto makeCommonWidgets(int32_t frameWidth, int32_t frameHeight, StringId windowCaptionId)
@@ -141,7 +144,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 Widgets::Tab(Widx::kTabDetails, { 34, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_details),
                 Widgets::Tab(Widx::kTabCargo, { 65, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_cargo),
                 Widgets::Tab(Widx::kTabFinances, { 96, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_finance),
-                Widgets::Tab(Widx::kTabRoute, { 158, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_route));
+                Widgets::Tab(Widx::kTabRoute, { 158, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_route),
+                Widgets::Button(Widx::kRules, { 127, 15 }, { 31, 27 }, WindowColour::secondary, StringIds::rules_title));
         }
 
         static Vehicles::VehicleHead* getVehicle(const Window& self)
@@ -234,7 +238,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
         enum widx
         {
-            buildNew = Common::widx::tabRoute + 1,
+            buildNew = Common::widx::rules + 1,
             pickup,
             remove,
             paintBrush,
@@ -298,8 +302,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
         enum widx
         {
-            refit = 9,
-            cargoList = 10,
+            refit = 10,
+            cargoList = 11,
         };
 
         namespace Widx
@@ -339,7 +343,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
         enum widx
         {
-            tool = Common::widx::tabRoute + 1, // Only used to hold the tool does nothing
+            tool = Common::widx::rules + 1, // Only used to hold the tool does nothing
             localMode,
             expressMode,
             routeList,
@@ -404,15 +408,15 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
         enum widx
         {
-            viewport = Common::widx::tabRoute + 1,
-            status = 10,
-            speedControl = 11,
-            stopStart = 12,
-            pickup = 13,
-            passSignal = 14,
-            changeDirection = 15,
-            centreViewport = 16,
-            showReservedPath = 17,
+            viewport = Common::widx::rules + 1,
+            status = 11,
+            speedControl = 12,
+            stopStart = 13,
+            pickup = 14,
+            passSignal = 15,
+            changeDirection = 16,
+            centreViewport = 17,
+            showReservedPath = 18,
         };
 
         namespace Widx
@@ -654,6 +658,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
+                    break;
+                case Common::Widx::kRules:
+                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
                     break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
@@ -1139,6 +1146,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 self.activatedWidgets |= (1ULL << widx::showReservedPath);
             }
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
+            self.widgets[Common::widx::tabRoute].left = 158;
+            self.widgets[Common::widx::tabRoute].right = 188;
         }
 
         // 0x004B226D
@@ -1276,6 +1285,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
+                    break;
+                case Common::Widx::kRules:
+                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
                     break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
@@ -1740,6 +1752,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.widgets[Common::widx::closeButton].left = self.width - 15;
             self.widgets[Common::widx::closeButton].right = self.width - 3;
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
+            self.widgets[Common::widx::tabRoute].left = 158;
+            self.widgets[Common::widx::tabRoute].right = 188;
 
             self.widgets[widx::carList].right = self.width - 26;
             self.widgets[widx::carList].bottom = self.height - kVehicleDetailsTextHeight;
@@ -2362,6 +2376,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             }
 
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
+            self.widgets[Common::widx::tabRoute].left = 158;
+            self.widgets[Common::widx::tabRoute].right = 188;
         }
 
         // 0x004B3F0D
@@ -2497,6 +2513,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     WindowManager::close(&self);
                     break;
 
+                case Common::Widx::kRules:
+                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
+                    break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
                 case Common::Widx::kTabCargo:
@@ -2775,6 +2794,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.widgets[Common::widx::closeButton].right = self.width - 3;
 
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
+            self.widgets[Common::widx::tabRoute].left = 158;
+            self.widgets[Common::widx::tabRoute].right = 188;
         }
 
         // 0x004B576C
@@ -2886,6 +2907,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
+                    break;
+                case Common::Widx::kRules:
+                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
                     break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
@@ -3212,6 +3236,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
+                    break;
+                case Common::Widx::kRules:
+                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
                     break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
@@ -4151,6 +4178,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 self.disabledWidgets &= ~((1 << widx::orderUp) | (1 << widx::orderDown));
             }
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
+            self.widgets[Common::widx::tabRoute].left = 158;
+            self.widgets[Common::widx::tabRoute].right = 188;
         }
 
         // 0x004B4866

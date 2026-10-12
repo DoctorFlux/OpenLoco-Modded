@@ -85,6 +85,8 @@ namespace OpenLoco::Ui
         void (*scrollMouseDown)(Ui::Window&, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
         void (*scrollMouseDrag)(Ui::Window&, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
         void (*scrollMouseOver)(Ui::Window& window, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
+        // Screen coordinates; dispatched to the pressed scroll owner, including drops outside it.
+        void (*scrollMouseUp)(Ui::Window& window, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
         void (*textInput)(Window&, WidgetIndex_t, WidgetId, const char*) = nullptr;
         void (*viewportRotate)(Window&) = nullptr;
         uint32_t event_22{};

@@ -657,6 +657,8 @@ namespace OpenLoco::Input
 
             case MouseButton::leftReleased:
             {
+                if (auto* owner = WindowManager::find(_pressedWindowType, _pressedWindowNumber); owner && owner->eventHandlers->scrollMouseUp)
+                    owner->eventHandlers->scrollMouseUp(*owner, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<uint8_t>(owner->getScrollDataIndex(_pressedWidgetIndex)));
                 Input::state(State::reset);
                 ScrollView::clearPressedButtons(_pressedWindowType, _pressedWindowNumber, _pressedWidgetIndex);
                 break;

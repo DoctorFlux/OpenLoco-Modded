@@ -296,6 +296,7 @@ set(OLOCO_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Window.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/WindowManager.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Rules/Editor.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Windows/RulesWindow.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Rules/Rules.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Rules/RulesGame.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Rules/Platforms.cpp"

@@ -1,0 +1,958 @@
+#include "Entities/EntityManager.h"
+#include "Graphics/Colour.h"
+#include "Graphics/Gfx.h"
+#include "Graphics/ImageIds.h"
+#include "Graphics/TextRenderer.h"
+#include "Input.h"
+#include "Lines/Line.h"
+#include "Localisation/Formatting.h"
+#include "Localisation/StringIds.h"
+#include "Localisation/StringManager.h"
+#include "Objects/CargoObject.h"
+#include "Objects/ObjectManager.h"
+#include "Rules/Editor.h"
+#include "Rules/Platforms.h"
+#include "Ui.h"
+#include "Ui/Dropdown.h"
+#include "Ui/Widget.h"
+#include "Ui/Widgets/ButtonWidget.h"
+#include "Ui/Widgets/CaptionWidget.h"
+#include "Ui/Widgets/FrameWidget.h"
+#include "Ui/Widgets/ImageButtonWidget.h"
+#include "Ui/Widgets/PanelWidget.h"
+#include "Ui/Widgets/ScrollViewWidget.h"
+#include "Ui/WindowManager.h"
+#include "Vehicles/OrderManager.h"
+#include "Vehicles/VehicleHead.h"
+#include "World/Station.h"
+#include "World/StationManager.h"
+#include <algorithm>
+#include <charconv>
+#include <cstring>
+
+namespace OpenLoco::Ui::Windows::RulesWindow
+{
+    using namespace OpenLoco::Rules;
+    namespace
+    {
+        constexpr WidgetId closeId{ "close" }, canvasId{ "canvas" }, checkId{ "check" }, compareId{ "compare" }, stopId{ "stop" }, cargoId{ "cargo" }, numberId{ "number" }, joinId{ "join" }, extraId{ "extra" }, targetId{ "target" }, nameId{ "name" }, binId{ "bin" };
+        enum widx
+        {
+            frame,
+            title,
+            close,
+            panel,
+            canvas,
+            check,
+            compare,
+            stop,
+            cargo,
+            number,
+            join,
+            extra,
+            target,
+            name,
+            bin
+        };
+        static constexpr auto widgets = makeWidgets(
+            Widgets::Frame({ 0, 0 }, { 600, 360 }, WindowColour::primary),
+            Widgets::Caption({ 1, 1 }, { 598, 13 }, Widgets::Caption::Style::colourText, WindowColour::primary, StringIds::rules_title),
+            Widgets::ImageButton(closeId, { 585, 2 }, { 13, 13 }, WindowColour::primary, ImageIds::close_button, StringIds::tooltip_close_window),
+            Widgets::Panel({ 0, 15 }, { 600, 345 }, WindowColour::secondary),
+            Widgets::ScrollView(canvasId, { 4, 42 }, { 592, 215 }, WindowColour::secondary, Scrollbars::vertical),
+            Widgets::Button(checkId, { 4, 262 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_check),
+            Widgets::Button(compareId, { 122, 262 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_compare),
+            Widgets::Button(stopId, { 240, 262 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_stop),
+            Widgets::Button(cargoId, { 358, 262 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_cargo),
+            Widgets::Button(numberId, { 476, 262 }, { 120, 20 }, WindowColour::secondary, StringIds::rules_number),
+            Widgets::Button(joinId, { 4, 286 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_join),
+            Widgets::Button(extraId, { 122, 286 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_extra),
+            Widgets::Button(targetId, { 240, 286 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_target),
+            Widgets::Button(nameId, { 358, 286 }, { 116, 20 }, WindowColour::secondary, StringIds::rules_name),
+            Widgets::Button(binId, { 4, 320 }, { 592, 20 }, WindowColour::secondary, StringIds::rules_bin));
+        Owner selectedOwner{};
+        uint16_t selectedVehicle = UINT16_MAX;
+        Program program;
+        Key selectedBlock = 0;
+        int firstSelected = -1, lastSelected = -1;
+        bool editingExtra = false;
+        std::string status;
+        struct Visual
+        {
+            int16_t top;
+            int16_t height;
+            size_t row;
+            Key block;
+        };
+        std::vector<Visual> visuals;
+        enum class Drag
+        {
+            none,
+            palette,
+            section,
+            row,
+            selection
+        };
+        Drag drag = Drag::none;
+        Kind draggedKind{};
+        Key draggedBlock = 0;
+        int dragFirst = -1, dragLast = -1, dropRow = -1;
+        int16_t dragX = 0, dragY = 0;
+        bool dragged = false;
+        std::vector<int> choices;
+        std::vector<Key> stopChoices;
+        std::vector<Platform> platformChoices;
+        std::vector<std::string> choiceLabels;
+        const char* names[] = { "Group", "If", "Otherwise", "Repeat", "Wait until", "Skip", "Go to" };
+        const char* checkNames[] = { "Cargo waiting", "This vehicle is full", "This vehicle is empty", "This vehicle has space", "Platform is free", "This vehicle is late", "This vehicle is on time", "The year" };
+        const Block* selected()
+        {
+            auto it = std::find_if(program.blocks.begin(), program.blocks.end(), [](const Block& b) { return b.id == selectedBlock; });
+            return it == program.blocks.end() ? nullptr : &*it;
+        }
+        void refresh()
+        {
+            program = snapshot(selectedOwner);
+            visuals.clear();
+            int16_t y = 4;
+            for (size_t row = 0; row < program.rows.size(); ++row)
+            {
+                for (const auto& b : program.blocks)
+                {
+                    if (b.first == program.rows[row].key)
+                    {
+                        visuals.push_back({ y, 24, row, b.id });
+                        y += 24;
+                    }
+                }
+                visuals.push_back({ y, 20, row, 0 });
+                y += 20;
+            }
+            if (firstSelected >= static_cast<int>(program.rows.size()))
+            {
+                firstSelected = lastSelected = -1;
+            }
+        }
+        const Visual* at(int y)
+        {
+            const auto it = std::find_if(visuals.begin(), visuals.end(), [y](const Visual& v) { return y >= v.top && y < v.top + v.height; });
+            return it == visuals.end() ? nullptr : &*it;
+        }
+        int rowAt(int y)
+        {
+            if (auto* v = at(y))
+            {
+                return static_cast<int>(v->row);
+            }
+            return y > 0 ? static_cast<int>(program.rows.size()) : 0;
+        }
+        void apply(Window& window, Edit e)
+        {
+            const auto result = submit(selectedOwner, e);
+            status = result ? "Rules updated" : result.message;
+            refresh();
+            window.initScrollWidgets();
+            window.invalidate();
+        }
+        std::string conditionText(const Condition& c)
+        {
+            std::string text = checkNames[static_cast<unsigned>(c.check)];
+            if (c.check == Check::cargoWaiting || c.check == Check::year)
+            {
+                if (c.check == Check::cargoWaiting)
+                {
+                    char buffer[128]{};
+                    const auto* object = ObjectManager::get<CargoObject>(c.cargo);
+                    if (object)
+                    {
+                        StringManager::formatString(buffer, sizeof(buffer), object->name);
+                    }
+                    text += " (" + std::string(object ? buffer : "cargo") + ")";
+                }
+                text += c.compare == Compare::less ? " is less than " : c.compare == Compare::greater ? " is more than "
+                                                                                                      : " is the same as ";
+                text += std::to_string(c.value);
+            }
+            if (c.stop)
+            {
+                size_t number = 0;
+                for (const auto& row : program.rows)
+                {
+                    if (isRoutable(row.raw))
+                    {
+                        ++number;
+                    }
+                    if (row.key == c.stop)
+                    {
+                        break;
+                    }
+                }
+                text += " at stop " + std::to_string(number);
+            }
+            if (c.check == Check::platformFree)
+            {
+                text += ", platform " + std::to_string(c.platform);
+            }
+            return text;
+        }
+        std::string blockText(const Block& b)
+        {
+            std::string text = names[static_cast<unsigned>(b.kind)];
+            if (b.kind == Kind::ifBlock || b.kind == Kind::waitUntil)
+            {
+                text += " " + conditionText(b.condition);
+                if (b.join != Join::none)
+                {
+                    text += (b.join == Join::andCheck ? " and " : " or ") + conditionText(b.extra);
+                }
+            }
+            if (b.kind == Kind::repeat)
+            {
+                text += " " + std::to_string(b.number) + " times";
+            }
+            if (b.kind == Kind::waitUntil)
+            {
+                text += " (up to " + std::to_string(b.number) + " min)";
+            }
+            if (b.kind == Kind::group)
+            {
+                text += " " + b.name;
+            }
+            if (b.kind == Kind::goTo)
+            {
+                text += " order " + std::to_string(indexOf(program, b.target) + 1);
+            }
+            if (!b.enabled)
+            {
+                text += " (unavailable)";
+            }
+            return text;
+        }
+        void text(Gfx::DrawingContext& ctx, int16_t x, int16_t y, int16_t width, std::string value)
+        {
+            value.insert(value.begin(), static_cast<char>(ControlCodes::Colour::black));
+            auto renderer = Gfx::TextRenderer(ctx);
+            renderer.setCurrentFont(Gfx::Font::medium_bold);
+            renderer.clipString(width, value.data());
+            renderer.drawString({ x, y }, Colour::black, value.c_str());
+        }
+        void prepare(Window& window)
+        {
+            auto layout = editorLayout(window.width, window.height);
+            window.widgets[frame].right = window.width - 1;
+            window.widgets[frame].bottom = window.height - 1;
+            window.widgets[title].right = window.width - 2;
+            window.widgets[close].left = window.width - 15;
+            window.widgets[close].right = window.width - 3;
+            window.widgets[panel].right = window.width - 1;
+            window.widgets[panel].bottom = window.height - 1;
+            window.widgets[canvas].right = window.width - 5;
+            window.widgets[canvas].bottom = layout.canvasBottom;
+            const auto buttonWidth = static_cast<int16_t>((window.width - 10) / 5);
+            for (int i = check; i <= number; ++i)
+            {
+                auto& w = window.widgets[i];
+                w.left = 4 + (i - check) * buttonWidth;
+                w.right = w.left + buttonWidth - 3;
+                w.top = layout.controlsTop;
+                w.bottom = w.top + 19;
+            }
+            for (int i = join; i <= name; ++i)
+            {
+                auto& w = window.widgets[i];
+                w.left = 4 + (i - join) * buttonWidth;
+                w.right = w.left + buttonWidth - 3;
+                w.top = layout.controlsTop + 24;
+                w.bottom = w.top + 19;
+            }
+            window.widgets[bin].right = window.width - 5;
+            window.widgets[bin].top = layout.binTop;
+            window.widgets[bin].bottom = layout.binTop + 19;
+            const auto* b = selected();
+            window.disabledWidgets = 0;
+            for (int i = check; i <= name; ++i)
+            {
+                window.disabledWidgets |= uint64_t(1) << i;
+            }
+            if (b)
+            {
+                if (b->kind == Kind::ifBlock || b->kind == Kind::waitUntil)
+                {
+                    for (int i : { check, compare, stop, cargo, number, join, extra })
+                    {
+                        window.disabledWidgets &= ~(uint64_t(1) << i);
+                    }
+                }
+                if (b->kind == Kind::repeat)
+                {
+                    window.disabledWidgets &= ~(uint64_t(1) << number);
+                }
+                if (b->kind == Kind::group)
+                {
+                    window.disabledWidgets &= ~(uint64_t(1) << name);
+                }
+                if (b->kind == Kind::goTo)
+                {
+                    window.disabledWidgets &= ~(uint64_t(1) << target);
+                }
+            }
+        }
+        void draw(Window& window, Gfx::DrawingContext& ctx)
+        {
+            window.draw(ctx);
+            const auto* line = selectedOwner.kind == OwnerKind::line ? Lines::findLine(selectedOwner.id) : nullptr;
+            std::string caption = line ? "Shared line: " + line->name : "Vehicle " + std::to_string(selectedOwner.id);
+            text(ctx, 5, 19, window.width - 10, caption);
+            text(ctx, 5, 30, window.width - 10, "Drag a block to a row. Drag rows to select a section; use the left grip to move it.");
+            const auto footer = !status.empty() ? status : selectedVehicle != UINT16_MAX ? vehicleStatus(selectedVehicle)
+                                                                                         : "Select a vehicle on this line to see its running rule";
+            text(ctx, 5, window.height - 15, window.width - 10, footer);
+        }
+        void drawScroll(Window& window, Gfx::DrawingContext& ctx, uint32_t)
+        {
+            const auto layout = editorLayout(window.width, window.height);
+            const auto width = window.widgets[canvas].width() - 14;
+
+            for (unsigned i = 0; i < 7; ++i)
+            {
+                const auto y = static_cast<int16_t>(4 + i * 24);
+                ctx.fillRect(2, y, layout.paletteWidth - 4, y + 20, PaletteIndex::grey1, Gfx::RectFlags::none);
+                text(ctx, 5, y + 4, layout.paletteWidth - 10, names[i]);
+            }
+            int ordinal = 0;
+            for (const auto& v : visuals)
+            {
+                auto x = static_cast<int16_t>(layout.paletteWidth + 4);
+                if (v.block)
+                {
+                    const auto it = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == v.block; });
+                    const auto& b = *it;
+                    size_t depth = 0;
+                    for (const auto& enclosing : program.blocks)
+                    {
+                        if (enclosing.kind == Kind::skip || enclosing.kind == Kind::goTo || enclosing.kind == Kind::waitUntil || enclosing.id == b.id)
+                        {
+                            continue;
+                        }
+                        const auto a = indexOf(program, enclosing.first), z = indexOf(program, enclosing.last);
+                        if (a <= v.row && indexOf(program, b.last) <= z && (enclosing.first != b.first || enclosing.last != b.last || enclosing.id < b.id))
+                        {
+                            ++depth;
+                        }
+                    }
+                    x += static_cast<int16_t>(std::min<size_t>(depth, 8) * 8);
+                    ctx.fillRect(x, v.top, width, v.top + 21, b.id == selectedBlock ? Colours::getShade(Colour::yellow, 7) : PaletteIndex::grey1, Gfx::RectFlags::none);
+                    text(ctx, x + 5, v.top + 5, width - x - 10, blockText(b));
+                    int16_t bottom = v.top + 22;
+                    for (const auto& end : visuals)
+                    {
+                        if (end.row == indexOf(program, b.last) && !end.block)
+                        {
+                            bottom = end.top + end.height - 1;
+                        }
+                    }
+                    if (b.kind == Kind::group || b.kind == Kind::ifBlock || b.kind == Kind::otherwise || b.kind == Kind::repeat)
+                    {
+                        ctx.fillRect(x, v.top, x + 2, bottom, PaletteIndex::grey0, Gfx::RectFlags::none);
+                        ctx.fillRect(x, bottom - 2, x + 9, bottom, PaletteIndex::grey0, Gfx::RectFlags::none);
+                    }
+                }
+                else
+                {
+                    const auto& row = program.rows[v.row];
+                    if (firstSelected <= static_cast<int>(v.row) && static_cast<int>(v.row) <= lastSelected && firstSelected >= 0)
+                    {
+                        ctx.fillRect(x + 12, v.top, width, v.top + 19, Colours::getShade(Colour::yellow, 7), Gfx::RectFlags::none);
+                    }
+                    text(ctx, x + 5, v.top + 4, 12, "=");
+                    const auto* order = reinterpret_cast<const Vehicles::Order*>(&row.raw);
+                    char buffer[256]{};
+                    const auto converted = Lines::fromVehicleOrder(*order);
+                    std::string label;
+                    if (isRoutable(row.raw))
+                    {
+                        label = std::to_string(++ordinal) + ". ";
+                    }
+                    if (auto* station = order->as<Vehicles::OrderStation>())
+                    {
+                        const auto* s = StationManager::get(station->getStation());
+                        if (s && !s->empty())
+                        {
+                            FormatArguments args;
+                            if (order->getType() == Vehicles::OrderType::StopAt)
+                            {
+                                static_cast<const Vehicles::OrderStopAt*>(order)->setFormatArguments(args);
+                            }
+                            else
+                            {
+                                static_cast<const Vehicles::OrderRouteThrough*>(order)->setFormatArguments(args);
+                            }
+                            StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::StopAt ? StringIds::orders_stop_at : StringIds::orders_route_through, args);
+                        }
+                        label += buffer[0] ? buffer : "Station";
+                    }
+                    else if ((row.raw & 7) == 3)
+                    {
+                        label += "Waypoint (" + std::to_string(converted.tileX) + ", " + std::to_string(converted.tileY) + ")";
+                    }
+                    else
+                    {
+                        label += (row.raw & 7) == 4 ? "Unload all" : "Wait for full load";
+                    }
+                    text(ctx, x + 22, v.top + 4, width - x - 26, label);
+                    if (dragged && dropRow == static_cast<int>(v.row))
+                    {
+                        ctx.fillRect(x, v.top, width, v.top + 1, PaletteIndex::black0, Gfx::RectFlags::none);
+                    }
+                }
+            }
+            if (visuals.empty())
+            {
+                text(ctx, layout.paletteWidth + 5, 5, width - layout.paletteWidth - 10, "Add stops in the vehicle Route tab or Lines first.");
+            }
+        }
+        void scrollSize(Window&, uint32_t, int32_t& width, int32_t& height)
+        {
+            width = 0;
+            height = std::max<int>(180, visuals.empty() ? 0 : visuals.back().top + visuals.back().height + 8);
+        }
+        void mouseDown(Window& window, int16_t x, int16_t y, uint8_t)
+        {
+            refresh();
+            dragged = false;
+            dragX = x;
+            dragY = y;
+            dropRow = -1;
+            draggedBlock = 0;
+            const auto layout = editorLayout(window.width, window.height);
+            if (x < layout.paletteWidth)
+            {
+                const int kind = (y - 4) / 24;
+                if (y < 4 || kind < 0 || kind >= 7)
+                {
+                    return;
+                }
+                drag = Drag::palette;
+                draggedKind = static_cast<Kind>(kind);
+                return;
+            }
+            const auto* v = at(y);
+            if (!v)
+            {
+                return;
+            }
+            if (v->block)
+            {
+                selectedBlock = draggedBlock = v->block;
+                editingExtra = false;
+                const auto* b = selected();
+                dragFirst = static_cast<int>(indexOf(program, b->first));
+                dragLast = static_cast<int>(indexOf(program, b->last));
+                drag = Drag::section;
+            }
+            else if (x < layout.paletteWidth + 22)
+            {
+                dragFirst = static_cast<int>(v->row);
+                dragLast = dragFirst;
+                if (firstSelected >= 0 && firstSelected <= dragFirst && dragFirst <= lastSelected)
+                {
+                    dragFirst = firstSelected;
+                    dragLast = lastSelected;
+                }
+                drag = Drag::row;
+            }
+            else
+            {
+                selectedBlock = 0;
+                dragFirst = static_cast<int>(v->row);
+                drag = Drag::selection;
+                firstSelected = lastSelected = dragFirst;
+            }
+            status.clear();
+            window.invalidate();
+        }
+        void mouseDrag(Window& window, int16_t x, int16_t y, uint8_t)
+        {
+            if (drag == Drag::none)
+            {
+                return;
+            }
+            dragged |= std::abs(x - dragX) + std::abs(y - dragY) > 4;
+            dropRow = rowAt(y);
+            if (drag == Drag::selection && !program.rows.empty())
+            {
+                const auto row = std::clamp<int>(dropRow, 0, static_cast<int>(program.rows.size()) - 1);
+                firstSelected = std::min(row, dragFirst);
+                lastSelected = std::max(row, dragFirst);
+            }
+            window.invalidate();
+        }
+        void mouseRelease(Window& window, int16_t screenX, int16_t screenY, uint8_t)
+        {
+            const auto previous = drag;
+            drag = Drag::none;
+            if (!dragged || previous == Drag::none || previous == Drag::selection)
+            {
+                return;
+            }
+            if (WindowManager::findAt(screenX, screenY) != &window)
+            {
+                window.invalidate();
+                return;
+            }
+            const auto y = screenY - window.y, x = screenX - window.x;
+            const auto& binWidget = window.widgets[bin];
+            if (x >= binWidget.left && x <= binWidget.right && y >= binWidget.top && y <= binWidget.bottom)
+            {
+                Edit e;
+                if (draggedBlock)
+                {
+                    e.kind = EditKind::removeBlock;
+                    e.block.id = draggedBlock;
+                }
+                else if (previous == Drag::row)
+                {
+                    e.kind = EditKind::deleteRows;
+                    e.first = dragFirst;
+                    e.last = dragLast;
+                }
+                else
+                {
+                    return;
+                }
+                apply(window, e);
+                return;
+            }
+            const auto& view = window.widgets[canvas];
+            if (x < view.left + editorLayout(window.width, window.height).paletteWidth || x >= view.right - 12 || y < view.top || y > view.bottom)
+            {
+                return;
+            }
+            const auto canvasY = y - view.top - 1 + window.scrollAreas[0].contentOffsetY;
+            const int destination = rowAt(canvasY);
+            if (previous == Drag::row || previous == Drag::section)
+            {
+                Edit e;
+                e.kind = EditKind::moveRows;
+                e.first = dragFirst;
+                e.last = dragLast;
+                e.destination = destination;
+                e.block.id = draggedBlock;
+                apply(window, e);
+                return;
+            }
+            if (program.rows.empty() || destination >= static_cast<int>(program.rows.size()))
+            {
+                return;
+            }
+            int first = destination, last = destination;
+            if (firstSelected >= 0 && firstSelected <= destination && destination <= lastSelected)
+            {
+                first = firstSelected;
+                last = lastSelected;
+            }
+            if (const auto* v = at(canvasY); v && v->block)
+            {
+                const auto it = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == v->block; });
+                first = static_cast<int>(indexOf(program, it->first));
+                last = static_cast<int>(indexOf(program, it->last));
+            }
+            Block b;
+            b.kind = draggedKind;
+            b.first = program.rows[first].key;
+            b.last = program.rows[last].key;
+            b.number = b.kind == Kind::repeat ? 2 : 5;
+            b.name = "My section";
+            if (b.kind == Kind::skip || b.kind == Kind::goTo || b.kind == Kind::otherwise)
+            {
+                for (const auto& parent : program.blocks)
+                {
+                    if (b.kind == Kind::otherwise)
+                    {
+                        if (parent.kind == Kind::ifBlock && indexOf(program, parent.last) < static_cast<size_t>(first))
+                        {
+                            b.parent = parent.id;
+                        }
+                    }
+                    else if ((parent.kind == Kind::ifBlock || parent.kind == Kind::otherwise) && parent.first == b.first && parent.last == b.last)
+                    {
+                        b.parent = parent.id;
+                    }
+                }
+                if (b.kind == Kind::goTo)
+                {
+                    for (const auto& row : program.rows)
+                    {
+                        if (isRoutable(row.raw))
+                        {
+                            b.target = row.key;
+                            break;
+                        }
+                    }
+                }
+            }
+            const auto key = program.nextKey;
+            Edit e;
+            e.block = b;
+            apply(window, e);
+            if (find(selectedOwner) && program.nextKey > key)
+            {
+                selectedBlock = key;
+            }
+        }
+        void menu(Window& window, WidgetIndex_t widget, const std::vector<std::string>& labels)
+        {
+            choiceLabels = labels;
+            for (size_t i = 0; i < choiceLabels.size(); ++i)
+            {
+                Dropdown::add(i, StringIds::line_name_raw, { choiceLabels[i].c_str() });
+            }
+            const auto& w = window.widgets[widget];
+            Dropdown::showText(window.x + w.left, window.y + w.top, w.width(), w.height(), window.getColour(WindowColour::secondary), static_cast<int16_t>(labels.size()), 0);
+        }
+        void onMouseDown(Window& window, WidgetIndex_t widget, WidgetId id)
+        {
+            const auto* b = selected();
+            if (!b)
+            {
+                return;
+            }
+            const auto& c = editingExtra ? b->extra : b->condition;
+            choices.clear();
+            stopChoices.clear();
+            platformChoices.clear();
+            std::vector<std::string> labels;
+            if (id == checkId)
+            {
+                for (unsigned i = 0; i <= unsigned(Check::year); ++i)
+                {
+                    if (i == unsigned(Check::platformFree) && !program.rail)
+                    {
+                        continue;
+                    }
+                    choices.push_back(i);
+                    labels.push_back(checkNames[i]);
+                }
+            }
+            else if (id == compareId)
+            {
+                labels = { "Less than", "The same as", "More than" };
+            }
+            else if (id == joinId)
+            {
+                labels = { "One check", "And another check", "Or another check" };
+            }
+            else if (id == stopId || id == targetId)
+            {
+                for (const auto& row : program.rows)
+                {
+                    if (id == stopId && (row.raw & 7) != 1 && (row.raw & 7) != 2)
+                    {
+                        continue;
+                    }
+                    if (id == targetId && !isRoutable(row.raw))
+                    {
+                        continue;
+                    }
+                    size_t number = 0;
+                    for (const auto& numbered : program.rows)
+                    {
+                        if (isRoutable(numbered.raw))
+                        {
+                            ++number;
+                        }
+                        if (numbered.key == row.key)
+                        {
+                            break;
+                        }
+                    }
+                    stopChoices.push_back(row.key);
+                    labels.push_back("Stop / waypoint " + std::to_string(number));
+                }
+            }
+            else if (id == cargoId)
+            {
+                if (c.check == Check::platformFree)
+                {
+                    const auto index = indexOf(program, c.stop);
+                    if (index < program.rows.size())
+                    {
+                        const auto* order = reinterpret_cast<const Vehicles::Order*>(&program.rows[index].raw)->as<Vehicles::OrderStation>();
+                        if (order)
+                        {
+                            platformChoices = railPlatforms(enumValue(order->getStation()));
+                        }
+                    }
+                    for (size_t i = 0; i < platformChoices.size(); ++i)
+                    {
+                        labels.push_back("Platform " + std::to_string(i + 1));
+                    }
+                }
+                else
+                {
+                    for (uint8_t i = 0; i < 32; ++i)
+                    {
+                        if (const auto* object = ObjectManager::get<CargoObject>(i))
+                        {
+                            char buffer[128]{};
+                            StringManager::formatString(buffer, sizeof(buffer), object->name);
+                            choices.push_back(i);
+                            labels.emplace_back(buffer);
+                        }
+                    }
+                }
+            }
+            if (!labels.empty())
+            {
+                menu(window, widget, labels);
+            }
+        }
+        void dropdown(Window& window, WidgetIndex_t, WidgetId id, int16_t index)
+        {
+            const auto* selectedValue = selected();
+            if (!selectedValue || index < 0 || static_cast<size_t>(index) >= choiceLabels.size())
+            {
+                return;
+            }
+            auto b = *selectedValue;
+            auto& c = editingExtra ? b.extra : b.condition;
+            if (id == checkId)
+            {
+                c.check = static_cast<Check>(choices[index]);
+                if (c.check == Check::cargoWaiting || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
+                {
+                    c.stop = 0;
+                    for (const auto& row : program.rows)
+                    {
+                        if ((row.raw & 7) == 1 || (row.raw & 7) == 2)
+                        {
+                            c.stop = row.key;
+                            break;
+                        }
+                    }
+                    if (c.check == Check::platformFree && c.stop)
+                    {
+                        const auto raw = program.rows[indexOf(program, c.stop)].raw;
+                        const auto* station = reinterpret_cast<const Vehicles::Order*>(&raw)->as<Vehicles::OrderStation>();
+                        const auto platforms = railPlatforms(enumValue(station->getStation()));
+                        if (!platforms.empty())
+                        {
+                            c.platform = 1;
+                            c.platformAnchor = platforms[0].anchor;
+                        }
+                    }
+                }
+                if (c.check == Check::year)
+                {
+                    c.value = 2000;
+                }
+            }
+            else if (id == compareId)
+            {
+                c.compare = static_cast<Compare>(index);
+            }
+            else if (id == joinId)
+            {
+                b.join = static_cast<Join>(index);
+                if (b.join != Join::none)
+                {
+                    b.extra = {};
+                }
+            }
+            else if (id == stopId)
+            {
+                c.stop = stopChoices[index];
+                c.platformAnchor = 0;
+                c.platform = 0;
+            }
+            else if (id == targetId)
+            {
+                b.target = stopChoices[index];
+            }
+            else if (id == cargoId)
+            {
+                if (c.check == Check::platformFree)
+                {
+                    c.platform = index + 1;
+                    c.platformAnchor = platformChoices[index].anchor;
+                }
+                else
+                {
+                    c.cargo = static_cast<uint8_t>(choices[index]);
+                }
+            }
+            Edit e;
+            e.kind = EditKind::updateBlock;
+            e.block = b;
+            apply(window, e);
+        }
+        void onMouseUp(Window& window, WidgetIndex_t widget, WidgetId id)
+        {
+            if (id == closeId)
+            {
+                WindowManager::close(&window);
+                return;
+            }
+            if (id == extraId)
+            {
+                editingExtra = !editingExtra;
+                status = editingExtra ? "Editing the second check" : "Editing the first check";
+                window.invalidate();
+                return;
+            }
+            const auto* b = selected();
+            if (!b)
+            {
+                return;
+            }
+            if (id == numberId || id == nameId)
+            {
+                const auto value = id == nameId ? b->name : std::to_string(b->kind == Kind::repeat || b->kind == Kind::waitUntil ? b->number : (editingExtra ? b->extra.value : b->condition.value));
+                auto* buffer = StringManager::getBufferString(StringIds::buffer_2039);
+                std::strncpy(buffer, value.c_str(), StringManager::kUserStringSize - 1);
+                buffer[StringManager::kUserStringSize - 1] = 0;
+                TextInput::openTextInput(&window, StringIds::rules_title, id == nameId ? StringIds::rules_name_prompt : StringIds::rules_number_prompt, StringIds::buffer_2039, widget, {}, id == nameId ? 60 : 9);
+            }
+        }
+        void textInput(Window& window, WidgetIndex_t, WidgetId id, const char* value)
+        {
+            if (!value || !selected())
+            {
+                return;
+            }
+            auto b = *selected();
+            if (id == nameId)
+            {
+                b.name = value;
+            }
+            else
+            {
+                int32_t numberValue = 0;
+                const auto result = std::from_chars(value, value + std::strlen(value), numberValue);
+                if (result.ec != std::errc{} || *result.ptr != 0 || numberValue < 0 || numberValue > 1000000)
+                {
+                    status = "Enter a whole number from 0 to 1000000";
+                    window.invalidate();
+                    return;
+                }
+                if (b.kind == Kind::repeat || b.kind == Kind::waitUntil)
+                {
+                    if (numberValue > 1440)
+                    {
+                        status = "That number is too large";
+                        window.invalidate();
+                        return;
+                    }
+                    b.number = static_cast<uint16_t>(numberValue);
+                }
+                else
+                {
+                    (editingExtra ? b.extra : b.condition).value = numberValue;
+                }
+            }
+            Edit e;
+            e.kind = EditKind::updateBlock;
+            e.block = b;
+            apply(window, e);
+        }
+        bool keyUp(Window& window, uint32_t, uint32_t key)
+        {
+            if (key != 27)
+            {
+                return false;
+            }
+            drag = Drag::none;
+            dragged = false;
+            dropRow = -1;
+            window.invalidate();
+            return true;
+        }
+        void update(Window& window)
+        {
+            if (selectedOwner.kind == OwnerKind::line && !Lines::findLine(selectedOwner.id))
+            {
+                WindowManager::close(&window);
+                return;
+            }
+            if (selectedOwner.kind == OwnerKind::vehicle && !EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(selectedOwner.id)))
+            {
+                WindowManager::close(&window);
+                return;
+            }
+            if (selectedVehicle != UINT16_MAX)
+            {
+                const auto nextOwner = ownerForVehicle(selectedVehicle);
+                if (nextOwner != selectedOwner)
+                {
+                    selectedOwner = nextOwner;
+                    selectedBlock = 0;
+                    drag = Drag::none;
+                    refresh();
+                }
+            }
+            const auto current = snapshot(selectedOwner);
+            if (current != program)
+            {
+                drag = Drag::none;
+                refresh();
+                window.initScrollWidgets();
+            }
+            window.invalidate();
+        }
+        static const WindowEventList events = {
+            .onClose = [](Window&) { drag = Drag::none; },
+            .onMouseUp = onMouseUp,
+            .onResize = [](Window& w) { w.setSizeBounds({ 360, 240 }, { 1000, 700 }); prepare(w); },
+            .onMouseDown = onMouseDown,
+            .onDropdown = dropdown,
+            .onUpdate = update,
+            .getScrollSize = scrollSize,
+            .scrollMouseDown = mouseDown,
+            .scrollMouseDrag = mouseDrag,
+            .scrollMouseUp = mouseRelease,
+            .textInput = textInput,
+            .prepareDraw = prepare,
+            .draw = draw,
+            .drawScroll = drawScroll,
+            .keyUp = keyUp,
+        };
+    }
+    Window* open(Owner owner, Window& opener, uint16_t vehicle)
+    {
+        selectedOwner = owner;
+        selectedVehicle = vehicle;
+        selectedBlock = 0;
+        firstSelected = lastSelected = -1;
+        status.clear();
+        drag = Drag::none;
+        editingExtra = false;
+        refresh();
+        if (auto* existing = WindowManager::bringToFront(WindowType::rules))
+        {
+            existing->initScrollWidgets();
+            existing->invalidate();
+            return existing;
+        }
+        std::vector<EditorRect> obstacles;
+        for (size_t i = 0; i < WindowManager::count(); ++i)
+        {
+            const auto* w = WindowManager::get(i);
+            if (w->type == WindowType::vehicle || w->type == WindowType::lineManager || w->type == WindowType::lineColourSchemes)
+            {
+                obstacles.push_back({ w->x, w->y, w->width, w->height });
+            }
+        }
+        const auto placement = placeEditor({ opener.x, opener.y, opener.width, opener.height }, static_cast<int16_t>(Ui::width()), static_cast<int16_t>(Ui::height()), obstacles);
+        auto* window = WindowManager::createWindow(WindowType::rules, { placement.x, placement.y }, { placement.width, placement.height }, WindowFlags::resizable, events);
+        if (!window)
+        {
+            return nullptr;
+        }
+        window->setWidgets(widgets);
+        std::copy(std::begin(opener.colours), std::end(opener.colours), std::begin(window->colours));
+        window->setSizeBounds({ 360, 240 }, { 1000, 700 });
+        prepare(*window);
+        window->initScrollWidgets();
+        return window;
+    }
+}
