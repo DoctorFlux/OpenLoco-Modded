@@ -214,9 +214,26 @@ namespace OpenLoco::Vehicles
         }
         if (status != Status::loading && status != Status::unloading && !hasVehicleFlags(VehicleFlags::commandStop) && !Rules::prepareVehicle(enumValue(id)))
         {
-            veh2->currentSpeed = 0.0_mph;
-            veh2->motorState = MotorState::stopped;
+            // Decisions hold at an existing boundary. Let the normal land
+            // braking/motion pipeline reach it rather than zeroing speed in flight.
+            if ((mode == TransportMode::rail || mode == TransportMode::road) && veh2->currentSpeed != 0.0_mph)
+            {
+                return stoppingUpdate();
+            }
+            if (mode == TransportMode::water && veh2->currentSpeed != 0.0_mph)
+            {
+                updateWaterMotion(WaterMotionFlags::isStopping);
+                return true;
+            }
+            if (veh2->currentSpeed == 0.0_mph)
+            {
+                veh2->motorState = MotorState::stopped;
+            }
             return false;
+        }
+        if (status == Status::loading || status == Status::unloading)
+        {
+            Rules::processStationArrival(enumValue(id));
         }
         updateBreakdown();
         bool continueUpdating = true;
@@ -1305,6 +1322,24 @@ namespace OpenLoco::Vehicles
         Vehicle train(head);
         Vehicle2* vehType2 = train.veh2;
 
+        if (Rules::isApproaching(enumValue(id)))
+        {
+            if (hasVehicleFlags(VehicleFlags::commandStop))
+            {
+                return stoppingUpdate();
+            }
+            if (!Rules::finishApproach(enumValue(id)))
+            {
+                return true;
+            }
+            stationId = StationId::null;
+            status = Status::travelling;
+        }
+        // Removing a rule while braking must not turn a waypoint into a station.
+        if (status == Status::approaching && stationId == StationId::null)
+        {
+            status = Status::travelling;
+        }
         // If don't have any running issue and is approaching
         if ((!vehType2->has73Flags(Flags73::isBrokenDown) || vehType2->has73Flags(Flags73::isStillPowered)) && status == Status::approaching)
         {
@@ -1338,6 +1373,7 @@ namespace OpenLoco::Vehicles
 
         if (status == Status::unloading)
         {
+            Rules::processStationArrival(enumValue(id));
             updateUnloadCargo();
 
             return true;
@@ -1596,6 +1632,12 @@ namespace OpenLoco::Vehicles
         {
             return tryReverse();
         }
+        else if (al == 5)
+        {
+            status = Status::approaching;
+            stationId = StationId::null;
+            return true;
+        }
         else if (al == 4)
         {
             status = Status::approaching;
@@ -1621,6 +1663,12 @@ namespace OpenLoco::Vehicles
     bool VehicleHead::trainNormalMovementUpdate(uint8_t al, uint8_t flags, StationId nextStation)
     {
         Vehicle train(head);
+        if (al == 5)
+        {
+            status = Status::approaching;
+            stationId = StationId::null;
+            return true;
+        }
         if (al == 4)
         {
             status = Status::approaching;
@@ -2344,6 +2392,14 @@ namespace OpenLoco::Vehicles
     // 0x004A9649
     bool VehicleHead::updateWater()
     {
+        if (Rules::isApproaching(enumValue(id)))
+        {
+            Vehicle train(*this);
+            if (train.veh2->currentSpeed == 0.0_mph && !Rules::finishApproach(enumValue(id)))
+            {
+                return true;
+            }
+        }
         Vehicle train(head);
         Vehicle2* vehType2 = train.veh2;
         if (vehType2->currentSpeed >= 5.0_mph)
@@ -2718,6 +2774,7 @@ namespace OpenLoco::Vehicles
         Rules::reached(enumValue(id));
         curOrder++;
         currentOrder = curOrder->getOffset() - orderTableOffset;
+        Rules::processStationArrival(enumValue(id));
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
     }
 
@@ -2883,6 +2940,19 @@ namespace OpenLoco::Vehicles
             }
         }
 
+        if (Rules::isApproaching(enumValue(id)) || Rules::holdingDecision(enumValue(id)))
+        {
+            targetSpeed = 0_mph;
+        }
+        else if (Rules::needsArrivalStop(enumValue(id)))
+        {
+            auto order = getCurrentOrders().begin()->as<OrderRouteWaypoint>();
+            if (order)
+            {
+                const auto distance = Math::Vector::manhattanDistance2D(Pos2{ veh2->position }, Pos2{ order->getWaypoint() });
+                targetSpeed = std::min(targetSpeed, Speed16(static_cast<uint16_t>(std::clamp<int>(distance / 4, 5, 255)) << 8));
+            }
+        }
         if (targetSpeed == veh2->currentSpeed)
         {
             veh2->motorState = MotorState::coasting;
@@ -2937,7 +3007,19 @@ namespace OpenLoco::Vehicles
                 auto point = waypoint->getWaypoint();
                 if (point.x == (position.x & 0xFFE0) && point.y == (position.y & 0xFFE0))
                 {
-                    Rules::reached(enumValue(id));
+                    if (Rules::planArrival(enumValue(id)))
+                    {
+                        if (!Rules::finishApproach(enumValue(id)))
+                        {
+                            return flags;
+                        }
+                        Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
+                        return flags;
+                    }
+                    else
+                    {
+                        Rules::reached(enumValue(id));
+                    }
                     currentOrder = (++curOrder)->getOffset() - orderTableOffset;
                     Rules::prepareVehicle(enumValue(id));
                     Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
@@ -3510,6 +3592,7 @@ namespace OpenLoco::Vehicles
     // 0x004BA142 returns false when loaded
     bool VehicleHead::updateLoadCargo()
     {
+        Rules::processStationArrival(enumValue(id));
         if (cargoTransferTimeout != 0)
         {
             cargoTransferTimeout--;
@@ -4309,7 +4392,11 @@ namespace OpenLoco::Vehicles
                 {
                     if (tileStationId == stationOrder->getStation())
                     {
-                        Rules::reached(enumValue(head.id));
+                        if (Rules::planArrival(enumValue(head.id)))
+                        {
+                            return Sub4ACEE7Result{ 5, 0, StationId::null };
+                        }
+                        Rules::passed(enumValue(head.id));
                         curOrder++;
                         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
                         Rules::prepareVehicle(enumValue(head.id));
@@ -4405,7 +4492,11 @@ namespace OpenLoco::Vehicles
                 return Sub4ACEE7Result{ 0, 0, StationId::null };
             }
         }
-        Rules::reached(enumValue(head.id));
+        if (Rules::planArrival(enumValue(head.id)))
+        {
+            return Sub4ACEE7Result{ 5, 0, StationId::null };
+        }
+        Rules::passed(enumValue(head.id));
         curOrder++;
         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
         Rules::prepareVehicle(enumValue(head.id));
@@ -4592,7 +4683,11 @@ namespace OpenLoco::Vehicles
                 {
                     if (tileStationId == stationOrder->getStation())
                     {
-                        Rules::reached(enumValue(head.id));
+                        if (Rules::planArrival(enumValue(head.id)))
+                        {
+                            return Sub4ACEE7Result{ 5, 0, StationId::null };
+                        }
+                        Rules::passed(enumValue(head.id));
                         curOrder++;
                         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
                         Rules::prepareVehicle(enumValue(head.id));
@@ -4864,7 +4959,11 @@ namespace OpenLoco::Vehicles
                 return Sub4ACEE7Result{ 0, 0, StationId::null };
             }
         }
-        Rules::reached(enumValue(head.id));
+        if (Rules::planArrival(enumValue(head.id)))
+        {
+            return Sub4ACEE7Result{ 5, 0, StationId::null };
+        }
+        Rules::passed(enumValue(head.id));
         curOrder++;
         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
         Rules::prepareVehicle(enumValue(head.id));

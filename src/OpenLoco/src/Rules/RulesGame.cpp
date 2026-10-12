@@ -15,6 +15,8 @@
 #include "Scenario/ScenarioManager.h"
 #include "Ui/WindowManager.h"
 #include "Vehicles/OrderManager.h"
+#include "Vehicles/Vehicle1.h"
+#include "Vehicles/Vehicle2.h"
 #include "Vehicles/VehicleBody.h"
 #include "Vehicles/VehicleBogie.h"
 #include "Vehicles/VehicleHead.h"
@@ -36,6 +38,7 @@
 
 namespace OpenLoco::Rules
 {
+    using namespace Literals;
     namespace
     {
         std::map<Owner, Program> programs;
@@ -47,6 +50,9 @@ namespace OpenLoco::Rules
             Owner owner{};
             std::map<Key, bool> cargoDecisions;
             Key reachedOrder = 0;
+            Key approaching = 0;
+            bool approachReached = false;
+            bool arrivalProcessed = false;
         };
         std::map<uint16_t, VehicleRun> vehicles;
         bool installing = false;
@@ -255,15 +261,29 @@ namespace OpenLoco::Rules
             const auto decision = Lines::decideDeparture(line->orders[index], now, 0xFFFF, 0, false, 0, 1);
             return { true, c.check == Check::late ? decision.late : !decision.late, {} };
         }
-        bool select(Vehicles::VehicleHead& head, const Program& p, VehicleRun& run, bool includeCargo)
+        void commitOrder(Vehicles::VehicleHead& head, const Program& p, const VehicleRun& run)
+        {
+            const auto nextOffset = offsetOf(p, run.runtime.current);
+            if (head.currentOrder != nextOffset)
+            {
+                Signals::dropPendingPath(enumValue(head.id));
+                Signals::clearWaitingSignals(enumValue(head.id));
+            }
+            head.currentOrder = nextOffset;
+        }
+        bool select(Vehicles::VehicleHead& head, const Program& p, VehicleRun& run, bool includeCargo, Key arrivalOnly = 0)
         {
             const auto tick = ScenarioManager::getScenarioTicks();
             for (;;)
             {
-                const auto d = next(p, run.runtime, tick, [&](const Condition& c) { return evaluate(p, head, c); });
+                const auto d = next(p, run.runtime, tick, [&](const Condition& c) { return evaluate(p, head, c); }, arrivalOnly);
                 if (d.kind != RunKind::order)
                 {
                     run.ready = false;
+                    if (d.kind == RunKind::departure)
+                    {
+                        run.arrivalProcessed = true;
+                    }
                     return false;
                 }
                 const auto index = indexOf(p, d.order);
@@ -275,15 +295,11 @@ namespace OpenLoco::Rules
                 {
                     continue;
                 }
-                const auto nextOffset = offsetOf(p, d.order);
-                if (head.currentOrder != nextOffset)
-                {
-                    Signals::dropPendingPath(enumValue(head.id));
-                    Signals::clearWaitingSignals(enumValue(head.id));
-                }
-                head.currentOrder = nextOffset;
+                commitOrder(head, p, run);
                 run.hasOrder = true;
                 run.ready = true;
+                run.approaching = 0;
+                run.approachReached = false;
                 Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
                 return true;
             }
@@ -410,6 +426,12 @@ namespace OpenLoco::Rules
             auto& run = vehicles[id];
             run.owner = owner;
             run.cargoDecisions.clear();
+            run.arrivalProcessed = false;
+            if (indexOf(p, run.approaching) >= p.rows.size())
+            {
+                run.approaching = 0;
+                run.approachReached = false;
+            }
             if (indexOf(p, run.reachedOrder) >= p.rows.size())
             {
                 run.reachedOrder = 0;
@@ -423,7 +445,15 @@ namespace OpenLoco::Rules
                 }
                 const auto pendingKey = !run.ready && indexOf(p, run.runtime.current) < p.rows.size() ? run.runtime.current : key;
                 resumeAfter(p, run.runtime, pendingKey);
-                run.ready = pendingKey == key;
+                if (run.approachReached && run.approaching)
+                {
+                    markArrived(p, run.runtime, run.approaching);
+                }
+                else if (run.reachedOrder && (head->status == Vehicles::Status::loading || head->status == Vehicles::Status::unloading))
+                {
+                    markArrived(p, run.runtime, run.reachedOrder);
+                }
+                run.ready = pendingKey == key && !run.approachReached && head->status != Vehicles::Status::loading && head->status != Vehicles::Status::unloading;
                 run.hasOrder = true;
                 if (!head->isPlaced())
                 {
@@ -525,6 +555,12 @@ namespace OpenLoco::Rules
             if (run.owner == owner)
             {
                 run.cargoDecisions.clear();
+                run.arrivalProcessed = false;
+                if (indexOf(it->second, run.approaching) >= it->second.rows.size())
+                {
+                    run.approaching = 0;
+                    run.approachReached = false;
+                }
                 if (indexOf(it->second, run.reachedOrder) >= it->second.rows.size())
                 {
                     run.reachedOrder = 0;
@@ -532,6 +568,12 @@ namespace OpenLoco::Rules
                 if (indexOf(it->second, run.runtime.current) < it->second.rows.size())
                 {
                     resumeAfter(it->second, run.runtime, run.runtime.current);
+                    const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(id));
+                    if (run.approachReached || (head && (head->status == Vehicles::Status::loading || head->status == Vehicles::Status::unloading)))
+                    {
+                        markArrived(it->second, run.runtime, run.reachedOrder);
+                        run.ready = false;
+                    }
                 }
                 else
                 {
@@ -554,7 +596,15 @@ namespace OpenLoco::Rules
             {
                 if (run.owner == owner)
                 {
+                    run.cargoDecisions.clear();
+                    run.arrivalProcessed = false;
                     resumeAfter(it->second, run.runtime, run.runtime.current);
+                    const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(id));
+                    if (run.approachReached || (head && (head->status == Vehicles::Status::loading || head->status == Vehicles::Status::unloading)))
+                    {
+                        markArrived(it->second, run.runtime, run.reachedOrder);
+                        run.ready = false;
+                    }
                 }
             }
         }
@@ -594,6 +644,7 @@ namespace OpenLoco::Rules
         const auto* p = find(owner);
         if (p == nullptr || p->blocks.empty() || p->rows.empty())
         {
+            vehicles.erase(vehicle);
             return true;
         }
         auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
@@ -609,6 +660,16 @@ namespace OpenLoco::Rules
         }
         if (run.ready)
         {
+            // Cargo scans use their vanilla cursor until departure; restore the
+            // chosen routable row only when it is safe to leave the station.
+            if (head->status != Vehicles::Status::loading && head->status != Vehicles::Status::unloading)
+            {
+                commitOrder(*head, *p, run);
+            }
+            return true;
+        }
+        if (run.approaching && !run.approachReached)
+        {
             return true;
         }
         if (head->status == Vehicles::Status::loading || head->status == Vehicles::Status::unloading)
@@ -621,9 +682,33 @@ namespace OpenLoco::Rules
             startAt(*p, run.runtime, index < p->rows.size() ? p->rows[index].key : p->rows.front().key);
             run.hasOrder = true;
         }
-        return select(*head, *p, run, false);
+        const auto selected = select(*head, *p, run, false);
+        if (!selected)
+        {
+            Vehicles::Vehicle train(*head);
+            if (train.veh2->currentSpeed != 0.0_mph)
+            {
+                if (run.runtime.waiting)
+                {
+                    run.runtime.waitStart = ScenarioManager::getScenarioTicks();
+                }
+                if (run.reachedOrder && !run.approaching && (head->mode == TransportMode::rail || head->mode == TransportMode::road || head->mode == TransportMode::water))
+                {
+                    run.approaching = run.reachedOrder;
+                    run.approachReached = false;
+                    head->currentOrder = offsetOf(*p, run.reachedOrder);
+                    if (head->mode != TransportMode::water)
+                    {
+                        head->status = Vehicles::Status::approaching;
+                        head->stationId = StationId::null;
+                    }
+                    return true;
+                }
+            }
+        }
+        return selected;
     }
-    void reached(uint16_t vehicle)
+    static void complete(uint16_t vehicle, bool physical)
     {
         const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
         if (head == nullptr || !head->isPlaced() || head->var_52 == 1)
@@ -632,12 +717,100 @@ namespace OpenLoco::Rules
         }
         if (auto it = vehicles.find(vehicle); it != vehicles.end())
         {
-            it->second.reachedOrder = it->second.runtime.current;
+            it->second.reachedOrder = physical && it->second.approaching ? it->second.approaching : it->second.runtime.current;
+            it->second.arrivalProcessed = false;
+            if (physical)
+            {
+                if (it->second.approaching && it->second.runtime.waiting)
+                {
+                    it->second.runtime.waitStart = ScenarioManager::getScenarioTicks();
+                }
+                if (const auto* p = find(it->second.owner))
+                {
+                    markArrived(*p, it->second.runtime, it->second.approaching ? it->second.approaching : it->second.runtime.current);
+                }
+                it->second.approachReached = it->second.approaching != 0;
+            }
+            else
+            {
+                it->second.runtime.arrived = 0;
+            }
             it->second.ready = false;
             it->second.cargoDecisions.clear();
             it->second.runtime.prechecked.clear();
             it->second.runtime.skipped.clear();
         }
+    }
+    void reached(uint16_t vehicle) { complete(vehicle, true); }
+    void passed(uint16_t vehicle) { complete(vehicle, false); }
+    bool needsArrivalStop(uint16_t vehicle)
+    {
+        const auto* p = find(ownerForVehicle(vehicle));
+        const auto it = vehicles.find(vehicle);
+        return p && it != vehicles.end() && requiresArrivalStop(*p, it->second.runtime);
+    }
+    bool planArrival(uint16_t vehicle)
+    {
+        if (!needsArrivalStop(vehicle))
+        {
+            return false;
+        }
+        auto& run = vehicles.at(vehicle);
+        if (!run.approaching)
+        {
+            run.approaching = run.runtime.current;
+            run.approachReached = false;
+        }
+        return true;
+    }
+    bool isApproaching(uint16_t vehicle)
+    {
+        const auto it = vehicles.find(vehicle);
+        return it != vehicles.end() && it->second.approaching != 0;
+    }
+    bool holdingDecision(uint16_t vehicle)
+    {
+        const auto it = vehicles.find(vehicle);
+        return it != vehicles.end() && !it->second.ready && (it->second.runtime.waiting || it->second.runtime.steps == 256);
+    }
+    bool finishApproach(uint16_t vehicle)
+    {
+        auto it = vehicles.find(vehicle);
+        auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+        if (!head || it == vehicles.end() || !it->second.approaching)
+        {
+            return true;
+        }
+        Vehicles::Vehicle train(*head);
+        if (train.veh2->currentSpeed != 0.0_mph)
+        {
+            return false;
+        }
+        if ((head->mode == TransportMode::rail || head->mode == TransportMode::road) && (train.veh2->routingHandle != head->routingHandle || train.veh2->subPosition != head->subPosition))
+        {
+            return false;
+        }
+        if (!it->second.approachReached)
+        {
+            reached(vehicle);
+        }
+        return prepareVehicle(vehicle);
+    }
+    void processStationArrival(uint16_t vehicle)
+    {
+        auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+        const auto* p = find(ownerForVehicle(vehicle));
+        auto it = vehicles.find(vehicle);
+        if (!head || !p || it == vehicles.end())
+        {
+            return;
+        }
+        auto& run = it->second;
+        if (!run.reachedOrder || run.arrivalProcessed || run.ready)
+        {
+            return;
+        }
+        select(*head, *p, run, false, run.reachedOrder);
     }
     uint16_t timetableOrder(uint16_t vehicle, uint16_t vanillaOffset)
     {
@@ -723,7 +896,7 @@ namespace OpenLoco::Rules
             {
                 passed = run.runtime.prechecked[b.id];
             }
-            else if (indexOf(*p, b.first) <= current && current <= indexOf(*p, b.last) && run.runtime.branches.contains(b.id))
+            else if (((indexOf(*p, b.first) <= current && current <= indexOf(*p, b.last)) || (indexOf(*p, b.first) <= indexOf(*p, run.reachedOrder) && indexOf(*p, run.reachedOrder) <= indexOf(*p, b.last))) && run.runtime.branches.contains(b.id))
             {
                 passed = run.runtime.branches[b.id];
             }
@@ -793,6 +966,7 @@ namespace OpenLoco::Rules
         auto& run = it->second;
         if (run.ready)
         {
+            commitOrder(*head, *p, run);
             return false;
         }
         return !select(*head, *p, run, false);
@@ -819,6 +993,10 @@ namespace OpenLoco::Rules
         const auto key = executingBlock(*program, runtime);
         const auto block = std::find_if(program->blocks.begin(), program->blocks.end(), [key](const Block& b) { return b.id == key; });
         std::string text = "Program: ";
+        if (it->second.approaching && !it->second.approachReached)
+        {
+            text += "approaching arrival point; ";
+        }
         if (block != program->blocks.end())
         {
             text += kindName(block->kind);
@@ -1008,6 +1186,30 @@ namespace OpenLoco::Rules
             }
             out << '\n';
         }
+        size_t timed = 0;
+        for (const auto& [owner, p] : programs)
+        {
+            for (const auto& b : p.blocks)
+            {
+                timed += b.when != Timing::automatic;
+            }
+        }
+        out << "PHASES 1 " << timed << '\n';
+        for (const auto& [owner, p] : programs)
+        {
+            for (const auto& b : p.blocks)
+            {
+                if (b.when != Timing::automatic)
+                {
+                    out << int(owner.kind) << ' ' << owner.id << ' ' << b.id << ' ' << int(b.when) << '\n';
+                }
+            }
+        }
+        out << vehicles.size() << '\n';
+        for (const auto& [id, run] : vehicles)
+        {
+            out << id << ' ' << run.runtime.awaitingArrival << ' ' << run.runtime.arrived << ' ' << run.runtime.arrivalRow << ' ' << run.approaching << ' ' << run.approachReached << ' ' << run.arrivalProcessed << '\n';
+        }
         out.flush();
         const bool success = static_cast<bool>(out);
         out.close();
@@ -1124,6 +1326,7 @@ namespace OpenLoco::Rules
             return false;
         }
         std::map<uint16_t, VehicleRun> loadedRuns;
+        std::set<uint16_t> savedRunIds;
         for (size_t i = 0; i < running; ++i)
         {
             uint16_t id;
@@ -1136,6 +1339,10 @@ namespace OpenLoco::Rules
                 return false;
             }
             run.owner.kind = static_cast<OwnerKind>(ownerKind);
+            if (!savedRunIds.insert(id).second)
+            {
+                return false;
+            }
             size_t frames;
             if (!(in >> frames) || frames > 4)
             {
@@ -1204,10 +1411,6 @@ namespace OpenLoco::Rules
             if (loaded.contains(run.owner) && ownerForVehicle(id) == run.owner && identity({ OwnerKind::vehicle, id }) == stamp)
             {
                 const auto& p = loaded.at(run.owner);
-                if (!validRuntime(p, r))
-                {
-                    return false;
-                }
                 if (run.reachedOrder && indexOf(p, run.reachedOrder) >= p.rows.size())
                 {
                     return false;
@@ -1226,9 +1429,119 @@ namespace OpenLoco::Rules
             }
         }
         in >> std::ws;
+        bool hasPhases = false;
         if (!in.eof())
         {
-            return false;
+            hasPhases = true;
+            size_t timed;
+            if (!(in >> magic >> version >> timed) || magic != "PHASES" || version != 1 || timed > 2048 * 256)
+            {
+                return false;
+            }
+            std::set<std::pair<Owner, Key>> seen;
+            for (size_t i = 0; i < timed; ++i)
+            {
+                Owner owner;
+                unsigned kind, timing;
+                Key block;
+                if (!(in >> kind >> owner.id >> block >> timing) || kind > 1 || timing > 2)
+                {
+                    return false;
+                }
+                owner.kind = static_cast<OwnerKind>(kind);
+                if (!seen.emplace(owner, block).second)
+                {
+                    return false;
+                }
+                if (loaded.contains(owner))
+                {
+                    auto& p = loaded.at(owner);
+                    const auto b = std::find_if(p.blocks.begin(), p.blocks.end(), [block](const Block& b) { return b.id == block; });
+                    if (b == p.blocks.end())
+                    {
+                        return false;
+                    }
+                    b->when = static_cast<Timing>(timing);
+                }
+            }
+            if (!(in >> running) || running != savedRunIds.size())
+            {
+                return false;
+            }
+            std::set<uint16_t> seenVehicles;
+            for (size_t i = 0; i < running; ++i)
+            {
+                uint16_t id;
+                Key awaiting, arrived, row, approach;
+                bool atPoint, processed;
+                if (!(in >> id >> awaiting >> arrived >> row >> approach >> atPoint >> processed) || !savedRunIds.contains(id) || !seenVehicles.insert(id).second)
+                {
+                    return false;
+                }
+                if (loadedRuns.contains(id))
+                {
+                    auto& run = loadedRuns.at(id);
+                    run.runtime.awaitingArrival = awaiting;
+                    run.runtime.arrived = arrived;
+                    run.runtime.arrivalRow = row;
+                    run.approaching = approach;
+                    run.approachReached = atPoint;
+                    run.arrivalProcessed = processed;
+                }
+            }
+            in >> std::ws;
+            if (!in.eof())
+            {
+                return false;
+            }
+        }
+        for (const auto& [owner, p] : loaded)
+        {
+            if (!validate(p))
+            {
+                return false;
+            }
+        }
+        for (auto& [id, run] : loadedRuns)
+        {
+            const auto& p = loaded.at(run.owner);
+            if (!validRuntime(p, run.runtime))
+            {
+                return false;
+            }
+            if (run.approaching && (indexOf(p, run.approaching) >= p.rows.size() || !isRoutable(p.rows[indexOf(p, run.approaching)].raw)))
+            {
+                return false;
+            }
+            if (run.approachReached && (!run.approaching || run.reachedOrder != run.approaching))
+            {
+                return false;
+            }
+            if (run.arrivalProcessed && !run.reachedOrder)
+            {
+                return false;
+            }
+            // Older saves could have started a waypoint wait while the planner
+            // was still ahead of the physical train. Finish that approach first.
+            if (!hasPhases && run.runtime.waiting)
+            {
+                const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(id));
+                if (head && (head->mode == TransportMode::rail || head->mode == TransportMode::road))
+                {
+                    Vehicles::Vehicle train(*head);
+                    if (train.veh2->routingHandle != head->routingHandle || train.veh2->subPosition != head->subPosition)
+                    {
+                        run.approaching = run.reachedOrder ? run.reachedOrder : run.runtime.current;
+                        if (indexOf(p, run.approaching) >= p.rows.size() || !isRoutable(p.rows[indexOf(p, run.approaching)].raw))
+                        {
+                            return false;
+                        }
+                        run.approachReached = false;
+                        run.ready = true;
+                        run.runtime.waiting = 0;
+                    }
+                }
+            }
         }
         programs = std::move(loaded);
         vehicles = std::move(loadedRuns);

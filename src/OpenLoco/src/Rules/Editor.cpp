@@ -109,6 +109,10 @@ namespace OpenLoco::Rules
         {
             sentence += " (unavailable)";
         }
+        if (block.kind != Kind::group)
+        {
+            sentence += timingOf(program, block) == Timing::onArrival ? " [on arrival]" : " [before travelling]";
+        }
         return sentence;
     }
     static bool bracket(const Block& block)

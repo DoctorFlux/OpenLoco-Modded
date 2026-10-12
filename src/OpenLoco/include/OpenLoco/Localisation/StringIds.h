@@ -2255,6 +2255,7 @@ namespace OpenLoco::StringIds
     constexpr StringId rules_last_row = 2542;
     constexpr StringId rules_forever = 2543;
     constexpr StringId rules_loop = 2544;
+    constexpr StringId rules_when = 2545;
 
 
     constexpr StringId temporary_object_load_str_0 = 8192;

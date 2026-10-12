@@ -1752,3 +1752,764 @@ TEST(RulesTests, paletteDropsUseTheInteriorSideOfTheClosingSlot)
     EXPECT_EQ(selected->block.last, p.rows[2].key);
     EXPECT_FALSE(paletteDrop(p, layout, Kind::group, layout.height + 5));
 }
+
+TEST(RulesTests, arrivalIfVisitsItsAnchorBeforeEvaluatingAndSkipsOnlyUnvisitedRows)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 1, 3);
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    int checks = 0;
+    Evaluate check = [&](const Condition&) { ++checks; return CheckResult{ true, false, {} }; };
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[1].key);
+    EXPECT_EQ(checks, 0);
+    EXPECT_TRUE(requiresArrivalStop(p, r));
+    EXPECT_EQ(executingBlock(p, r), p.blocks[0].id);
+    EXPECT_EQ(next(p, r, 1, check).order, p.rows[1].key);
+    EXPECT_EQ(checks, 0);
+    markArrived(p, r, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 2, check).order, p.rows[4].key);
+    EXPECT_EQ(checks, 1);
+    EXPECT_FALSE(r.skipped.contains(p.rows[1].key));
+    EXPECT_TRUE(r.skipped.contains(p.rows[2].key));
+    EXPECT_TRUE(r.skipped.contains(p.rows[3].key));
+    EXPECT_TRUE(validRuntime(p, r));
+}
+
+TEST(RulesTests, beforeTravelIfChoosesAnotherStopWithoutVisitingTheSkippedAnchor)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 1, 3);
+    b.when = Timing::beforeTravel;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 0, no).order, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, no).order, p.rows[4].key);
+    EXPECT_FALSE(requiresArrivalStop(p, r));
+    EXPECT_EQ(r.awaitingArrival, 0U);
+}
+
+TEST(RulesTests, arrivalActionsInheritTheirIfTimingAndKeepTheReachedStop)
+{
+    for (auto kind : { Kind::skip, Kind::goTo })
+    {
+        auto p = route();
+        auto b = section(p, Kind::ifBlock, 1, 3);
+        b.when = Timing::onArrival;
+        ASSERT_TRUE(add(p, b));
+        auto action = section(p, kind, 1, 3);
+        action.parent = p.blocks[0].id;
+        action.target = p.rows[4].key;
+        ASSERT_TRUE(add(p, action));
+        EXPECT_EQ(timingOf(p, p.blocks[1]), Timing::onArrival);
+        Runtime r;
+        EXPECT_EQ(next(p, r, 0, yes).order, p.rows[0].key);
+        EXPECT_EQ(next(p, r, 0, yes).order, p.rows[1].key);
+        markArrived(p, r, p.rows[1].key);
+        EXPECT_EQ(next(p, r, 0, yes).order, p.rows[4].key);
+        EXPECT_FALSE(r.skipped.contains(p.rows[1].key));
+    }
+}
+
+TEST(RulesTests, arrivalElseChainDoesNotVisitClausesAfterATakenBranch)
+{
+    auto p = route();
+    auto first = section(p, Kind::ifBlock, 0, 0);
+    first.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, first));
+    auto second = section(p, Kind::elseIf, 1, 2);
+    second.parent = p.blocks[0].id;
+    second.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, second));
+    auto last = section(p, Kind::otherwise, 3, 3);
+    last.parent = p.blocks[1].id;
+    last.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, last));
+    Runtime r;
+    int checks = 0;
+    Evaluate check = [&](const Condition&) { ++checks; return CheckResult{ true, true, {} }; };
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[0].key);
+    EXPECT_EQ(checks, 0);
+    markArrived(p, r, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[4].key);
+    EXPECT_EQ(checks, 1);
+    EXPECT_FALSE(r.branches.at(p.blocks[1].id));
+    EXPECT_FALSE(r.branches.at(p.blocks[2].id));
+    EXPECT_TRUE(validRuntime(p, r));
+}
+
+TEST(RulesTests, arrivalElseIfAndElseReachTheirOwnAnchorOnlyWhenNeeded)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 0, 0);
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    b = section(p, Kind::elseIf, 1, 2);
+    b.parent = p.blocks[0].id;
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    b = section(p, Kind::otherwise, 3, 3);
+    b.parent = p.blocks[1].id;
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 0, no).order, p.rows[0].key);
+    markArrived(p, r, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, no).order, p.rows[1].key);
+    markArrived(p, r, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 0, no).order, p.rows[3].key);
+    markArrived(p, r, p.rows[3].key);
+    EXPECT_EQ(next(p, r, 0, no).order, p.rows[4].key);
+    EXPECT_TRUE(r.branches.at(p.blocks[2].id));
+}
+
+TEST(RulesTests, arrivalRepeatCountsTheFirstPhysicalVisitAndRevisitsOnLaterPasses)
+{
+    auto p = route();
+    auto b = section(p, Kind::repeat, 1, 2);
+    b.when = Timing::onArrival;
+    b.number = 2;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[1].key);
+    EXPECT_TRUE(r.repeats.empty());
+    markArrived(p, r, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[2].key);
+    EXPECT_EQ(r.repeats.at(p.blocks[0].id), 2);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[2].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[3].key);
+    EXPECT_TRUE(r.repeats.empty());
+}
+
+TEST(RulesTests, waitTimingPlacesTheHoldBeforeOrAfterItsRouteSection)
+{
+    for (auto when : { Timing::beforeTravel, Timing::onArrival })
+    {
+        auto p = route();
+        auto b = section(p, Kind::waitUntil, 1, 2);
+        b.when = when;
+        b.number = 2;
+        ASSERT_TRUE(add(p, b));
+        Runtime r;
+        EXPECT_EQ(next(p, r, 10, no).order, p.rows[0].key);
+        if (when == Timing::onArrival)
+        {
+            EXPECT_EQ(next(p, r, 10, no).order, p.rows[1].key);
+            EXPECT_EQ(next(p, r, 10, no).order, p.rows[2].key);
+            EXPECT_TRUE(requiresArrivalStop(p, r));
+            markArrived(p, r, p.rows[2].key);
+        }
+        EXPECT_EQ(next(p, r, 10, no).kind, RunKind::waiting);
+        EXPECT_EQ(next(p, r, 89, no).kind, RunKind::waiting);
+        EXPECT_EQ(next(p, r, 90, no).order, p.rows[when == Timing::beforeTravel ? 1 : 3].key);
+    }
+}
+
+TEST(RulesTests, stationArrivalDoesNotEvaluateTheNextTripsChecksBeforeCargoHandling)
+{
+    auto p = makeProgram({ 1, 4, 9, 17 }, true);
+    auto b = section(p, Kind::ifBlock, 2, 2);
+    b.when = Timing::beforeTravel;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    int checks = 0;
+    Evaluate check = [&](const Condition&) { ++checks; return CheckResult{ true, false, {} }; };
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[0].key);
+    markArrived(p, r, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, check, p.rows[0].key).order, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 0, check, p.rows[0].key).kind, RunKind::departure);
+    EXPECT_EQ(checks, 0);
+    EXPECT_EQ(next(p, r, 1, check).order, p.rows[3].key);
+    EXPECT_EQ(checks, 1);
+}
+
+TEST(RulesTests, arrivalCargoInstructionsUseTheAlreadyReachedStationAnchor)
+{
+    auto p = makeProgram({ 1, 4, 9 }, true);
+    auto b = section(p, Kind::ifBlock, 0, 1);
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    auto cargo = section(p, Kind::ifBlock, 1, 1);
+    cargo.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, cargo));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[0].key);
+    markArrived(p, r, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, yes, p.rows[0].key).order, p.rows[1].key);
+    EXPECT_EQ(r.arrived, p.rows[0].key);
+    EXPECT_TRUE(r.branches.at(p.blocks[1].id));
+    EXPECT_EQ(next(p, r, 0, yes, p.rows[0].key).kind, RunKind::departure);
+    EXPECT_EQ(next(p, r, 1, yes).order, p.rows[2].key);
+}
+
+TEST(RulesTests, arrivalTimingValidationAndReadableSentencesAreConsistent)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 0, 1);
+    b.when = static_cast<Timing>(3);
+    auto before = p;
+    EXPECT_FALSE(add(p, b));
+    EXPECT_EQ(p, before);
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    EXPECT_NE(blockSentence(p, p.blocks[0]).find("[on arrival]"), std::string::npos);
+    b = section(p, Kind::waitUntil, 2, 3);
+    ASSERT_TRUE(add(p, b));
+    EXPECT_EQ(timingOf(p, p.blocks[1]), Timing::onArrival);
+    EXPECT_EQ(arrivalAnchor(p, p.blocks[1]), p.rows[3].key);
+    b = section(p, Kind::group, 0, 1);
+    b.when = Timing::onArrival;
+    EXPECT_FALSE(add(p, b));
+    auto onlyCargo = makeProgram({ 4, 5 }, true);
+    EXPECT_FALSE(add(onlyCargo, section(onlyCargo, Kind::waitUntil, 0, 1)));
+}
+
+TEST_F(GameRulesFixture, waypointWaitDoesNotArmOrChangeSpeedUntilPhysicalArrival)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Literals;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    Vehicles::OrderRouteWaypoint waypoint({ 2, 1 }, 0, 0, 0);
+    Vehicles::OrderManager::insertOrder(head, 0, &waypoint);
+    head->currentOrder = 0;
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    e.block.number = 2;
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(prepareVehicle(id));
+    Vehicles::Vehicle train(*head);
+    train.veh2->currentSpeed = 40.0_mph;
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition + 1;
+    ASSERT_TRUE(planArrival(id));
+    EXPECT_EQ(train.veh2->currentSpeed, 40.0_mph);
+    EXPECT_EQ(head->currentOrder, 0);
+    EXPECT_EQ(runtimeForVehicle(id)->waiting, 0U);
+    EXPECT_FALSE(finishApproach(id));
+    ScenarioManager::setScenarioTicks(100);
+    train.veh2->currentSpeed = 0.0_mph;
+    EXPECT_FALSE(finishApproach(id));
+    EXPECT_EQ(runtimeForVehicle(id)->waiting, 0U);
+    train.veh2->subPosition = head->subPosition;
+    EXPECT_FALSE(finishApproach(id));
+    ASSERT_NE(runtimeForVehicle(id)->waiting, 0U);
+    EXPECT_EQ(runtimeForVehicle(id)->waitStart, 100U);
+    ScenarioManager::setScenarioTicks(179);
+    EXPECT_FALSE(finishApproach(id));
+    ScenarioManager::setScenarioTicks(180);
+    EXPECT_TRUE(finishApproach(id));
+    EXPECT_EQ(head->currentOrder, 6);
+    EXPECT_FALSE(isApproaching(id));
+}
+
+TEST_F(GameRulesFixture, arrivalConditionIsLatchedBeforeStationCargoChangesIt)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    Vehicles::OrderUnloadAll unload(0);
+    Vehicles::OrderManager::insertOrder(head, 2, &unload);
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 0, 1);
+    e.block.when = Timing::onArrival;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_TRUE(runtimeForVehicle(id)->branches.empty());
+    reached(id);
+    head->status = Vehicles::Status::unloading;
+    head->currentOrder = 2;
+    processStationArrival(id);
+    EXPECT_FALSE(runtimeForVehicle(id)->branches.at(find(owner)->blocks[0].id));
+    EXPECT_FALSE(cargoOrderEnabled(id, 2));
+    EXPECT_EQ(head->currentOrder, 2);
+    head->status = Vehicles::Status::loading;
+    processStationArrival(id);
+    EXPECT_FALSE(cargoOrderEnabled(id, 2));
+    EXPECT_FALSE(holdAtStation(id));
+    EXPECT_EQ(head->currentOrder, 3);
+}
+
+TEST_F(GameRulesFixture, departureChecksObserveCargoAfterLoadingRatherThanOnArrival)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 1, 1);
+    e.block.when = Timing::beforeTravel;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    head->status = Vehicles::Status::unloading;
+    head->currentOrder = 2;
+    processStationArrival(id);
+    EXPECT_TRUE(runtimeForVehicle(id)->branches.empty());
+    EXPECT_EQ(head->currentOrder, 2);
+    EXPECT_FALSE(holdAtStation(id));
+    EXPECT_FALSE(runtimeForVehicle(id)->branches.at(find(owner)->blocks[0].id));
+    EXPECT_EQ(head->currentOrder, 4);
+}
+
+TEST_F(GameRulesFixture, approachingArrivalCheckAndItsTimingRoundTrip)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Literals;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 1, 1);
+    e.block.when = Timing::onArrival;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    Vehicles::Vehicle train(*head);
+    train.veh2->currentSpeed = 25.0_mph;
+    ASSERT_TRUE(planArrival(id));
+    const auto path = std::filesystem::temp_directory_path() / "openloco_arrival_phase_test.sv5";
+    const auto saved = *find(owner);
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(find(owner), nullptr);
+    EXPECT_EQ(*find(owner), saved);
+    EXPECT_TRUE(isApproaching(id));
+    EXPECT_NE(runtimeForVehicle(id)->awaitingArrival, 0U);
+    EXPECT_FALSE(finishApproach(id));
+    EXPECT_EQ(train.veh2->currentSpeed, 25.0_mph);
+    train.veh2->currentSpeed = 0.0_mph;
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition;
+    EXPECT_TRUE(finishApproach(id));
+    EXPECT_EQ(head->currentOrder, 4);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST_F(GameRulesFixture, legacyCompanionsStillLoadAndUnknownPhaseDataNeverAttaches)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::repeat, 0, 1);
+    e.block.number = 2;
+    ASSERT_TRUE(submit(owner, e));
+    const auto path = std::filesystem::temp_directory_path() / "openloco_phase_legacy_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    std::ifstream in(companionPath(path));
+    std::string text((std::istreambuf_iterator<char>(in)), {});
+    in.close();
+    const auto extension = text.find("PHASES 1");
+    ASSERT_NE(extension, std::string::npos);
+    text.resize(extension);
+    {
+        std::ofstream out(companionPath(path));
+        out << text;
+    }
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(find(owner), nullptr);
+    EXPECT_EQ(find(owner)->blocks[0].when, Timing::automatic);
+    {
+        std::ofstream out(companionPath(path));
+        out << text << "PHASES 1 1\n0 " << id << ' ' << find(owner)->blocks[0].id << " 9\n0\n";
+    }
+    EXPECT_FALSE(loadCompanion(path));
+    EXPECT_EQ(find(owner), nullptr);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST_F(GameRulesFixture, beforeTravelWaitBrakesAtThePreviousBoundaryAndRestartsItsClockThere)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Literals;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 1, 1);
+    e.block.when = Timing::beforeTravel;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    Vehicles::Vehicle train(*head);
+    train.veh2->currentSpeed = 40.0_mph;
+    passed(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_TRUE(isApproaching(id));
+    EXPECT_EQ(head->currentOrder, 0);
+    EXPECT_EQ(train.veh2->currentSpeed, 40.0_mph);
+    EXPECT_EQ(head->status, Vehicles::Status::approaching);
+    ScenarioManager::setScenarioTicks(100);
+    train.veh2->currentSpeed = 0.0_mph;
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition;
+    EXPECT_FALSE(finishApproach(id));
+    EXPECT_EQ(runtimeForVehicle(id)->waitStart, 100U);
+    ScenarioManager::setScenarioTicks(139);
+    EXPECT_FALSE(finishApproach(id));
+    ScenarioManager::setScenarioTicks(140);
+    EXPECT_TRUE(finishApproach(id));
+    EXPECT_EQ(head->currentOrder, 2);
+}
+
+TEST_F(GameRulesFixture, stationWaitKeepsCargoHandlingAndTimeoutWhileDepartureCursorStaysSafe)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    Vehicles::OrderUnloadAll unload(0);
+    Vehicles::OrderManager::insertOrder(head, 2, &unload);
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 1);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    head->status = Vehicles::Status::unloading;
+    head->currentOrder = 2;
+    processStationArrival(id);
+    EXPECT_NE(runtimeForVehicle(id)->waiting, 0U);
+    EXPECT_TRUE(prepareVehicle(id));
+    EXPECT_TRUE(cargoOrderEnabled(id, 2));
+    EXPECT_EQ(head->currentOrder, 2);
+    EXPECT_TRUE(holdAtStation(id));
+    ScenarioManager::setScenarioTicks(40);
+    processStationArrival(id);
+    EXPECT_EQ(runtimeForVehicle(id)->waiting, 0U);
+    EXPECT_EQ(head->currentOrder, 2);
+    EXPECT_FALSE(holdAtStation(id));
+    EXPECT_EQ(head->currentOrder, 3);
+    EXPECT_NE(vehicleStatus(id).find("Time limit reached"), std::string::npos);
+}
+
+TEST_F(GameRulesFixture, savedWaitAtPhysicalWaypointResumesWithoutRearmingItsTimer)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(planArrival(id));
+    Vehicles::Vehicle train(*head);
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition;
+    ScenarioManager::setScenarioTicks(10);
+    ASSERT_FALSE(finishApproach(id));
+    const auto path = std::filesystem::temp_directory_path() / "openloco_arrived_wait_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ScenarioManager::setScenarioTicks(49);
+    EXPECT_FALSE(finishApproach(id));
+    EXPECT_EQ(runtimeForVehicle(id)->waitStart, 10U);
+    ScenarioManager::setScenarioTicks(50);
+    EXPECT_TRUE(finishApproach(id));
+    EXPECT_EQ(head->currentOrder, 2);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST_F(GameRulesFixture, sharedLineArrivalAndWaitStateIsIndependentAndDetachCopiesTiming)
+{
+    using namespace OpenLoco;
+    auto* a = vehicle();
+    auto* b = vehicle();
+    const auto ai = enumValue(a->id), bi = enumValue(b->id);
+    const auto line = Lines::createLine("Physical arrival", TransportMode::rail, 2);
+    for (uint16_t station : { 10, 20, 30 })
+    {
+        Lines::LineOrder o;
+        o.station = station;
+        ASSERT_TRUE(Lines::addOrder(line.id, o).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, ai, TransportMode::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, bi, TransportMode::rail).ok);
+    const Owner owner{ OwnerKind::line, line.id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.when = Timing::onArrival;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(planArrival(ai));
+    ASSERT_TRUE(planArrival(bi));
+    Vehicles::Vehicle ta(*a), tb(*b);
+    ta.veh2->routingHandle = a->routingHandle;
+    ta.veh2->subPosition = a->subPosition;
+    tb.veh2->routingHandle = b->routingHandle;
+    tb.veh2->subPosition = b->subPosition;
+    ScenarioManager::setScenarioTicks(10);
+    EXPECT_FALSE(finishApproach(ai));
+    EXPECT_EQ(runtimeForVehicle(bi)->waiting, 0U);
+    ScenarioManager::setScenarioTicks(20);
+    EXPECT_FALSE(finishApproach(bi));
+    ScenarioManager::setScenarioTicks(50);
+    EXPECT_TRUE(finishApproach(ai));
+    EXPECT_FALSE(finishApproach(bi));
+    EXPECT_EQ(runtimeForVehicle(bi)->waitStart, 20U);
+    ASSERT_TRUE(Lines::unassignVehicle(bi).ok);
+    ASSERT_NE(find({ OwnerKind::vehicle, bi }), nullptr);
+    EXPECT_EQ(find({ OwnerKind::vehicle, bi })->blocks[0].when, Timing::onArrival);
+    EXPECT_FALSE(isApproaching(bi));
+}
+
+TEST(RulesTests, arrivalDecisionBudgetPausePreservesTheAlreadyVisitedEntry)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 1, 2);
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[1].key);
+    markArrived(p, r, p.rows[1].key);
+    r.steps = 255;
+    EXPECT_EQ(next(p, r, 0, yes).kind, RunKind::yielded);
+    EXPECT_EQ(r.arrivalRow, p.rows[1].key);
+    EXPECT_TRUE(validRuntime(p, r));
+    const auto saved = r;
+    EXPECT_EQ(next(p, r, 1, yes).order, p.rows[2].key);
+    auto restored = saved;
+    EXPECT_EQ(next(p, restored, 1, yes).order, p.rows[2].key);
+    EXPECT_EQ(restored.pc, r.pc);
+    EXPECT_EQ(restored.branches, r.branches);
+}
+
+TEST_F(GameRulesFixture, editingAndRemovingAWaitAtItsReachedPointDoesNotLeaveAStaleApproach)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(planArrival(id));
+    Vehicles::Vehicle train(*head);
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition;
+    ASSERT_FALSE(finishApproach(id));
+    e.kind = EditKind::updateBlock;
+    e.block = find(owner)->blocks[0];
+    e.block.condition.compare = Compare::equal;
+    e.block.condition.value = getCurrentYear();
+    ASSERT_TRUE(submit(owner, e));
+    EXPECT_TRUE(finishApproach(id));
+    EXPECT_FALSE(isApproaching(id));
+    EXPECT_EQ(head->currentOrder, 2);
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    ASSERT_TRUE(planArrival(id));
+    e.kind = EditKind::removeBlock;
+    ASSERT_TRUE(submit(owner, e));
+    EXPECT_TRUE(prepareVehicle(id));
+    EXPECT_FALSE(isApproaching(id));
+    EXPECT_EQ(runtimeForVehicle(id), nullptr);
+}
+
+TEST_F(GameRulesFixture, legacyPrematureWaitFinishesThePhysicalApproachBeforeRestartingTimeout)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::less;
+    e.block.condition.value = 0;
+    ASSERT_TRUE(submit(owner, e));
+    reached(id);
+    ASSERT_FALSE(prepareVehicle(id));
+    Vehicles::Vehicle train(*head);
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition + 1;
+    const auto path = std::filesystem::temp_directory_path() / "openloco_legacy_approach_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    std::ifstream in(companionPath(path));
+    std::string text((std::istreambuf_iterator<char>(in)), {});
+    in.close();
+    text.resize(text.find("PHASES 1"));
+    {
+        std::ofstream out(companionPath(path));
+        out << text;
+    }
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_TRUE(isApproaching(id));
+    EXPECT_EQ(runtimeForVehicle(id)->waiting, 0U);
+    EXPECT_FALSE(finishApproach(id));
+    ScenarioManager::setScenarioTicks(100);
+    train.veh2->subPosition = head->subPosition;
+    EXPECT_FALSE(finishApproach(id));
+    EXPECT_EQ(runtimeForVehicle(id)->waitStart, 100U);
+    ScenarioManager::setScenarioTicks(140);
+    EXPECT_TRUE(finishApproach(id));
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST_F(GameRulesFixture, savingDuringAnArrivalDecisionBudgetPauseResumesAtTheSamePoint)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 0, 0);
+    e.block.when = Timing::onArrival;
+    e.block.condition.check = Check::year;
+    e.block.condition.compare = Compare::equal;
+    e.block.condition.value = getCurrentYear();
+    ASSERT_TRUE(submit(owner, e));
+    e.block = section(*find(owner), Kind::goTo, 0, 0);
+    e.block.parent = find(owner)->blocks[0].id;
+    e.block.target = find(owner)->rows[0].key;
+    ASSERT_TRUE(submit(owner, e));
+    ASSERT_TRUE(planArrival(id));
+    Vehicles::Vehicle train(*head);
+    train.veh2->routingHandle = head->routingHandle;
+    train.veh2->subPosition = head->subPosition;
+    EXPECT_FALSE(finishApproach(id));
+    ASSERT_EQ(runtimeForVehicle(id)->steps, 256);
+    ASSERT_NE(runtimeForVehicle(id)->arrived, 0U);
+    const auto before = *runtimeForVehicle(id);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_arrival_budget_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(runtimeForVehicle(id), nullptr);
+    EXPECT_EQ(runtimeForVehicle(id)->pc, before.pc);
+    EXPECT_EQ(runtimeForVehicle(id)->arrived, before.arrived);
+    EXPECT_EQ(runtimeForVehicle(id)->arrivalRow, before.arrivalRow);
+    ScenarioManager::setScenarioTicks(1);
+    EXPECT_FALSE(finishApproach(id));
+    EXPECT_EQ(runtimeForVehicle(id)->steps, 256);
+    EXPECT_EQ(head->currentOrder, 0);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST(RulesTests, onArrivalBreakExitsAnInfiniteLoopOnlyAfterReachingItsWaypoint)
+{
+    auto p = route();
+    auto loop = section(p, Kind::repeat, 0, 2);
+    loop.number = 0;
+    ASSERT_TRUE(add(p, loop));
+    auto b = section(p, Kind::breakLoop, 1, 1);
+    b.when = Timing::onArrival;
+    b.target = p.blocks[0].id;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[1].key);
+    EXPECT_FALSE(r.repeats.empty());
+    markArrived(p, r, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[3].key);
+    EXPECT_TRUE(r.repeats.empty());
+    EXPECT_FALSE(r.skipped.contains(p.rows[1].key));
+    EXPECT_TRUE(r.skipped.contains(p.rows[2].key));
+}
+
+TEST(RulesTests, repeatedArrivalChecksRequireANewPhysicalVisitOnEveryIteration)
+{
+    auto p = route();
+    auto loop = section(p, Kind::repeat, 1, 1);
+    loop.number = 2;
+    ASSERT_TRUE(add(p, loop));
+    auto b = section(p, Kind::ifBlock, 1, 1);
+    b.when = Timing::onArrival;
+    ASSERT_TRUE(add(p, b));
+    Runtime r;
+    int checks = 0;
+    Evaluate check = [&](const Condition&) { ++checks; return CheckResult{ true, true, {} }; };
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[0].key);
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[1].key);
+    markArrived(p, r, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[1].key);
+    EXPECT_EQ(checks, 1);
+    EXPECT_EQ(r.arrived, 0U);
+    markArrived(p, r, p.rows[1].key);
+    EXPECT_EQ(next(p, r, 0, check).order, p.rows[2].key);
+    EXPECT_EQ(checks, 2);
+}
+
+TEST_F(GameRulesFixture, truncatedAndInvalidPhysicalPhaseRecordsAreRejectedBeforeAttachment)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const Owner owner{ OwnerKind::vehicle, id };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::waitUntil, 0, 0);
+    ASSERT_TRUE(submit(owner, e));
+    const auto path = std::filesystem::temp_directory_path() / "openloco_corrupt_phases_test.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    std::ifstream in(companionPath(path));
+    std::string text((std::istreambuf_iterator<char>(in)), {});
+    in.close();
+    text.resize(text.find("PHASES 1"));
+    const std::string phases[] = {
+        "PHASES 1 0\n0\n",                                              // Omits the saved vehicle's phase record.
+        "PHASES 1 0\n1\n" + std::to_string(id) + " 0 0 0 999999 0 0\n", // Missing physical anchor.
+        "PHASES 1 0\n1\n" + std::to_string(id) + " 0 0 0 0 1 0\n",      // Reached with no approach anchor.
+        "PHASES 1 0\n1\n" + std::to_string(id) + " 999999 0 0 0 0 0\n", // Missing pending arrival block.
+        "PHASES 1 0\n1\n" + std::to_string(id) + " 0 0 999999 0 0 0\n"  // Invalid consumed arrival row.
+    };
+    for (const auto& extension : phases)
+    {
+        {
+            std::ofstream out(companionPath(path));
+            out << text << extension;
+        }
+        EXPECT_FALSE(loadCompanion(path));
+        EXPECT_EQ(find(owner), nullptr);
+        EXPECT_EQ(runtimeForVehicle(id), nullptr);
+    }
+    std::filesystem::remove(companionPath(path));
+}

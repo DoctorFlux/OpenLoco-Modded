@@ -58,6 +58,12 @@ namespace OpenLoco::Rules
         andCheck,
         orCheck
     };
+    enum class Timing : uint8_t
+    {
+        automatic,
+        beforeTravel,
+        onArrival
+    };
     struct Condition
     {
         Check check = Check::full;
@@ -89,6 +95,7 @@ namespace OpenLoco::Rules
         uint16_t number = 1; // Repeat count (0 means forever) or wait time limit in timetable minutes.
         std::string name;
         bool enabled = true;
+        Timing when = Timing::automatic;
         bool operator==(const Block&) const = default;
     };
     struct Program
@@ -131,6 +138,8 @@ namespace OpenLoco::Rules
     Result edit(Program& program, const Edit& command); // validate a copy, then atomically commit
     size_t indexOf(const Program& program, Key key);
     bool isRoutable(uint64_t raw);
+    Timing timingOf(const Program& program, const Block& block);
+    Key arrivalAnchor(const Program& program, const Block& block);
     Program makeProgram(const std::vector<uint64_t>& orders, bool rail);
 
     struct CheckResult
@@ -154,6 +163,9 @@ namespace OpenLoco::Rules
         std::map<Key, bool> prechecked;
         std::set<Key> skipped;
         std::string status;
+        Key awaitingArrival = 0; // Block whose entry needs physical arrival.
+        Key arrived = 0;         // Physically reached routable row, consumed by the entry gate.
+        Key arrivalRow = 0;      // Entry row already visited by an on-arrival gate.
     };
     enum class RunKind : uint8_t
     {
@@ -161,7 +173,8 @@ namespace OpenLoco::Rules
         waiting,
         yielded,
         fault,
-        empty
+        empty,
+        departure // Arrival-only evaluation stops before decisions for a new trip.
     };
     struct Decision
     {
@@ -169,8 +182,11 @@ namespace OpenLoco::Rules
         Key order = 0;
         Key block = 0;
     };
-    // Each order result is consumed once; the caller resumes after physically reaching it.
-    Decision next(const Program& program, Runtime& runtime, uint32_t tick, const Evaluate& evaluate);
+    // Arrival gates keep selecting their travel anchor until markArrived.
+    // The host holds planner progression at requiresArrivalStop boundaries.
+    Decision next(const Program& program, Runtime& runtime, uint32_t tick, const Evaluate& evaluate, Key arrivalOnly = 0);
+    void markArrived(const Program& program, Runtime& runtime, Key order);
+    bool requiresArrivalStop(const Program& program, const Runtime& runtime);
     Key executingBlock(const Program& program, const Runtime& runtime);
     const char* kindName(Kind kind);
     CheckResult evaluateBranch(const Program& program, const Runtime& runtime, const Block& block, const Evaluate& evaluate);
@@ -193,6 +209,13 @@ namespace OpenLoco::Rules
     Result reversePrivateOrders(uint16_t vehicle);
     bool prepareVehicle(uint16_t vehicle);
     void reached(uint16_t vehicle);
+    void passed(uint16_t vehicle); // Route-planner progression, not physical arrival.
+    bool planArrival(uint16_t vehicle);
+    bool isApproaching(uint16_t vehicle);
+    bool finishApproach(uint16_t vehicle);
+    bool needsArrivalStop(uint16_t vehicle);
+    bool holdingDecision(uint16_t vehicle);
+    void processStationArrival(uint16_t vehicle);
     void manuallySkipped(uint16_t vehicle);
     bool holdAtStation(uint16_t vehicle);
     bool cargoOrderEnabled(uint16_t vehicle, uint16_t orderOffset);

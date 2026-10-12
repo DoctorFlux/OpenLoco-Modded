@@ -35,6 +35,43 @@ namespace OpenLoco::Rules
         const auto it = std::find_if(p.blocks.begin(), p.blocks.end(), [id](const Block& b) { return b.id == id; });
         return it == p.blocks.end() ? nullptr : &*it;
     }
+    Timing timingOf(const Program& p, const Block& b)
+    {
+        if (b.when != Timing::automatic)
+        {
+            return b.when;
+        }
+        if (b.kind == Kind::waitUntil)
+        {
+            return Timing::onArrival;
+        }
+        if (action(b.kind) && b.parent)
+        {
+            const auto* parent = blockById(p, b.parent);
+            if (parent)
+            {
+                return parent->when == Timing::onArrival ? Timing::onArrival : Timing::beforeTravel;
+            }
+        }
+        return Timing::beforeTravel;
+    }
+    Key arrivalAnchor(const Program& p, const Block& b)
+    {
+        const auto end = indexOf(p, b.kind == Kind::waitUntil ? b.last : b.first);
+        if (end >= p.rows.size())
+        {
+            return 0;
+        }
+        for (size_t count = 0; count < p.rows.size(); ++count)
+        {
+            const auto index = (end + p.rows.size() - count) % p.rows.size();
+            if (isRoutable(p.rows[index].raw))
+            {
+                return p.rows[index].key;
+            }
+        }
+        return 0;
+    }
     Result validate(const Program& p)
     {
         if (p.nextKey == 0 || p.blocks.size() > 256 || p.rows.size() > 63)
@@ -66,9 +103,17 @@ namespace OpenLoco::Rules
         for (const auto& b : p.blocks)
         {
             const auto first = indexOf(p, b.first), last = indexOf(p, b.last);
+            if (static_cast<unsigned>(b.when) > 2 || (b.kind == Kind::group && b.when != Timing::automatic))
+            {
+                return { false, "Choose Before travelling or On arrival for an executable block" };
+            }
             if (first >= p.rows.size() || last >= p.rows.size() || first > last || b.name.size() > 80)
             {
                 return { false, "A block needs a consecutive section of this list" };
+            }
+            if (timingOf(p, b) == Timing::onArrival && !arrivalAnchor(p, b))
+            {
+                return { false, "On arrival needs a stop or waypoint" };
             }
             if (b.kind == Kind::repeat && (b.number > 20))
             {
@@ -450,6 +495,7 @@ namespace OpenLoco::Rules
     {
         enum class Op
         {
+            arrival,
             row,
             check,
             otherwise,
@@ -486,11 +532,11 @@ namespace OpenLoco::Rules
                     {
                         continue;
                     }
-                    if (indexOf(p, b.first) == i && b.kind != Kind::waitUntil)
+                    if (indexOf(p, b.first) == i && (b.kind != Kind::waitUntil || timingOf(p, b) == Timing::beforeTravel))
                     {
                         opening.push_back(&b);
                     }
-                    if (indexOf(p, b.last) == i)
+                    if (indexOf(p, b.last) == i && !(b.kind == Kind::waitUntil && timingOf(p, b) == Timing::beforeTravel))
                     {
                         closing.push_back(&b);
                     }
@@ -501,15 +547,24 @@ namespace OpenLoco::Rules
                 });
                 for (auto* b : opening)
                 {
+                    if (timingOf(p, *b) == Timing::onArrival)
+                    {
+                        code.instructions.push_back({ Op::arrival, b->id });
+                    }
                     starts[b->id] = code.instructions.size();
-                    auto op = b->kind == Kind::repeat ? Op::repeatStart : b->kind == Kind::otherwise ? Op::otherwise
-                                                                                                     : Op::check;
+                    auto op = b->kind == Kind::waitUntil ? Op::wait : b->kind == Kind::repeat ? Op::repeatStart
+                        : b->kind == Kind::otherwise                                          ? Op::otherwise
+                                                                                              : Op::check;
                     code.instructions.push_back({ op, b->id });
                     bool hasActions = false;
                     for (const auto& child : p.blocks)
                     {
                         if (child.parent == b->id && action(child.kind))
                         {
+                            if (timingOf(p, child) == Timing::onArrival)
+                            {
+                                code.instructions.push_back({ Op::arrival, child.id });
+                            }
                             code.instructions.push_back({ child.kind == Kind::skip ? Op::skip : child.kind == Kind::breakLoop ? Op::breakLoop
                                                                                                                               : Op::goTo,
                                                           child.id });
@@ -525,6 +580,10 @@ namespace OpenLoco::Rules
                 {
                     if (block.kind == Kind::breakLoop && !block.parent && indexOf(p, block.first) == i)
                     {
+                        if (timingOf(p, block) == Timing::onArrival)
+                        {
+                            code.instructions.push_back({ Op::arrival, block.id });
+                        }
                         code.instructions.push_back({ Op::breakLoop, block.id });
                     }
                 }
@@ -552,6 +611,15 @@ namespace OpenLoco::Rules
             }
             for (auto& instruction : code.instructions)
             {
+                if (instruction.op == Op::arrival)
+                {
+                    const auto* b = blockById(p, instruction.key);
+                    if (b->kind == Kind::otherwise || b->kind == Kind::elseIf)
+                    {
+                        instruction.jump = code.instructions[starts[b->id]].jump;
+                    }
+                    continue;
+                }
                 if (instruction.op == Op::breakLoop)
                 {
                     const auto* block = blockById(p, instruction.key);
@@ -623,6 +691,10 @@ namespace OpenLoco::Rules
         if (runtime.waiting)
         {
             return runtime.waiting;
+        }
+        if (runtime.awaitingArrival)
+        {
+            return runtime.awaitingArrival;
         }
         Key cursor = runtime.current;
         if (runtime.steps == 256)
@@ -713,11 +785,45 @@ namespace OpenLoco::Rules
             {
                 r.pc = i + 1;
                 r.current = order;
+                for (size_t gate = 0; gate < i; ++gate)
+                {
+                    if (code.instructions[gate].op != Op::arrival)
+                    {
+                        continue;
+                    }
+                    const auto* b = blockById(p, code.instructions[gate].key);
+                    if (!action(b->kind) && b->first == order)
+                    {
+                        r.pc = gate;
+                        break;
+                    }
+                }
                 return;
             }
         }
     }
-    Decision next(const Program& p, Runtime& r, uint32_t tick, const Evaluate& evaluate)
+    void markArrived(const Program& p, Runtime& r, Key order)
+    {
+        const auto index = indexOf(p, order);
+        if (index < p.rows.size() && isRoutable(p.rows[index].raw))
+        {
+            r.arrived = order;
+        }
+    }
+    bool requiresArrivalStop(const Program& p, const Runtime& r)
+    {
+        if (r.awaitingArrival)
+        {
+            return true;
+        }
+        const auto code = compile(p);
+        if (r.pc < code.instructions.size() && code.instructions[r.pc].op == Op::arrival && arrivalAnchor(p, *blockById(p, code.instructions[r.pc].key)) == r.current)
+        {
+            return true;
+        }
+        return std::any_of(p.blocks.begin(), p.blocks.end(), [&](const Block& b) { return b.kind == Kind::waitUntil && timingOf(p, b) == Timing::onArrival && arrivalAnchor(p, b) == r.current; });
+    }
+    Decision next(const Program& p, Runtime& r, uint32_t tick, const Evaluate& evaluate, Key arrivalOnly)
     {
         if (p.rows.empty())
         {
@@ -745,12 +851,73 @@ namespace OpenLoco::Rules
                 r.pc = 0;
                 r.repeats.clear();
                 r.branches.clear();
+                r.arrived = 0;
+                r.arrivalRow = 0;
             }
             const auto instruction = code.instructions[r.pc];
             const auto* b = instruction.op == Op::row ? nullptr : blockById(p, instruction.key);
+            if (arrivalOnly && b && (instruction.op == Op::check || instruction.op == Op::otherwise || instruction.op == Op::repeatStart || instruction.op == Op::wait)
+                && timingOf(p, *b) == Timing::beforeTravel && isRoutable(p.rows[indexOf(p, b->first)].raw) && r.arrived != b->first)
+            {
+                return { RunKind::departure, r.current, b->id };
+            }
             switch (instruction.op)
             {
+                case Op::arrival:
+                {
+                    bool taken = false;
+                    if (b->kind == Kind::otherwise || b->kind == Kind::elseIf)
+                    {
+                        for (Key parent = b->parent; parent;)
+                        {
+                            taken |= r.branches.contains(parent) && r.branches.at(parent);
+                            const auto* previous = blockById(p, parent);
+                            parent = previous && previous->kind == Kind::elseIf ? previous->parent : 0;
+                        }
+                    }
+                    if (taken)
+                    {
+                        r.branches[b->id] = false;
+                        r.pc = instruction.jump;
+                        break;
+                    }
+                    const auto anchor = arrivalAnchor(p, *b);
+                    if (r.arrived != anchor)
+                    {
+                        if (arrivalOnly)
+                        {
+                            return { RunKind::departure, r.current, b->id };
+                        }
+                        r.awaitingArrival = b->id;
+                        r.current = anchor;
+                        r.status = "Travelling to the on-arrival check";
+                        return { RunKind::order, anchor, b->id };
+                    }
+                    r.awaitingArrival = 0;
+                    if (b->first == anchor)
+                    {
+                        r.arrivalRow = anchor;
+                    }
+                    r.status.clear();
+                    ++r.pc;
+                    break;
+                }
                 case Op::row:
+                    if (isRoutable(p.rows[indexOf(p, instruction.key)].raw))
+                    {
+                        if (r.arrivalRow == instruction.key)
+                        {
+                            r.arrivalRow = 0;
+                            ++r.pc;
+                            break;
+                        }
+                        if (arrivalOnly)
+                        {
+                            return { RunKind::departure, r.current, 0 };
+                        }
+                        r.arrived = 0;
+                        r.arrivalRow = 0;
+                    }
                     if (r.status == "Choosing the next stop..." || r.status == "Waiting until the check passes")
                     {
                         r.status.clear();
@@ -774,7 +941,10 @@ namespace OpenLoco::Rules
                         {
                             if (code.instructions[i].op == Op::row)
                             {
-                                r.skipped.insert(code.instructions[i].key);
+                                if (code.instructions[i].key != r.arrived)
+                                {
+                                    r.skipped.insert(code.instructions[i].key);
+                                }
                             }
                         }
                     }
@@ -800,6 +970,8 @@ namespace OpenLoco::Rules
                             const auto* inner = blockById(p, branch.first);
                             return inner && indexOf(p, b->first) <= indexOf(p, inner->first) && indexOf(p, inner->last) <= indexOf(p, b->last);
                         });
+                        r.arrived = 0;
+                        r.arrivalRow = 0;
                         r.pc = instruction.jump;
                     }
                     else
@@ -839,7 +1011,10 @@ namespace OpenLoco::Rules
                     {
                         if (code.instructions[i].op == Op::row)
                         {
-                            r.skipped.insert(code.instructions[i].key);
+                            if (code.instructions[i].key != r.arrived)
+                            {
+                                r.skipped.insert(code.instructions[i].key);
+                            }
                         }
                     }
                     r.pc = instruction.jump;
@@ -849,7 +1024,10 @@ namespace OpenLoco::Rules
                     const auto* loop = blockById(p, b->target);
                     for (size_t i = indexOf(p, b->first); i <= indexOf(p, loop->last); ++i)
                     {
-                        r.skipped.insert(p.rows[i].key);
+                        if (p.rows[i].key != r.arrived)
+                        {
+                            r.skipped.insert(p.rows[i].key);
+                        }
                     }
                     std::erase_if(r.repeats, [&](const auto& frame) {
                         const auto* inner = blockById(p, frame.first);
@@ -874,7 +1052,7 @@ namespace OpenLoco::Rules
                     }
                     for (const auto& row : p.rows)
                     {
-                        if (row.key != b->target && isRoutable(row.raw))
+                        if (row.key != b->target && row.key != r.arrived && isRoutable(row.raw))
                         {
                             r.skipped.insert(row.key);
                         }
@@ -900,6 +1078,22 @@ namespace OpenLoco::Rules
             return false;
         }
         if (r.current && indexOf(p, r.current) >= p.rows.size())
+        {
+            return false;
+        }
+        if (r.arrived && (indexOf(p, r.arrived) >= p.rows.size() || !isRoutable(p.rows[indexOf(p, r.arrived)].raw)))
+        {
+            return false;
+        }
+        if (r.arrivalRow && r.arrivalRow != r.arrived)
+        {
+            return false;
+        }
+        if (r.awaitingArrival && (r.pc >= code.instructions.size() || code.instructions[r.pc].op != Op::arrival || code.instructions[r.pc].key != r.awaitingArrival || !blockById(p, r.awaitingArrival)))
+        {
+            return false;
+        }
+        if (r.awaitingArrival && r.current != arrivalAnchor(p, *blockById(p, r.awaitingArrival)))
         {
             return false;
         }
