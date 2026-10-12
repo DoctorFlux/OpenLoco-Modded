@@ -295,6 +295,7 @@ set(OLOCO_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Widgets/Wt3Widget.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/Window.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ui/WindowManager.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Rules/Rules.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Lines/Line.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Lines/LinePath.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Signals/PathSearch.cpp"
@@ -781,6 +782,7 @@ set(private_compile_definitions
 set(test_files
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/TileManagerTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/GameplayOptionsTests.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/RulesTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/LineTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/PathSignalTests.cpp"
 )
