@@ -1,3 +1,4 @@
+#include "CommandLine.h"
 #include "Logging.h"
 
 #include <OpenLoco/Diagnostics/LogFile.h>
@@ -18,7 +19,7 @@ namespace OpenLoco::Diagnostics::Logging
 
     static fs::path getLogsFolderPath()
     {
-        return Platform::getUserDirectory() / "logs";
+        return (getCommandLineOptions().userPath ? fs::absolute(fs::u8path(*getCommandLineOptions().userPath)) : Platform::getUserDirectory()) / "logs";
     }
 
     static std::string getLogFileName()

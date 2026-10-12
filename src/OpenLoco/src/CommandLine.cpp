@@ -306,7 +306,8 @@ namespace OpenLoco
                           .registerOption("--intro")
                           .registerOption("--log_levels", 1)
                           .registerOption("--all", "-a")
-                          .registerOption("--locomotion_path", 1);
+                          .registerOption("--locomotion_path", 1)
+                          .registerOption("--user_path", 1);
 
         if (!parser.parse())
         {
@@ -390,6 +391,10 @@ namespace OpenLoco
             options.logLevels = "info, warning, error";
         }
 
+        if (parser.hasOption("--user_path"))
+        {
+            options.userPath = parser.getArg("--user_path");
+        }
         if (parser.hasOption("--locomotion_path"))
         {
             options.locomotionDataPath = parser.getArg("--locomotion_path");

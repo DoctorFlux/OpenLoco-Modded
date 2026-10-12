@@ -281,14 +281,14 @@ namespace OpenLoco
     // 0x00406D13
     static int main(CommandLineOptions&& options)
     {
+        // Install path overrides before logging or configuration can touch the profile.
+        setCommandLineOptions(options);
         // Bootstrap the logging system.
         Logging::initialize(options.logLevels);
 
         // Always print the product name, version, and platform info first.
         Logging::info("{}", Version::getVersionInfo());
         Logging::info("{}", Version::getPlatformInfo());
-
-        setCommandLineOptions(options);
 
         Config::read();
         if (options.locomotionDataPath.has_value())

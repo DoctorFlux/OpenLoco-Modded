@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #define DO_TITLE_SEQUENCE_CHECKS
 
 #include "S5/S5.h"
@@ -454,6 +455,7 @@ namespace OpenLoco::S5
             Lines::saveCompanion(path);
             Signals::prepareForSave();
             Signals::saveCompanion(path);
+            if (!Rules::saveCompanion(path)) Logging::error("Unable to write rules companion for {}", path.string());
         }
         return saved;
     }
@@ -723,6 +725,7 @@ namespace OpenLoco::S5
         {
             Lines::loadCompanion(path);
             Signals::loadCompanion(path);
+            if (!Rules::loadCompanion(path)) Logging::warn("Rules companion is invalid or does not match this save; orders remain unchanged");
             Signals::onCompanionLoaded();
         }
         return loaded;
