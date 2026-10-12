@@ -63,4 +63,6 @@ Mods name capabilities they need (`logic`, `lines`, `reservations`, `consists`, 
 
 ## Implemented block-rule dependencies
 
-Private rules need only vanilla orders and vehicle state. Shared rules bind to Lines and load after its companion. Late/on-time checks require a matching timetable slot. Platform-free checks require a rail list and connected station tracks; physical occupied holds include wagons, while reservations are ignored. Missing check data is unavailable and selects Otherwise. No destination or consist subsystem is required; those later blocks stay hidden.
+Private rules need only vanilla orders and vehicle state. Shared rules bind to Lines and load after its companion. Late/on-time checks require a matching timetable slot. Platform-free checks require a rail list and connected station tracks; physical occupied holds include wagons, while reservations are ignored. Missing check data is unavailable and selects the following Else if/Else branch. No destination or consist subsystem is required; those later blocks stay hidden.
+
+Else chains, Forever repeats and Break need no additional subsystem. Break validates its enclosing Repeat; the shared editor layout and OrderManager display-frame refresh serve private and shared order lists. Existing save companions and packed orders keep their versions.

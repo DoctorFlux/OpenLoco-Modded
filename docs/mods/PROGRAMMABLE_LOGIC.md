@@ -36,12 +36,14 @@ The palette has these blocks:
 | Block | On the list | What the player does |
 | --- | --- | --- |
 | If | A C-shape around one row or a group | Reads one check. The rows inside run when the check passes |
-| Otherwise | A second C-shape under that If | The rows inside run when the check does not pass |
+| Else if | A C-shape after If or Else if | Checks another condition only when no preceding branch passed |
+| Else | A C-shape after If or Else if | Runs this stretch when no preceding branch passed |
 | And / Or | One extra sentence on that If | Joins a second check. An If has one extra sentence at most |
-| Repeat | A C-shape around one row or a group | Runs that stretch a number of times, then continues after it |
+| Repeat | A C-shape around one row or a group | Runs that stretch 1–20 times, or Forever |
+| Break | Inside an enclosing Repeat, optionally inside a branch | Leaves the selected loop and continues after its last row |
 | Wait until | On one stop, waypoint, or group | Holds there until the check passes, or for a number of minutes the player sets |
-| Skip | Inside an If or Otherwise | Misses that row, or the whole group, on this pass |
-| Go to | Inside an If or Otherwise | The next order is a stop, route-through, or waypoint already on this list |
+| Skip | Inside If, Else if or Else | Misses that row, or the whole group, on this pass |
+| Go to | Inside If, Else if or Else | The next order is a stop, route-through, or waypoint already on this list |
 | Group | A bracket beside a run of rows | Names one stretch so If, Repeat, Skip, and Go to can use it |
 
 The player fills a check from sentences, not from typed code:
@@ -60,7 +62,7 @@ Checks in the first palette, because the game can already answer them:
 - This vehicle is late, or on time, at a stop that has a timetable slot
 - The year is before or after a chosen year
 
-A late or on-time check with no timetable slot on that stop takes the Otherwise rows. The Rules footer says the check is unavailable. An unavailable check does not count as passed.
+A late or on-time check with no timetable slot on that stop takes the Else rows. The Rules footer says the check is unavailable. An unavailable check does not count as passed.
 
 These checks are named now and hidden until their feature exists. They are the same kind of sentence, added to this palette later:
 
@@ -78,11 +80,11 @@ A group is a contiguous run of orders. It can contain stop-at, route-through, wa
 
 Skip on a group misses every row in the bracket, including the waypoints. Go to a row inside a group starts at that row. Repeat on a group runs the whole bracket, then runs it again, up to the number on the block.
 
-The number on Repeat is required. The smallest number is 1 and the largest is 20. A repeat with no number is refused. Reaching the group again later starts the count from the number on the block. Two vehicles on one line each keep their own count.
+Repeat's Times dropdown offers Forever and 1–20. Break's Loop selector chooses an enclosing Repeat; it can run unconditionally or when its If / Else if / Else branch is taken. Reaching the group again later starts a fresh count. Two vehicles on one line each keep their own count.
 
 An order inserted between two members of a group joins the group. An order inserted above or below the group stays outside it. Dragging one row out of the bracket takes it out of the group. A group that would be left empty is removed.
 
-If, Otherwise, and Repeat can wrap a group. They can also wrap a single row. An If can sit inside a Repeat. The limit is four C-shapes around one row. A deeper drop is refused.
+If, Else if, Else, and Repeat can wrap a group. They can also wrap a single row. An If can sit inside a Repeat. The limit is four C-shapes around one row. A deeper drop is refused.
 
 ## Two examples
 
@@ -90,7 +92,7 @@ List: Town, Mill, waypoint, Port, Depot. No blocks. The vehicle visits Town, Mil
 
 Same list. A group brackets Mill, the waypoint, and Port. The If on that group says cargo waiting at Mill is less than 8, and the inside is Skip. When fewer than 8 loads are waiting, the vehicle goes from Town to Depot and misses Mill, the waypoint, and Port. When 8 or more are waiting, it visits Mill, the waypoint, and Port, then Depot.
 
-Same list. An If says this vehicle is full, and the inside is Go to Depot. Otherwise brackets Mill, the waypoint, and Port. A full vehicle's next order is Depot. A vehicle that is not full does Mill, the waypoint, and Port.
+Same list. An If says this vehicle is full, and the inside is Go to Depot. Else brackets Mill, the waypoint, and Port. A full vehicle's next order is Depot. A vehicle that is not full does Mill, the waypoint, and Port.
 
 The stops stay on the list either way. Skipping does not delete them.
 
@@ -108,11 +110,11 @@ The window shows the vehicle name, or the line name when the vehicle is on a lin
 
 Dragging stays inside this window. A block cannot be dropped on the map, the line list, the vehicle route list, or another window. Adding a stop by clicking the map stays the tool on the vehicle route and the line orders tab.
 
-The normal vehicle and shared-line order tabs retain their existing controls. A list with blocks adds a compact, clipped summary below each order, showing its enclosing rules and row range. Clicking that summary opens Rules at the section. Both normal lists support validated stop/waypoint dragging, with a pointer preview and valid-position marker. Lists without blocks keep their original row height. Full brackets and block editing remain in Rules (D30).
+The normal vehicle and shared-line order tabs retain their existing controls and draw actual nested block headers and C-shaped brackets around their numbered stops and waypoints. Sentences wrap to the list width; headers, orders, selection, hit testing and scrolling share the same variable layout. Clicking a block opens that block in Rules. Both normal lists support validated stop/waypoint dragging, with a pointer preview and valid-position marker. Lists without blocks keep their original row height. End remains outside all brackets. Successful structural edits refresh the active white numbered circles on the map (D32).
 
 The window is placed with its left edge against the right edge of the window that opened it, and with the same top. If that rectangle would cover the line window, the vehicle window, or the schemes window, it moves down, then left, with compact sizing if necessary. If related windows still cannot fit, normal movable overlap is allowed (D29). It is a separate window, not a panel drawn on top of those lists.
 
-The footer has one line of status for the vehicle currently selected: the block it is on, the wait it is in, or the last fault. There is no second inspector window.
+All three windows show two separate footer lines: the current program block/row with wait or fault status, and the next stop/waypoint. During an unfinished decision, the latter says "Next listed" and "after decision": that row is provisional until evaluation resumes. A shared-line window identifies the vehicle used for progress. There is no second inspector window.
 
 ## How a vehicle runs the blocks
 
@@ -134,7 +136,7 @@ A line with vehicles of one kind refuses a check that only makes sense for anoth
 
 ## Later features
 
-Shunting, cargo demand, and passenger destinations add sentences and actions to this palette. They do not add a second rules window. A yard opens this same window on the yard's list. Until those features exist, their blocks are absent from the palette, and a saved block of that kind takes Otherwise and shows unavailable in the footer.
+Shunting, cargo demand, and passenger destinations add sentences and actions to this palette. They do not add a second rules window. A yard opens this same window on the yard's list. Until those features exist, their blocks are absent from the palette, and a saved block of that kind takes Else and shows unavailable in the footer.
 
 ## Save
 
@@ -146,7 +148,7 @@ A running list with no blocks is unchanged.
 
 ## Tests
 
-Before the window: a list with no blocks advances as it does now. Cargo below a number skips a group of two stops and one waypoint. Cargo at that number visits the group. A full vehicle goes to a named stop on the same list. Repeat 2 runs a group twice and then the following order, and the next visit starts at 2 again. Two vehicles on one line share the blocks and keep separate counts. An unavailable late check takes Otherwise. A repeat with no number, a fifth nested C-shape, and a Go to on another list are refused. The 256-step budget pauses until the next tick. The same inputs produce the same next order.
+Before the window: a list with no blocks advances as it does now. Cargo below a number skips a group of two stops and one waypoint. Cargo at that number visits the group. A full vehicle goes to a named stop on the same list. Repeat 2 runs a group twice and then the following order, and the next visit starts at 2 again. Two vehicles on one line share the blocks and keep separate counts. An unavailable late check takes Else. A repeat above 20, a fifth nested C-shape, a Break without an enclosing loop, and a Go to on another list are refused. The 256-step budget pauses until the next tick. The same inputs produce the same next order.
 
 With the window: the Rules button uses the empty vehicle tab slot and the empty line-window slot described above. Opening it avoids the line window, the vehicle window, and schemes when screen space permits, with compact sizing and normal overlap fallback. Dragging a block does not change the map tool. An in-game check is required for the drag and the placement. A unit test does not replace that check.
 
@@ -156,20 +158,28 @@ The companion round-trips a group on a line and a group on a private vehicle. A 
 
 The native Rules window opens from the vehicle tab gap or the line window's R button. An assigned vehicle identifies the shared line being edited. The palette stays visible while the list scrolls. Drag row bodies to select consecutive rows, then drag their left grip to move them. Drag a bracket header to move its whole section. A label follows the pointer with the block sentence or section being moved; a line marks the proposed insertion. Drop on the bin to delete. Escape, closure, and outside drops cancel without submitting an edit. Native scroll release handling is separate from map tools.
 
-"This stop has cargo" and "This stop has no cargo" are simple presets for selected cargo quantity greater than zero and equal to zero. Cargo waiting also supports below/equal/above a numeric threshold. Select Stop and Cargo explicitly. Vehicle full checks every usable compartment, rather than comparing summed quantities. Wait's Value is the comparison threshold; Minutes is its separate timeout. Repeat uses Times. An unavailable station, cargo, platform, or timetable slot reports a reason and follows Otherwise.
+"This stop has cargo" and "This stop has no cargo" are simple presets for selected cargo quantity greater than zero and equal to zero. Cargo waiting also supports below/equal/above a numeric threshold. Select Stop and Cargo explicitly. Vehicle full checks every usable compartment, rather than comparing summed quantities. Wait's Value is the comparison threshold; Minutes is its separate timeout. Repeat uses Times. An unavailable station, cargo, platform, or timetable slot reports a reason and follows Else.
 
-Otherwise can wrap the same rows as an If containing Skip or Go to, or a later section. Branch decisions persist through that section; Repeat starts fresh on a new visit. Station waits keep cargo handling active. Wait timeout uses 40 simulation ticks per minute and continues with "time limit reached." A 256-step pause holds physical progression and resumes the decision next tick. Ordinary lists bypass the runner.
+Else can wrap the same rows as an If containing Skip or Go to, or a later section. Branch decisions persist through that section; Repeat starts fresh on a new visit. Station waits keep cargo handling active. Wait timeout uses 40 simulation ticks per minute and continues with "time limit reached." A 256-step pause holds physical progression and resumes the decision next tick. Ordinary lists bypass the runner.
 
 The model lives in `Rules/Rules.cpp`, game bindings and companions in `Rules/RulesGame.cpp`, platform queries in `Rules/Platforms.cpp`, geometry in `Rules/Editor.cpp`, and native widgets in `Ui/Windows/RulesWindow.cpp`. UI edits submit validated commands; row references use stable keys. Existing vanilla edits update those keys. Deleted Go to destinations disable the action; choosing a new destination repairs it. Structural changes reset pending execution at a safe boundary while preserving the reached order for timetable decisions.
 
-Bounds are 256 block records, four enclosing control blocks, Repeat 1-20, Wait 1-1440 minutes, and the existing 63-row order limit. Companion parsing additionally limits 2048 owners and 256 MiB. Platform identities use canonical connected-track anchors.
+Bounds are 256 block records, four enclosing control blocks, Repeat 1–20 or Forever, Wait 1-1440 minutes, and the existing 63-row order limit. Companion parsing additionally limits 2048 owners and 256 MiB. Platform identities use canonical connected-track anchors.
 
 Rules v1 uses `<save>.SV5.orules` (`ORULES 1` header), after `.olines` load. It stores exact keyed order contents, owner identity, block definitions, and independent vehicle cursors, repeat counters, branch choices, waits, and pending evaluation. Missing companions clear rules. Corruption or identity/order mismatch warns without attaching incorrect definitions. Writes use a temporary companion and atomic replacement; failed writes fail the save operation. The packed Order and S5 state and existing companion versions remain unchanged. Keep all companions beside their matching save.
 
 ## Section resizing and program feedback (2026-10-12)
 
-Select a bracket, then set First row/Last row or drag its small end grip to another row. This expands If, Otherwise, Repeat, Wait and Group across multiple stops, waypoints and cargo instructions. Skip/Go to and a same-section Otherwise follow the resized parent atomically. Crossing sections or invalid boundaries reject the complete edit. End remains outside the section. Existing consecutive-row selection remains available for creating a whole section in one drag.
+Select a bracket, then set First row/Last row or drag its small end grip to another row. This expands If, Else if, Else, Repeat, Wait and Group across multiple stops, waypoints and cargo instructions. Skip/Go to and a same-section Else follow the resized parent atomically. Crossing sections or invalid boundaries reject the complete edit. End remains outside the section. Existing consecutive-row selection remains available for creating a whole section in one drag.
 
 Green means the runner's last recorded check passed; red means it failed or was unavailable. Wait stays red while its check is false and turns green on passing. These are read-only views of decisions, not new evaluations. An active marker and current-order arrow show where the selected vehicle is executing. Edits clear stale decisions. A shared-line view identifies the vehicle used for progress (the related route-tool vehicle, otherwise its first assigned vehicle); each vehicle still has independent counters and waits, visible in its own window.
 
-Normal order tabs use 20-pixel rows for lists with blocks, with selection/hit testing/scrolling based on that same height; otherwise they keep 10-pixel rows. Rule summaries clip within the list. The line clock moved to free space beside Schemes so it no longer draws over that button. Full physical behavior and the new native interactions are for the user's manual acceptance; no additional automated game mouse input is required.
+Normal order tabs use the shared variable block layout, with 10-pixel order bodies and wrapped block headers; Rules uses taller order bodies for selection grips. The palette uses two columns in compact heights to keep all nine block kinds reachable without covering the editor controls. The line clock sits in free space beside Schemes. Full physical behavior and the new native interactions are for the user's manual acceptance; no additional automated game mouse input is required.
+
+## Else chains and loops (2026-10-12)
+
+The palette says Else and Else if. Else if links to its preceding If or Else if; Else terminates the chain. One branch can have only one following clause. The first passing branch wins, and later checks are not evaluated on that entry. Recorded choices remain green/red until fresh evaluation; repeated sections clear their choices on the next iteration. A clause wraps a later section, or the same section as a preceding branch with an action. Invalid links and crossing sections reject the whole command.
+
+Forever repeats and Break use the same 256-step tick budget and physical order transitions as finite loops. Break clears the selected loop's counters and those of nested loops, skips its remaining orders on this pass, and continues after it. Removing a loop also removes Break actions that target it. A budget pause keeps the decision pending and prevents physical progression until it resumes.
+
+The companion remains version 1. Existing kind value 2 is displayed as Else; Else if and Break append values 7 and 8. A Repeat definition and active counter of zero encode Forever. Finite loops still require a positive remaining count. Existing companions remain readable; builds predating these extra kinds cannot load a companion containing them. No packed Order, S5, lines or signals version changes.

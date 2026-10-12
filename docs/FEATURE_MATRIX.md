@@ -27,7 +27,7 @@
 
 | Feature | Player-visible surface | Still works without opting in |
 | --- | --- | --- |
-| Block rules | Rules editor plus compact normal order-list summaries, progress and colours; stops/waypoints drag and brackets resize | Orders and lines with no blocks |
+| Block rules | Actual nested blocks in Rules and normal order lists; current program plus next destination, green/red decisions, Else/Else if, Forever/Break; stop/waypoint dragging refreshes map numbers | Orders and lines with no blocks |
 | Shared lines | Line window | Per-vehicle orders |
 | Timetables | Timetable window on a line | Lines without schedules |
 | Path signals | Native signal flags and train reservation view | Block signals |
