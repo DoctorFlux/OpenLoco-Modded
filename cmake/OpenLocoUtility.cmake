@@ -107,7 +107,9 @@ function(_loco_add_target TARGET TYPE)
 
         include(GoogleTest)
 
-        gtest_discover_tests(${TEST_TARGET})
+        # Resolve the executable per configuration. POST_BUILD discovery shares
+        # one list, so a Release build can redirect a subsequent Debug test run.
+        gtest_discover_tests(${TEST_TARGET} DISCOVERY_MODE PRE_TEST)
 
         # Now that we have tests group the two targets as one in IDEs
         set_target_properties(${TARGET} ${TEST_TARGET} PROPERTIES FOLDER ${TARGET})
