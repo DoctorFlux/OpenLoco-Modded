@@ -10,6 +10,8 @@ Done for commit `e71abfb3`.
 - Vanilla source map: `DEVELOPMENT-ROADMAP.md`.
 - This documentation set.
 
+Maintenance follow-up D51 (`3027c2d8`) addresses the user's placement-time span assertion on `codex/train-placement-crash`, based on the tested signal branch. Rail placement, ghost preview and reversal share a checked reverse movement-position conversion for curves with unequal direction lengths. Full Debug/Release suites each passed 393/393; 53 focused placement/signal checks passed. The exact reported stack is unavailable. Next task is the user's short curve-end placement/preview/reversal recheck. Native acceptance remains user-run; this does not start a later gameplay milestone.
+
 ## Phase 1 — Mod loader
 
 Removed. Shared lines, timetables, and path and chain signals are part of the game. There is no manifest loader, Mods window, or Hello World sample.
