@@ -94,3 +94,6 @@ D54 route admission reuses existing bounded pending steps, vehicle-tile occupati
 D54 physical-entry protection uses the native Vehicle2 track-piece transition, the same physical occupation query and existing protected hold lifetime. It adds one piece check at physical entry, without another path search or new saved state. Unprotected ordinary movement remains native.
 
 D54 placement isolation (`023ec618`): native temporary placement motion uses the existing non-simulation flag and its own validation; it must not add physical reservation waits. A regression first failed on `ab57d310`, then passed with the guard restricted to the live Vehicle2 simulation path. No additional saved or UI state is introduced.
+
+
+D55 occupation uses local native track elements, physical entity tile lists, quarter-tile conflicts and immutable native movement tables. A fixed 176-entry footprint offset cache includes both directions and endpoint overhangs; it has no per-game entities, new persistence, worker, global vehicle scan, recursive expansion or extra search dependency. Live entry safety continues through ordinary posts while the existing rail-logic flag is active.

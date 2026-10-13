@@ -85,6 +85,8 @@ D53 (`d4ed06d1`), same waypoint-aspect branch, corrects the previous override's 
 
 D54 (`023ec618`, following `1a541252` and `ab57d310`), same waypoint-aspect branch, follows the user's report of entry into occupied track on D53. Actual native regressions reproduced unsafe pending reuse and special-signal pass-counter bypasses. Remaining pending steps now recheck physical wagons/holds before admission; Path/Chain/combined passage always requires a safe reservation, including junctions. Failed checks preserve occupied holds/orders and wait red. The physical front separately rechecks protected committed pieces before entry, including after the planner leaves path mode. Focused checks passed 73/73; full Debug/Release suites each passed 413/413. Temporary placement motion remains outside the live entry guard. Next task is the user's manual occupied-route stopping/resumption check, including a moved/placed wagon and pass request. Signals remain TESTING; no milestone advancement or merge.
 
+D55 (`99ee01af`) follows the user's failed D54 movement recheck. Complete local conflicting-piece occupation and native endpoint footprints replace the incomplete local-tile fallback inherited from master. Physical entry remains protected through ordinary-signal handoffs while rail logic is active. Focused checks passed 78/78, including private/shared Path/Chain/combined admission and every native movement sample; full Debug/Release suites each passed 418/418. Next task is the user's real long-curve/blocked-waypoint stopping and resumption check. Retain TESTING; no merge or milestone advancement.
+
 ## Phase 8 — Shunting
 
 1. Job records and state machine.

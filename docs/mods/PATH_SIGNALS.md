@@ -43,7 +43,7 @@ All decisions run in `sub_4ACEF1` before `setRouting`, so a refused move uses th
 
 - A train with a pending path follows it at junctions. Before adding another routing piece, it rechecks the remaining reserved prefix against physical occupation (including foreign wagons) and conflicting holds. A newly blocked prefix is released; already occupied holds and the required order remain, and the train waits red and retries after 16 ticks.
 - A vanilla train will not enter a piece that a path-mode train holds, and will not pass a block signal into a block that holds another train's path.
-- The player's pass-signal button cannot bypass the reservation check on a Path, Chain or combined signal, including junction arms. A free route to the required waypoint is still necessary. Ordinary unprotected trains keep their existing pass-signal behavior; protected route pieces retain occupation checks until released by the tail.
+- The player's pass-signal button cannot bypass the reservation check on a Path, Chain or combined signal, including junction arms. A free route to the required waypoint is still necessary. While special-signal rail logic is active, a pass request cannot authorize physical entry into another train's occupied or protected conflicting piece, including after an ordinary block-signal handoff. Free ordinary movement remains native; games without this logic retain the original behavior (D55).
 - Native aspect writes still apply to path and chain heads; the waiting override is read-only. Every-eight-tick handling repairs older special-post aspects once after reset/load; it does not continuously repaint reservations. See Display.
 - Shared-line trains reserve toward their current order, which already comes from the line.
 
@@ -119,3 +119,14 @@ Twelve new tests check actual route admission and physical-front refusal, all th
 D54 placement isolation (`023ec618`): native temporary placement motion uses the existing non-simulation flag and its own validation; it must not add physical reservation waits. A regression first failed on `ab57d310`, then passed with the guard restricted to the live Vehicle2 simulation path. No additional saved or UI state is introduced.
 
 D54 final suites passed 413/413 in each of Debug and Release after reconfiguration for `023ec618`; 73 focused signal/placement checks passed, including 69 signal tests. All five executable paths per configuration were confirmed. Evidence and the outstanding manual safety acceptance are recorded in development status.
+
+
+## Full physical occupation and handoff safety (D55)
+
+D54 failed the user's native recheck on `023ec618`. D55 (`99ee01af`) fixes local-tile fallback gaps inherited from master: a wagon elsewhere on a conflicting multi-tile curve still occupies that complete piece, and native movement endpoints can lie just outside element tiles. Physical queries discover directly conflicting pieces through local real track elements and scan a fixed immutable cache of their complete element/movement footprints in both directions. Candidate pieces/tiles are deduplicated; no global train scan or recursive expansion is added. Self vehicles, ghosts, unrelated tracks and separate heights remain clear.
+
+Live physical-entry checks remain active after an ordinary block post clears path mode/protection, so that handoff cannot make a foreign train disappear from the safety check. Protected reservations still block; unprotected planning claims alone remain native. Placement motion stays separate. Waypoint proof and valid alternatives retain their behavior; a free unrelated branch cannot authorize the occupied required route.
+
+Five new tests include three initial failures: remote conflicting-curve occupation, every sample of all 352 native rail directions, and the real ordinary-signal handoff. Coverage also checks reverse curves, private/shared Path/Chain/combined native admission, red/refused physical entry, resumption and self/ghost/separated-track exclusions. Focused Debug checks passed 78/78 including four placement tests. Final full configuration results are recorded in development status; the user's manual acceptance remains pending.
+
+D55 final verification: Debug/Release builds and full serial suites each passed 418/418 with zero failures after reconfiguration for `99ee01af`. Five configuration-specific executable paths and 74 signal tests were verified in discovery JSONs; focused signal/placement checks passed 78/78. Logs and the remaining user-run native acceptance are recorded in development status. No compiler/linker warnings or game control; configure retained CMP0135.
