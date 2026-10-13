@@ -391,13 +391,17 @@ namespace OpenLoco::Signals
         return DisplayState::green;
     }
 
-    DisplayState postStateFor(DisplayState state, uint8_t stateCount)
+    uint8_t postStateFor(DisplayState state, uint8_t stateCount)
     {
-        if (state == DisplayState::yellow && stateCount < 3)
+        if (stateCount < 2 || state == DisplayState::red)
         {
-            return DisplayState::green;
+            return 0;
         }
-        return state;
+        if (state == DisplayState::yellow)
+        {
+            return 1; // Two-state posts use their proceed state for caution.
+        }
+        return std::min<uint8_t>(3, stateCount - 1);
     }
 
     uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount)
@@ -406,7 +410,9 @@ namespace OpenLoco::Signals
         {
             return vanillaFrame;
         }
-        return std::min<uint8_t>(3, frameCount - 1);
+        // Native posts start at danger. In particular SIGC3 frame 3 is yellow;
+        // its red frame is 0, as for the other native signal families.
+        return 0;
     }
 
     std::map<SideKey, SignalClaim> buildSignalClaims(const std::vector<std::pair<uint16_t, std::vector<SideKey>>>& routes)

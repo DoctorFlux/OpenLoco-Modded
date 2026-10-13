@@ -37,7 +37,6 @@ namespace OpenLoco::Signals
         constexpr uint16_t kBasicTaDMask = World::Track::AdditionalTaDFlags::basicTaDMask;
         constexpr uint16_t kHasSignal = World::Track::AdditionalTaDFlags::hasSignal;
         constexpr uint8_t kTrackIdCount = 44;
-        constexpr uint16_t kNoOwner = 0xFFFF;
         constexpr uint8_t kRouteLightHousings = 0xC;
         constexpr uint32_t kRetryTicks = 16;
         constexpr size_t kMaxBlockPieces = 512;
@@ -218,17 +217,6 @@ namespace OpenLoco::Signals
         bool canHoldInWorld(const PieceKey& piece, uint16_t owner)
         {
             return canHold(piece, owner) && !pieceOccupiedByOther(piece, owner);
-        }
-
-        bool pieceBusy(const PieceKey& piece)
-        {
-            // A reserved path is not a train in the block. Block signals stay green
-            // until a train's route occupies the piece, and special posts follow that.
-            if (const auto hold = holdAt(piece); hold.has_value() && hold->kind == HoldKind::occupied)
-            {
-                return true;
-            }
-            return pieceOccupiedByOther(piece, kNoOwner);
         }
 
         template<typename Function>
@@ -485,8 +473,8 @@ namespace OpenLoco::Signals
             _vanillaAspectsRestored = false;
         }
 
-        // Older builds painted path and chain posts red, then yellow as a train approached.
-        // Put them back to a clear block signal once, then leave the colour to vanilla.
+        // Repair older special-post colour writes to the native resting danger
+        // state once. Subsequent approach/passing colours remain native.
         void restoreVanillaAspectsOnce()
         {
             if (_vanillaAspectsRestored)
@@ -500,7 +488,7 @@ namespace OpenLoco::Signals
                 {
                     continue;
                 }
-                setSideAspect(side, pieceBusy(side.piece) ? DisplayState::red : DisplayState::green);
+                setSideAspect(side, DisplayState::red);
                 setChainAspect(side, ChainAspect::green);
             }
         }
@@ -662,6 +650,28 @@ namespace OpenLoco::Signals
             }
             if (!connection)
             {
+                // A post can be on a junction arm before any route is committed.
+                // An unrelated free arm must not clear the intended waypoint's
+                // signal. Probe all starts once, with their individual kinds.
+                SearchRequest request;
+                request.hasTarget = request.requireTarget = true;
+                request.mode = SearchMode::pathSignal;
+                std::vector<SideKey> sides;
+                for (const auto next : tc.connections)
+                {
+                    request.starts.push_back(graph.makeEdge(end.nextPos, next, tc.stationId));
+                    const auto entry = classifyEntry(end.nextPos, next);
+                    if (entry.hasFacingSignal && entry.kind != SignalKind::none)
+                    {
+                        sides.push_back(facingSide(end.nextPos, next));
+                    }
+                }
+                if (!sides.empty())
+                {
+                    const auto result = findReservation(graph, request);
+                    setApproachingSignals(owner, result.found ? std::vector<SideKey>{} : sides);
+                    return;
+                }
                 break;
             }
             const auto entry = classifyEntry(end.nextPos, *connection);

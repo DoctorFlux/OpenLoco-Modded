@@ -241,7 +241,7 @@ TEST_F(WaypointSignalFixture, blockedWaypointPostIsRedBeforeRoutingHeadReachesIt
     refreshApproachSignals(*head);
     EXPECT_TRUE(isSignalBlockedForDisplay(side));
     EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
-    EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalBlockedForDisplay(side), 6, 7), 3);
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalBlockedForDisplay(side), 6, 7), 0);
     EXPECT_EQ(pathHoldCount(), 0U);
     EXPECT_EQ(head->currentOrder, 0);
     wagon->tileX = -1;
@@ -251,6 +251,70 @@ TEST_F(WaypointSignalFixture, blockedWaypointPostIsRedBeforeRoutingHeadReachesIt
     EXPECT_FALSE(isSignalBlockedForDisplay(side));
     EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalBlockedForDisplay(side), 6, 7), 6);
     EXPECT_EQ(pathHoldCount(), 0U);
+}
+
+TEST_F(WaypointSignalFixture, junctionFreeWrongExitCannotMakeRequiredBlockedExitYellow)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    Vehicles::RoutingManager::setRouting(head->routingHandle, 0);
+    signalAt(junction, 0, SignalKind::path);
+    const auto tc = World::Track::getTrackConnections(junction, World::TrackData::getUnkTrack(0).rotationBegin, head->owner, 0, 0, 0);
+    ASSERT_EQ(tc.connections.size(), 2U);
+    const auto side = facingSide(junction, 0);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        clearWaitingSignals(enumValue(head->id));
+        clearApproachingSignals(enumValue(head->id));
+        setSignalKind(side, kind);
+        refreshApproachSignals(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(side));
+        EXPECT_EQ(postFrameForDisplay(kind, isSignalBlockedForDisplay(side), 3, 7), 0);
+        EXPECT_FALSE(reserveFrom(*head, junction, tc, isChainSignal(kind) ? ReserveStart::chainSignal : ReserveStart::pathSignal));
+        EXPECT_TRUE(isSignalWaiting(side));
+        EXPECT_EQ(postFrameForDisplay(kind, isSignalBlockedForDisplay(side), 3, 7), 0);
+        EXPECT_EQ(head->currentOrder, 0);
+        EXPECT_EQ(pathHoldCount(), 0U);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ASSERT_TRUE(reserveFrom(*head, junction, tc, ReserveStart::chainSignal));
+    EXPECT_EQ(pendingPath(enumValue(head->id))->front().connection & World::Track::AdditionalTaDFlags::basicTaDMask, 0);
+    refreshApproachSignals(*head);
+    EXPECT_FALSE(isSignalBlockedForDisplay(side));
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalBlockedForDisplay(side), 6, 7), 6);
+}
+
+TEST(PathSignalTests, blockedPostUsesNativeRestingDangerFrameForEverySignalFamily)
+{
+    // Read-only inspection of SIGC3/SIGC4/semaphore art establishes frame 0
+    // as red. Frame 3 is yellow on SIGC3, not red. No original art is bundled.
+    const World::SignalElement::Side nativeNewPost{};
+    ASSERT_EQ(nativeNewPost.frame(), 0);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        for (uint8_t count : { 4, 7, 10 })
+        {
+            for (uint8_t frame = 0; frame < count; ++frame)
+            {
+                EXPECT_EQ(postFrameForDisplay(kind, true, frame, count), nativeNewPost.frame());
+                EXPECT_EQ(postFrameForDisplay(kind, false, frame, count), frame);
+                EXPECT_EQ(postFrameForDisplay(SignalKind::none, true, frame, count), frame);
+            }
+        }
+    }
+}
+
+TEST(PathSignalTests, logicalColoursMapToNativeRedYellowAndLastProceedState)
+{
+    for (uint8_t count : { 2, 3, 4 })
+    {
+        EXPECT_EQ(static_cast<uint8_t>(postStateFor(DisplayState::red, count)), 0);
+        EXPECT_EQ(static_cast<uint8_t>(postStateFor(DisplayState::yellow, count)), 1);
+        EXPECT_EQ(static_cast<uint8_t>(postStateFor(DisplayState::green, count)), count - 1);
+    }
 }
 
 TEST_F(WaypointSignalFixture, sharedApproachStaysRedThroughWaitAndPlannerProgress)
@@ -285,7 +349,7 @@ TEST_F(WaypointSignalFixture, sharedApproachStaysRedThroughWaitAndPlannerProgres
         onHeadEntersPiece(*head, head->getTrackLoc(), 0);
         EXPECT_FALSE(isSignalWaiting(side));
         EXPECT_TRUE(isSignalBlockedForDisplay(side)); // The approach remains blocked.
-        EXPECT_EQ(postFrameForDisplay(kind, isSignalBlockedForDisplay(side), 6, 7), 3);
+        EXPECT_EQ(postFrameForDisplay(kind, isSignalBlockedForDisplay(side), 6, 7), 0);
         ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
     }
     EXPECT_EQ(head->currentOrder, 0);
@@ -434,7 +498,7 @@ TEST_F(WaypointSignalFixture, blockedUnsignalledExtensionKeepsApproachPostRedAcr
         setSignalKind(side, kind);
         EXPECT_FALSE(reserveFrom(*head, blocked, tc, ReserveStart::extend));
         EXPECT_TRUE(isSignalWaiting(side));
-        EXPECT_EQ(postFrameForDisplay(kind, isSignalWaiting(side), post->getLeft().frame(), 7), 3);
+        EXPECT_EQ(postFrameForDisplay(kind, isSignalWaiting(side), post->getLeft().frame(), 7), 0);
         EXPECT_EQ(post->getLeft().frame(), 6); // Rendering must not change packed state or lights.
         EXPECT_EQ(post->getLeft().getUnk4(), 2);
         EXPECT_EQ(post->getLeft().allLights(), 0xF);
@@ -886,8 +950,8 @@ TEST(PathSignalTests, waitingSpecialPostsShowRedAndResumeTheirNativeFrame)
 {
     for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
     {
-        EXPECT_EQ(postFrameForDisplay(kind, true, 0, 4), 3);
-        EXPECT_EQ(postFrameForDisplay(kind, true, 6, 7), 3);
+        EXPECT_EQ(postFrameForDisplay(kind, true, 0, 4), 0);
+        EXPECT_EQ(postFrameForDisplay(kind, true, 6, 7), 0);
         EXPECT_EQ(postFrameForDisplay(kind, false, 0, 4), 0);
         EXPECT_EQ(postFrameForDisplay(kind, false, 6, 7), 6);
     }
@@ -1071,10 +1135,10 @@ TEST(PathSignalTests, chainPostFollowsItsExits)
 
 TEST(PathSignalTests, twoStateSignalsShowProceedAsGreen)
 {
-    EXPECT_EQ(postStateFor(DisplayState::yellow, 2), DisplayState::green);
-    EXPECT_EQ(postStateFor(DisplayState::yellow, 3), DisplayState::yellow);
-    EXPECT_EQ(postStateFor(DisplayState::red, 2), DisplayState::red);
-    EXPECT_EQ(postStateFor(DisplayState::green, 4), DisplayState::green);
+    EXPECT_EQ(postStateFor(DisplayState::yellow, 2), 1);
+    EXPECT_EQ(postStateFor(DisplayState::yellow, 3), 1);
+    EXPECT_EQ(postStateFor(DisplayState::red, 2), 0);
+    EXPECT_EQ(postStateFor(DisplayState::green, 4), 3);
 }
 
 TEST(PathSignalTests, claimsMarkEachTrainsLastSignal)
