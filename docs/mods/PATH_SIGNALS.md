@@ -41,9 +41,9 @@ A safe waiting point is the next path, chain, or block signal facing the train, 
 
 All decisions run in `sub_4ACEF1` before `setRouting`, so a refused move uses the existing stop at the end of the current piece. A path wait returns status 3 with flag bit 6. That wait never passes at danger, never takes the manual-control pass, and never reverses on a timeout.
 
-- A train with a pending path follows it at junctions.
+- A train with a pending path follows it at junctions. Before adding another routing piece, it rechecks the remaining reserved prefix against physical occupation (including foreign wagons) and conflicting holds. A newly blocked prefix is released; already occupied holds and the required order remain, and the train waits red and retries after 16 ticks.
 - A vanilla train will not enter a piece that a path-mode train holds, and will not pass a block signal into a block that holds another train's path.
-- The player's pass-signal button still lets a train past a path signal, but never into a piece another train has reserved.
+- The player's pass-signal button cannot bypass the reservation check on a Path, Chain or combined signal, including junction arms. A free route to the required waypoint is still necessary. Ordinary unprotected trains keep their existing pass-signal behavior; protected route pieces retain occupation checks until released by the tail.
 - Native aspect writes still apply to path and chain heads; the waiting override is read-only. Every-eight-tick handling repairs older special-post aspects once after reset/load; it does not continuously repaint reservations. See Display.
 - Shared-line trains reserve toward their current order, which already comes from the line.
 
@@ -83,6 +83,8 @@ Junction identity includes entrance position, height and incoming connection dir
 
 A facing path/chain/combined post on any junction exit now triggers reservation checks before vanilla branch selection even when the train has not entered path mode yet. The chosen start uses its own Path/Chain policy; an occupied block-signal start cannot be entered. Native passing colours and reverse-side occupancy are applied to selected special junction arms as on a single connection. Ordinary unsignalled junctions retain vanilla selection unless the train already uses path mode; the existing explicit pass override remains.
 
+D54 supersedes the special-signal pass-override exception in D49: that override must also obtain a safe reservation, both on single connections and junction arms. Ordinary block-signal overrides remain native.
+
 Implementation `b9f7eb33`, same `codex/directional-waypoint-signals` branch. Two loop reproducers failed on D48, including native track connections and a physical wagon on the waypoint. Focused Debug checks passed 45/45 (38 PathSignalTests, seven WaypointSignalFixture cases); full Debug/Release suites each passed 385/385. Final native screenshot-layout acceptance remains user-run.
 
 ## Governing approach post during a wait (D50)
@@ -106,3 +108,14 @@ The previous waiting/approaching override incorrectly selected frame 3. Read-onl
 Logical display colors are mapped explicitly to native aspect numbers: red is 0, yellow is 1 (proceed on two-state objects), and green is the last supported state. The one-time special-post repair uses native resting danger. Animation/occupation bits and junction lamp overlays remain independent; original art is not bundled or changed.
 
 For a signal on an unplanned junction arm, the approach probe now checks all outgoing starts in one bounded waypoint search, applying each start's own signal kind. A free branch that cannot reach the required directional waypoint cannot clear that train's signal. A genuine route to the same waypoint remains valid. The existing eight-piece inspection, 16-tick throttle and single 4096-expansion search limit remain. No movement, order progression or companion format changes.
+
+
+## Occupied-route admission correction (D54)
+
+The user reported actual movement into occupied track on D53. Native regression tests reproduced three unsafe admission paths: pending reservation reuse after a foreign wagon entered the reserved prefix, and pass-counter bypasses on single special-signal connections and signalled junctions. D54 (`023ec618`, following `1a541252` and `ab57d310`) rechecks pending physical occupation/conflicts before routing writes and requires a safe reservation even during a special-signal pass request. A refused prefix releases pending claims, keeps occupied holds/path mode/orders, marks the governing post red and retries after 16 ticks. Ordinary block-signal overrides keep their native behavior; genuine alternatives to the same waypoint and existing safe reservation horizons remain.
+
+Twelve new tests check actual route admission and physical-front refusal, all three kinds, private/shared orders, resumption, self exclusion and preservation of occupied holds. Three further regressions failed on `1a541252`: after the planner had already committed the signal piece, placing a foreign wagon there let the actual physical front enter it. `ab57d310` adds a physical-entry check before changing the front's track piece/routing handle. It also protects already committed pieces after the planner has passed a downstream ordinary block post, while an unrelated ordinary train retains native movement. Focused Debug signal/placement suite passed 73/73. Full configuration results are recorded in development status. The exact trigger in the player's active session and final movement/sprite acceptance remain user-run; status stays TESTING. No game controls, player-save writes, original art changes or companion version changes.
+
+D54 placement isolation (`023ec618`): native temporary placement motion uses the existing non-simulation flag and its own validation; it must not add physical reservation waits. A regression first failed on `ab57d310`, then passed with the guard restricted to the live Vehicle2 simulation path. No additional saved or UI state is introduced.
+
+D54 final suites passed 413/413 in each of Debug and Release after reconfiguration for `023ec618`; 73 focused signal/placement checks passed, including 69 signal tests. All five executable paths per configuration were confirmed. Evidence and the outstanding manual safety acceptance are recorded in development status.

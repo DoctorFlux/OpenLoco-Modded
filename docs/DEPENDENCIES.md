@@ -88,3 +88,9 @@ D49 reuses native track entry directions, existing reservation checks and Vehicl
 D52 approaching signal aspects reuse physical vehicle-front track locations, committed routing slots, native connections, the existing bounded waypoint Path/Chain search and the signal painter's red frame. Separate approaching/waiting owner sets and 16-tick probe timers are transient; they create no reservations, new saved train records, external service, worker, UI library or companion-version dependency. Real reservation waits skip the additional search.
 
 D53 corrects native danger/proceed state conversion and reuses the same waypoint search at unplanned signalled junctions. Original art was inspected read-only for evidence; it is neither a new shipped asset nor a test/runtime dependency. No new library, service, worker, order/save field or companion version is introduced.
+
+D54 route admission reuses existing bounded pending steps, vehicle-tile occupation checks, hold conflict validation, wait notifications and reservation retry timing. It adds no graph search during pending validation, new library, worker, UI dependency or persistence field. Special-signal overrides use the same existing reservation search as ordinary special-signal passage.
+
+D54 physical-entry protection uses the native Vehicle2 track-piece transition, the same physical occupation query and existing protected hold lifetime. It adds one piece check at physical entry, without another path search or new saved state. Unprotected ordinary movement remains native.
+
+D54 placement isolation (`023ec618`): native temporary placement motion uses the existing non-simulation flag and its own validation; it must not add physical reservation waits. A regression first failed on `ab57d310`, then passed with the guard restricted to the live Vehicle2 simulation path. No additional saved or UI state is introduced.

@@ -83,6 +83,8 @@ D52 (`049ef968`) on `codex/waypoint-signal-aspects` adds red during approach bef
 
 D53 (`d4ed06d1`), same waypoint-aspect branch, corrects the previous override's actual sprite index: frame 3 was yellow on SIGC3; native danger is frame 0. It also probes unplanned signalled junction arms so a free wrong exit cannot clear a blocked required waypoint. Original art was inspected read-only, with no game control or bundled assets. Full Debug/Release suites each passed 401/401; 61 focused signal/placement checks passed. Next task is the user's actual-red-lamp check for all three kinds. Signals remain TESTING.
 
+D54 (`023ec618`, following `1a541252` and `ab57d310`), same waypoint-aspect branch, follows the user's report of entry into occupied track on D53. Actual native regressions reproduced unsafe pending reuse and special-signal pass-counter bypasses. Remaining pending steps now recheck physical wagons/holds before admission; Path/Chain/combined passage always requires a safe reservation, including junctions. Failed checks preserve occupied holds/orders and wait red. The physical front separately rechecks protected committed pieces before entry, including after the planner leaves path mode. Focused checks passed 73/73; full Debug/Release suites each passed 413/413. Temporary placement motion remains outside the live entry guard. Next task is the user's manual occupied-route stopping/resumption check, including a moved/placed wagon and pass request. Signals remain TESTING; no milestone advancement or merge.
+
 ## Phase 8 — Shunting
 
 1. Job records and state machine.
