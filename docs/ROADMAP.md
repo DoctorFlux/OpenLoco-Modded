@@ -79,6 +79,8 @@ D49 screenshot follow-up is implemented at `b9f7eb33` on the same signal-fix bra
 
 D50 (`4f5faaae`) fixes yellow waiting sprites when the planner is beyond the approach post. Failed path decisions mark the nearest facing special post in the bounded routing ring, stop at block boundaries and clear on successful progression. Full Debug/Release suites passed 389/389 each; 49 focused signal checks passed. Next task is the user's short red-sprite/clear-and-resume check in the screenshot layout. Signals remain TESTING.
 
+D52 (`049ef968`) on `codex/waypoint-signal-aspects` adds red during approach before a refused waypoint reservation, with independent approaching/waiting display owners and bounded 16-tick probes. This branch also includes the placement fix. Debug/Release full suites each passed 398/398; 58 focused signal/placement checks passed. Next task is the user's red-during-approach-and-wait screenshot-layout recheck, then required-route resumption after clearing the blocker. Signals remain TESTING.
+
 ## Phase 8 — Shunting
 
 1. Job records and state machine.
