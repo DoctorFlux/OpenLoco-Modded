@@ -6850,8 +6850,14 @@ namespace OpenLoco::Vehicles
         }
         else
         {
-            const auto subPositionLength = static_cast<uint32_t>(World::TrackData::getTrackSubPositon(newTad.track._data).size());
-            newSubPos = subPositionLength - 1 - train.veh2->subPosition;
+            const auto reversedSubPosition = World::TrackData::getReversedTrackSubPosition(newTad.track._data, train.veh2->subPosition);
+            if (!reversedSubPosition)
+            {
+                vehicleFlags |= VehicleFlags::commandStop;
+                liftUpVehicle();
+                return;
+            }
+            newSubPos = *reversedSubPosition;
 
             const auto& trackSize = World::TrackData::getUnkTrack(newTad.track._data);
             newPos += trackSize.pos;

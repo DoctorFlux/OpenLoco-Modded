@@ -5133,16 +5133,17 @@ namespace OpenLoco::Ui::Windows::Vehicle
             if (unkYaw <= 0x20)
             {
                 const auto& unkItem = TrackData::getUnkTrack(placementArgs->trackAndDirection);
+                const auto reversedProgress = TrackData::getReversedTrackSubPosition(placementArgs->trackAndDirection, placementArgs->trackProgress);
+                if (!reversedProgress)
+                {
+                    return {};
+                }
                 placementArgs->pos += unkItem.pos;
                 if (unkItem.rotationEnd < 12)
                 {
                     placementArgs->pos -= World::Pos3{ World::kRotationOffset[unkItem.rotationEnd], 0 };
                 }
-                placementArgs->trackProgress = std::max<uint16_t>(static_cast<uint16_t>(moveInfoArr.size()) - placementArgs->trackProgress, 0);
-                if (placementArgs->trackProgress >= moveInfoArr.size())
-                {
-                    placementArgs->trackProgress = static_cast<uint16_t>(moveInfoArr.size()) - 1;
-                }
+                placementArgs->trackProgress = *reversedProgress;
                 placementArgs->trackAndDirection ^= (1 << 2);
             }
             return placementArgs;

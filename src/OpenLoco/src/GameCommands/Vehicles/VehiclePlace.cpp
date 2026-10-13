@@ -3,6 +3,7 @@
 #include "GameState.h"
 #include "Map/RoadElement.h"
 #include "Map/TileManager.h"
+#include "Map/Track/SubpositionData.h"
 #include "Map/Track/TrackData.h"
 #include "Map/TrackElement.h"
 #include "Objects/ObjectManager.h"
@@ -234,6 +235,12 @@ namespace OpenLoco::GameCommands
                     setErrorText(StringIds::empty);
                     return kFailure;
                 }
+            }
+
+            if (!args.convertGhost && train.head->mode == TransportMode::rail && !World::TrackData::getReversedTrackSubPosition(args.trackAndDirection, args.trackProgress))
+            {
+                setErrorText(StringIds::not_enough_space_or_vehicle_in_the_way);
+                return kFailure;
             }
 
             if (!hasFlags(flags, Flags::apply))

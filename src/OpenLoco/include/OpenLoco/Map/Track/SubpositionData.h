@@ -2,6 +2,7 @@
 
 #include "Types.hpp"
 #include <OpenLoco/Engine/World.hpp>
+#include <optional>
 #include <span>
 
 namespace OpenLoco
@@ -20,6 +21,7 @@ namespace OpenLoco::World::TrackData
     static_assert(sizeof(MoveInfo) == 0x8);
 
     std::span<const MoveInfo> getTrackSubPositon(const uint16_t trackAndDirection);
+    std::optional<uint16_t> getReversedTrackSubPosition(uint16_t trackAndDirection, uint16_t subPosition);
     std::span<const MoveInfo> getRoadSubPositon(const uint16_t trackAndDirection);
     std::span<const MoveInfo> getRoadPlacementSubPositon(const uint16_t trackAndDirection);
 }

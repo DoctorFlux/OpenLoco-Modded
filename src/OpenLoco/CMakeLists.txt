@@ -789,6 +789,7 @@ set(test_files
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/RulesTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/LineTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/PathSignalTests.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/VehiclePlacementTests.cpp"
 )
 
 loco_add_library(OpenLoco STATIC

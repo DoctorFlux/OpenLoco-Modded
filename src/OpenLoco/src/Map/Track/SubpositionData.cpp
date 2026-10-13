@@ -2,6 +2,7 @@
 #include "Entities/Entity.h"
 #include "GameState.h"
 
+#include <algorithm>
 #include <array>
 #include <vector>
 
@@ -18933,6 +18934,27 @@ namespace OpenLoco::World::TrackData
     std::span<const MoveInfo> getTrackSubPositon(const uint16_t trackAndDirection)
     {
         return _4D9724[trackAndDirection];
+    }
+
+    std::optional<uint16_t> getReversedTrackSubPosition(uint16_t trackAndDirection, uint16_t subPosition)
+    {
+        if (trackAndDirection >= _4D9724.size())
+        {
+            return std::nullopt;
+        }
+        const auto movement = getTrackSubPositon(trackAndDirection);
+        if (subPosition >= movement.size())
+        {
+            return std::nullopt;
+        }
+        const auto reverse = getTrackSubPositon(trackAndDirection ^ (1 << 2));
+        if (reverse.empty())
+        {
+            return std::nullopt;
+        }
+        // Some curves have one fewer movement sample in reverse. Preserve the
+        // native mirrored position, but cap it at the actual destination end.
+        return static_cast<uint16_t>(std::min(movement.size() - 1 - subPosition, reverse.size() - 1));
     }
 
     std::span<const MoveInfo> getRoadPlacementSubPositon(const uint16_t trackAndDirection)

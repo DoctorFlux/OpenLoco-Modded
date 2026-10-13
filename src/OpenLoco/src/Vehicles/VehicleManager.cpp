@@ -165,6 +165,13 @@ namespace OpenLoco::VehicleManager
         Vehicles::TrackAndDirection reverseTad = trackAndDirection;
         if (head->mode != TransportMode::road)
         {
+            const auto reversedSubPosition = World::TrackData::getReversedTrackSubPosition(trackAndDirection.track._data, initialSubPosition);
+            if (!reversedSubPosition)
+            {
+                return PlaceDownResult::Unk0;
+            }
+            subPosition = *reversedSubPosition;
+
             if (Vehicles::sub_4A2A58(pos, trackAndDirection.track, head->owner, head->trackType) & (1U << 0))
             {
                 return PlaceDownResult::Unk1;
@@ -174,9 +181,6 @@ namespace OpenLoco::VehicleManager
             {
                 return PlaceDownResult::Unk1;
             }
-
-            const auto subPositionLength = static_cast<uint32_t>(World::TrackData::getTrackSubPositon(trackAndDirection.track._data).size());
-            subPosition = subPositionLength - 1 - initialSubPosition;
 
             const auto& trackSize = World::TrackData::getUnkTrack(trackAndDirection.track._data);
             reversePos += trackSize.pos;
