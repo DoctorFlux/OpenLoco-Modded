@@ -177,6 +177,12 @@ namespace OpenLoco::Signals
     void clearWaitingSignals(uint16_t owner);
     bool isSignalWaiting(const SideKey& side);
     bool isTrainWaiting(uint16_t owner);
+    // The painter combines approaching blocked routes with actual path waits.
+    // Approach checks never create a reservation or a simulation wait.
+    bool isSignalBlockedForDisplay(const SideKey& side);
+    void setApproachingSignals(uint16_t owner, const std::vector<SideKey>& sides);
+    void clearApproachingSignals(uint16_t owner);
+    bool beginApproachProbe(uint16_t owner, uint32_t tick);
 
     struct ReservationArrow
     {
@@ -225,6 +231,7 @@ namespace OpenLoco::Signals
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
     std::optional<ReserveStart> reservationStartAtJunction(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
     void onPathWait(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
+    void refreshApproachSignals(Vehicles::VehicleHead& head);
     std::optional<uint16_t> reserveFrom(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc, ReserveStart start);
     bool pieceHeldByProtectedOther(const Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection);
     bool blockHasForeignPath(const Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection);

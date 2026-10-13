@@ -1608,6 +1608,10 @@ namespace OpenLoco::Vehicles
     bool VehicleHead::landNormalMovementUpdate()
     {
         advanceToNextRoutableOrder();
+        if (mode == TransportMode::rail)
+        {
+            Signals::refreshApproachSignals(*this);
+        }
         auto [al, flags, nextStation] = sub_4ACEE7(0xD4CB00, getVehicleUpdateDistances().unkDistance1, false);
 
         if (mode == TransportMode::road)

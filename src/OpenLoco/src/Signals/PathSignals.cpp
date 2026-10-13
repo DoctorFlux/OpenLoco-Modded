@@ -55,6 +55,8 @@ namespace OpenLoco::Signals
         std::map<PieceKey, uint8_t> _viewedSides;
         std::map<PieceKey, ReservationArrow> _allReserved;
         std::map<SideKey, std::set<uint16_t>> _waitingSignals;
+        std::map<SideKey, std::set<uint16_t>> _approachingSignals;
+        std::map<uint16_t, uint32_t> _approachProbeTicks;
         bool _lightRepairPending = false;
         ReservationViewDirty _viewDirty = nullptr;
 
@@ -623,6 +625,7 @@ namespace OpenLoco::Signals
         releaseAllHolds(owner);
         _trains.erase(owner);
         clearWaitingSignals(owner);
+        clearApproachingSignals(owner);
         refreshViewedReservation();
     }
 
@@ -659,26 +662,26 @@ namespace OpenLoco::Signals
         return false;
     }
 
-    void setWaitingSignals(uint16_t owner, const std::vector<SideKey>& sides)
+    static void setSignalOwners(std::map<SideKey, std::set<uint16_t>>& signals, uint16_t owner, const std::vector<SideKey>& sides)
     {
         std::map<SideKey, bool> previous;
-        for (const auto& [side, owners] : _waitingSignals)
+        for (const auto& [side, owners] : signals)
         {
             if (owners.contains(owner))
             {
-                previous.emplace(side, true);
+                previous.emplace(side, isSignalBlockedForDisplay(side));
             }
         }
         for (const auto& side : sides)
         {
-            previous.try_emplace(side, isSignalWaiting(side));
+            previous.try_emplace(side, isSignalBlockedForDisplay(side));
         }
-        for (auto it = _waitingSignals.begin(); it != _waitingSignals.end();)
+        for (auto it = signals.begin(); it != signals.end();)
         {
             it->second.erase(owner);
             if (it->second.empty())
             {
-                it = _waitingSignals.erase(it);
+                it = signals.erase(it);
             }
             else
             {
@@ -687,18 +690,45 @@ namespace OpenLoco::Signals
         }
         for (const auto& side : sides)
         {
-            _waitingSignals[side].insert(owner);
+            signals[side].insert(owner);
         }
         if (_viewDirty != nullptr)
         {
             for (const auto& [side, wasWaiting] : previous)
             {
-                if (wasWaiting != isSignalWaiting(side))
+                if (wasWaiting != isSignalBlockedForDisplay(side))
                 {
                     _viewDirty(side.piece);
                 }
             }
         }
+    }
+
+    void setWaitingSignals(uint16_t owner, const std::vector<SideKey>& sides)
+    {
+        setSignalOwners(_waitingSignals, owner, sides);
+    }
+
+    void setApproachingSignals(uint16_t owner, const std::vector<SideKey>& sides)
+    {
+        setSignalOwners(_approachingSignals, owner, sides);
+    }
+
+    void clearApproachingSignals(uint16_t owner)
+    {
+        setApproachingSignals(owner, {});
+        _approachProbeTicks.erase(owner);
+    }
+
+    bool beginApproachProbe(uint16_t owner, uint32_t tick)
+    {
+        const auto found = _approachProbeTicks.find(owner);
+        if (found != _approachProbeTicks.end() && static_cast<int32_t>(tick - found->second) < 0)
+        {
+            return false;
+        }
+        _approachProbeTicks[owner] = tick + 16;
+        return true;
     }
 
     void clearWaitingSignals(uint16_t owner)
@@ -709,6 +739,11 @@ namespace OpenLoco::Signals
     bool isSignalWaiting(const SideKey& side)
     {
         return _waitingSignals.find(side) != _waitingSignals.end();
+    }
+
+    bool isSignalBlockedForDisplay(const SideKey& side)
+    {
+        return isSignalWaiting(side) || _approachingSignals.contains(side);
     }
 
     bool isTrainWaiting(uint16_t owner)
@@ -870,8 +905,17 @@ namespace OpenLoco::Signals
             {
                 _viewDirty(side.piece);
             }
+            for (const auto& [side, owners] : _approachingSignals)
+            {
+                if (!_waitingSignals.contains(side))
+                {
+                    _viewDirty(side.piece);
+                }
+            }
         }
         _waitingSignals.clear();
+        _approachingSignals.clear();
+        _approachProbeTicks.clear();
         _lightRepairPending = false;
         _kinds.clear();
         _chainAspects.clear();

@@ -286,8 +286,8 @@ namespace OpenLoco::Paint
             {
                 leftKind = Signals::getSignalKind(Signals::SideKey{ piece, 0 });
                 rightKind = Signals::getSignalKind(Signals::SideKey{ piece, 1 });
-                leftWaiting = Signals::isSignalWaiting(Signals::SideKey{ piece, 0 });
-                rightWaiting = Signals::isSignalWaiting(Signals::SideKey{ piece, 1 });
+                leftWaiting = Signals::isSignalBlockedForDisplay(Signals::SideKey{ piece, 0 });
+                rightWaiting = Signals::isSignalBlockedForDisplay(Signals::SideKey{ piece, 1 });
             }
         }
 

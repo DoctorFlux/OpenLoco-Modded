@@ -14,6 +14,7 @@
 #include <OpenLoco/Vehicles/RoutingManager.h>
 #include <OpenLoco/Vehicles/Vehicle1.h>
 #include <OpenLoco/Vehicles/Vehicle2.h>
+#include <OpenLoco/Vehicles/VehicleBody.h>
 #include <OpenLoco/Vehicles/VehicleBogie.h>
 #include <OpenLoco/Vehicles/VehicleHead.h>
 #include <OpenLoco/Vehicles/VehicleTail.h>
@@ -212,7 +213,146 @@ namespace
             tc.connections.push_back(World::Track::AdditionalTaDFlags::hasSignal);
             return tc;
         }
+
+        void approaching(Vehicles::VehicleHead& head)
+        {
+            const auto before = start - World::TrackData::getUnkTrack(0).pos;
+            addPiece(before, 0);
+            Vehicles::Vehicle train(head);
+            train.applyToComponents([&](auto& component) {
+                component.tileX = before.x;
+                component.tileY = before.y;
+                component.tileBaseZ = before.z / 4;
+                component.trackAndDirection.track._data = 0;
+            });
+            Vehicles::RoutingManager::setRouting(head.routingHandle, 0);
+        }
     };
+}
+
+TEST_F(WaypointSignalFixture, blockedWaypointPostIsRedBeforeRoutingHeadReachesIt)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    approaching(*head);
+    signal(SignalKind::path);
+    const auto side = facingSide(start, 0);
+    refreshApproachSignals(*head);
+    EXPECT_TRUE(isSignalBlockedForDisplay(side));
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalBlockedForDisplay(side), 6, 7), 3);
+    EXPECT_EQ(pathHoldCount(), 0U);
+    EXPECT_EQ(head->currentOrder, 0);
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ScenarioManager::setScenarioTicks(16);
+    refreshApproachSignals(*head);
+    EXPECT_FALSE(isSignalBlockedForDisplay(side));
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalBlockedForDisplay(side), 6, 7), 6);
+    EXPECT_EQ(pathHoldCount(), 0U);
+}
+
+TEST_F(WaypointSignalFixture, sharedApproachStaysRedThroughWaitAndPlannerProgress)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    occupiedWagon(other->id);
+    const auto line = Lines::createLine("Approaching waypoint", TransportMode::rail, 4);
+    ASSERT_TRUE(line.ok);
+    Lines::LineOrder waypoint{};
+    waypoint.type = Vehicles::OrderType::RouteWaypoint;
+    waypoint.tileX = target.x / 32;
+    waypoint.tileY = target.y / 32;
+    waypoint.baseZ = 2;
+    Lines::LineOrder back = waypoint;
+    back.tileX = start.x / 32;
+    back.tileY = start.y / 32;
+    ASSERT_TRUE(Lines::replaceOrders(line.id, { waypoint, back }).ok);
+    ASSERT_TRUE(Lines::acceptStopKinds(line.id, Lines::LineKind::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(head->id), TransportMode::rail).ok);
+    approaching(*head);
+    const auto tc = signal(SignalKind::chain);
+    const auto side = facingSide(start, 0);
+    for (auto kind : { SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        clearApproachingSignals(enumValue(head->id));
+        setSignalKind(side, kind);
+        refreshApproachSignals(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(side));
+        EXPECT_FALSE(reserveFrom(*head, start, tc, ReserveStart::chainSignal));
+        EXPECT_TRUE(isSignalWaiting(side));
+        onHeadEntersPiece(*head, head->getTrackLoc(), 0);
+        EXPECT_FALSE(isSignalWaiting(side));
+        EXPECT_TRUE(isSignalBlockedForDisplay(side)); // The approach remains blocked.
+        EXPECT_EQ(postFrameForDisplay(kind, isSignalBlockedForDisplay(side), 6, 7), 3);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+    EXPECT_EQ(head->currentOrder, 0);
+    EXPECT_EQ(pathHoldCount(), 0U);
+}
+
+TEST_F(WaypointSignalFixture, approachQueryExcludesSelfAndKeepsClearWaypointNativeColour)
+{
+    auto* head = vehicle();
+    occupiedWagon(head->id);
+    approaching(*head);
+    signal(SignalKind::path);
+    refreshApproachSignals(*head);
+    const auto side = facingSide(start, 0);
+    EXPECT_FALSE(isSignalBlockedForDisplay(side));
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalBlockedForDisplay(side), 6, 7), 6);
+    EXPECT_EQ(pathHoldCount(), 0U);
+    EXPECT_EQ(pendingPath(enumValue(head->id)), nullptr); // No saved path-mode record is added.
+}
+
+TEST_F(WaypointSignalFixture, approachQueryStopsAtBlockBoundaryAndIgnoresGhosts)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    occupiedWagon(other->id);
+    approaching(*head);
+    signal(SignalKind::none);
+    signalAt(junction, 0, SignalKind::chain);
+    refreshApproachSignals(*head);
+    EXPECT_FALSE(isSignalBlockedForDisplay(facingSide(start, 0)));
+    EXPECT_FALSE(isSignalBlockedForDisplay(facingSide(junction, 0)));
+    setSignalKind(facingSide(start, 0), SignalKind::path);
+    head->var_38 |= Vehicles::Flags38::isGhost;
+    refreshApproachSignals(*head);
+    EXPECT_FALSE(isSignalBlockedForDisplay(facingSide(start, 0)));
+}
+
+TEST(PathSignalTests, approachingAndWaitingOwnersKeepOneRedAspectWithoutExtraRedraws)
+{
+    clearAll();
+    static int dirty;
+    dirty = 0;
+    setReservationViewDirty(+[](const PieceKey&) { ++dirty; });
+    const SideKey side{ PieceKey{ 320, 320, 16, 0, 0 }, 0 };
+    setSignalKind(side, SignalKind::path);
+    EXPECT_TRUE(beginApproachProbe(1, 0));
+    EXPECT_FALSE(beginApproachProbe(1, 15));
+    EXPECT_TRUE(beginApproachProbe(1, 16));
+    setApproachingSignals(1, { side });
+    EXPECT_EQ(dirty, 1);
+    EXPECT_FALSE(isTrainWaiting(1));
+    setWaitingSignals(1, { side });
+    setApproachingSignals(2, { side });
+    clearWaitingSignals(1);
+    clearApproachingSignals(1);
+    EXPECT_EQ(dirty, 1);
+    EXPECT_TRUE(isSignalBlockedForDisplay(side));
+    forgetTrain(2);
+    EXPECT_EQ(dirty, 2);
+    EXPECT_FALSE(isSignalBlockedForDisplay(side));
+    EXPECT_TRUE(beginApproachProbe(1, 16)); // Clearing/reusing an owner resets its throttle.
+    setApproachingSignals(1, { side });
+    clearAll();
+    EXPECT_FALSE(isSignalBlockedForDisplay(side));
+    EXPECT_TRUE(beginApproachProbe(1, 0));
+    setReservationViewDirty(nullptr);
+    clearAll();
 }
 
 TEST_F(WaypointSignalFixture, freeCircleDoesNotSubstituteForBlockedDirectWaypointApproach)
@@ -241,6 +381,9 @@ TEST_F(WaypointSignalFixture, freeCircleDoesNotSubstituteForBlockedDirectWaypoin
     wagon->tileY = target.y;
     wagon->moveTo(target);
     const auto tc = signal(SignalKind::path);
+    approaching(*head);
+    refreshApproachSignals(*head);
+    EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
     for (auto mode : { ReserveStart::pathSignal, ReserveStart::chainSignal, ReserveStart::extend })
     {
         EXPECT_FALSE(reserveFrom(*head, start, tc, mode));

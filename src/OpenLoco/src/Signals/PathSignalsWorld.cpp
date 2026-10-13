@@ -608,6 +608,87 @@ namespace OpenLoco::Signals
         return std::nullopt;
     }
 
+    void refreshApproachSignals(Vehicles::VehicleHead& head)
+    {
+        const auto owner = enumValue(head.id);
+        if (head.mode != TransportMode::rail || head.tileX == -1 || head.has38Flags(Vehicles::Flags38::isGhost) || head.var_5C != 0 || specialSignalCount() == 0)
+        {
+            clearApproachingSignals(owner);
+            return;
+        }
+        // The normal reservation retry already proves an actual wait. Keep its
+        // red marker without running a duplicate route search on this tick.
+        if (isTrainWaiting(owner))
+        {
+            return;
+        }
+        if (!beginApproachProbe(owner, ScenarioManager::getScenarioTicks()))
+        {
+            return;
+        }
+        WorldTrackGraph graph(head);
+        if (!graph.requiresTarget())
+        {
+            setApproachingSignals(owner, {});
+            return;
+        }
+        Vehicles::Vehicle train(head);
+        auto pos = train.veh2->getTrackLoc();
+        auto tad = train.veh2->trackAndDirection.track._data;
+        auto handle = train.veh2->routingHandle;
+        // Follow the committed physical approach, then unambiguous track only.
+        // Junction selection remains with the normal reservation path.
+        for (size_t i = 0; i < 8 && ((tad >> 3) & 0x3F) < kTrackIdCount; ++i)
+        {
+            const auto end = World::Track::getTrackConnectionEnd(pos, tad);
+            const auto tc = World::Track::getTrackConnections(end.nextPos, end.nextRotation, head.owner, head.trackType, head.var_53, train.veh1->var_49);
+            handle.setIndex(handle.getIndex() + 1);
+            const auto routing = Vehicles::RoutingManager::getRouting(handle);
+            std::optional<uint16_t> connection;
+            if (routing != Vehicles::RoutingManager::kAllocatedButFreeRouting && routing != Vehicles::RoutingManager::kRoutingNull)
+            {
+                for (const auto next : tc.connections)
+                {
+                    if ((next & kBasicTaDMask) == (routing & kBasicTaDMask))
+                    {
+                        connection = next;
+                        break;
+                    }
+                }
+            }
+            else if (tc.connections.size() == 1)
+            {
+                connection = tc.connections.front();
+            }
+            if (!connection)
+            {
+                break;
+            }
+            const auto entry = classifyEntry(end.nextPos, *connection);
+            if (entry.hasFacingSignal)
+            {
+                if (entry.kind != SignalKind::none)
+                {
+                    SearchRequest request;
+                    request.hasTarget = request.requireTarget = true;
+                    request.mode = isChainSignal(entry.kind) ? SearchMode::chainSignal : SearchMode::pathSignal;
+                    request.starts.push_back(graph.makeEdge(end.nextPos, *connection, tc.stationId));
+                    const auto result = findReservation(graph, request);
+                    setApproachingSignals(owner, result.found ? std::vector<SideKey>{} : std::vector<SideKey>{ facingSide(end.nextPos, *connection) });
+                    return;
+                }
+                break;
+            }
+            if (entry.blockedFromBehind)
+            {
+                break;
+            }
+            pos = end.nextPos;
+            tad = *connection & kBasicTaDMask;
+        }
+        setApproachingSignals(owner, {});
+    }
+
     void onPathWait(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
     {
         std::vector<SideKey> sides;
@@ -817,6 +898,7 @@ namespace OpenLoco::Signals
         const auto owner = enumValue(head.id);
         dropPendingPath(owner);
         clearWaitingSignals(owner);
+        clearApproachingSignals(owner);
         const bool isProtected = isInPathMode(owner);
         releaseAllHolds(owner);
         if (head.mode != TransportMode::rail || head.tileX == -1)
