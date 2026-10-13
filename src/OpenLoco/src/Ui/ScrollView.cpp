@@ -530,6 +530,15 @@ namespace OpenLoco::Ui::ScrollView
     // 0x004C7236
     void scrollLeftContinue(const int16_t x, const int16_t y, Ui::Window& window, Ui::Widget* const widget, const WidgetIndex_t widgetIndex)
     {
+        if (_currentScrollArea == ScrollPart::view && window.eventHandlers->scrollMouseDragOutside)
+        {
+            const auto& scroll = window.scrollAreas[_currentScrollIndex];
+            window.callScrollMouseDrag(
+                static_cast<int16_t>(x - window.x - widget->left - 1 + scroll.contentOffsetX),
+                static_cast<int16_t>(y - window.y - widget->top - 1 + scroll.contentOffsetY),
+                static_cast<uint8_t>(_currentScrollIndex));
+            return;
+        }
         if (_currentScrollArea == ScrollPart::hscrollbarThumb)
         {
             auto toolTipLoc = Ui::ToolTip::getTooltipMouseLocation();

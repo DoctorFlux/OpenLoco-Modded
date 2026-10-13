@@ -11,7 +11,9 @@
 #include <OpenLoco/Map/SurfaceElement.h>
 #include <OpenLoco/Map/TileManager.h>
 #include <OpenLoco/Map/TrackElement.h>
-#include <OpenLoco/Rules/Editor.h>
+#include <OpenLoco/Rules/EditorSession.h>
+#include <OpenLoco/Ui/ScrollView.h>
+#include <OpenLoco/Ui/WindowManager.h>
 #include <OpenLoco/Rules/Platforms.h>
 #include <OpenLoco/Rules/Rules.h>
 #include <OpenLoco/Scenario/ScenarioManager.h>
@@ -1111,7 +1113,7 @@ TEST(RulesTests, ordinaryRowGeometryOnlyExpandsWhenRulesExist)
     auto p = route();
     EXPECT_EQ(orderRowHeight(&p), 10);
     ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
-    EXPECT_EQ(orderRowHeight(&p), 20);
+    EXPECT_EQ(orderRowHeight(&p), 14);
     const auto layout = editorLayout(360, 240, true);
     const auto width = (360 - 10) / 6;
     EXPECT_GT(width - 3, 50);
@@ -2978,7 +2980,7 @@ TEST(RulesTests, compactCanvasGainsSpaceAndSimpleBlocksUseOneFieldRow)
     auto p = route();
     ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
     const auto layout = programLayout(p, 438, 16);
-    EXPECT_EQ(layout.items[0].height, 23);
+    EXPECT_EQ(layout.items[0].height, 20);
     EXPECT_EQ(layout.items[0].fields[0].field, BlockField::check);
     EXPECT_EQ(layout.items[0].fields.back().field, BlockField::join);
 }
@@ -4401,4 +4403,460 @@ TEST_F(MapRulesFixture, mapBranchChainMatchesIfElseIfAndElseForLiveFacts)
         EXPECT_LE(Lines::routeViewStats().publishedLegs, 128U);
         EXPECT_LE(Lines::routeViewStats().publishedUnits, 131072U);
     }
+}
+
+namespace
+{
+    void expectEditorSize(OpenLoco::Ui::Size actual, OpenLoco::Ui::Size expected)
+    {
+        EXPECT_EQ(actual.width, expected.width);
+        EXPECT_EQ(actual.height, expected.height);
+    }
+    int16_t measuredNativeText(std::string_view text, bool heading)
+    {
+        int16_t width = 0;
+        for (char c : text)
+        {
+            width += c == 'i' ? 2 : c == 'W' ? 9
+                : heading                    ? 7
+                                             : 6;
+        }
+        return width;
+    }
+    OpenLoco::Ui::Window* inlineTestHost(Owner owner, uint16_t vehicle, bool line = false)
+    {
+        using namespace OpenLoco;
+        using namespace Ui;
+        static const WindowEventList events = {
+            .onClose = [](Window& w) { closeEditorSession(w); },
+            .getScrollSize = [](Window& w, uint32_t scroll, int32_t& width, int32_t& height) { editorSession(w).scrollSize(scroll, width, height); },
+            .prepareDraw = [](Window& w) {const bool line=w.type==WindowType::lineManager;editorSession(w).prepare(w,line?194:3,76,w.width-28,w.height-(line?62:31)); },
+            .scrollMouseDragOutside = true,
+        };
+        auto* w = WindowManager::createWindow(line ? WindowType::lineManager : WindowType::vehicle, { 20, 28 }, line ? Size{ 420, 268 } : Size{ 265, 202 }, WindowFlags::resizable, events);
+        if (!w)
+        {
+            return nullptr;
+        }
+        w->number = line ? owner.id : vehicle;
+        const auto widgets = makeWidgets(Widgets::ScrollView(WidgetId{ "test_canvas" }, { 3, 58 }, { 237, 110 }, WindowColour::secondary, Scrollbars::vertical), inlineEditorWidgets());
+        if (line)
+        {
+            const auto lineWidgets = makeWidgets(Widgets::ScrollView({ 4, 44 }, { 182, 140 }, WindowColour::secondary, Scrollbars::vertical), widgets);
+            w->setWidgets(lineWidgets);
+        }
+        else
+        {
+            w->setWidgets(widgets);
+        }
+        editorSession(*w).configure(*w, owner, vehicle, line ? 1 : 0, line ? 1 : 0, line ? 2 : 1, line ? 2 : 1, true);
+        w->callPrepareDraw();
+        w->initScrollWidgets();
+        return w;
+    }
+    struct CloseInlineHost
+    {
+        OpenLoco::Ui::Window* window;
+        ~CloseInlineHost() { OpenLoco::Ui::WindowManager::close(window); }
+    };
+}
+TEST(RulesTests, compactNativeFieldsUseMeasuredMediumFontGeometry)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 0, 1);
+    b.condition.check = Check::year;
+    b.condition.value = 2050;
+    ASSERT_TRUE(add(p, b));
+    const auto l = programLayout(p, 438, 14, measuredNativeText);
+    ASSERT_FALSE(l.items.empty());
+    EXPECT_EQ(l.items.front().height, 20);
+    for (const auto& field : l.items.front().fields)
+    {
+        EXPECT_EQ(field.height, 16);
+        EXPECT_EQ(field.width, std::max<int>(20, measuredNativeText(field.label, false) + 12));
+    }
+    EXPECT_EQ(l.orderTops[1] - l.orderTops[0], 14);
+    const auto closing = std::find_if(l.items.begin(), l.items.end(), [](const auto& v) { return v.closing; });
+    ASSERT_NE(closing, l.items.end());
+    EXPECT_EQ(closing->height, 8);
+    EXPECT_EQ(programDrop(p, l, closing->top + 4).into, p.blocks.front().id);
+}
+TEST(RulesTests, compactIfElseRouteFitsWithoutTinyConditionText)
+{
+    auto p = route();
+    auto branch = section(p, Kind::ifBlock, 0, 1);
+    branch.condition.check = Check::year;
+    branch.condition.value = 2050;
+    ASSERT_TRUE(add(p, branch));
+    auto otherwise = section(p, Kind::otherwise, 2, 2);
+    otherwise.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, otherwise));
+    const auto l = programLayout(p, 438, 14, measuredNativeText);
+    // Three remaining ordinary rows include cargo instructions in this model fixture.
+    EXPECT_LE(l.height, 124);
+    for (const auto& v : l.items)
+    {
+        if (v.block && !v.closing)
+        {
+            EXPECT_EQ(v.height, v.fields.empty() ? 16 : 20);
+        }
+    }
+}
+TEST(RulesTests, largerConditionFieldsWrapAndKeepExactHitRectangles)
+{
+    auto p = route();
+    auto b = section(p, Kind::ifBlock, 0, 2);
+    b.condition.check = Check::year;
+    b.condition.value = 2050;
+    b.join = Join::andCheck;
+    b.extra.check = Check::year;
+    b.extra.value = 2060;
+    ASSERT_TRUE(add(p, b));
+    for (int16_t width : { int16_t{ 146 }, int16_t{ 240 }, int16_t{ 438 } })
+    {
+        const auto l = programLayout(p, width, 14, measuredNativeText);
+        for (const auto& v : l.items)
+        {
+            for (const auto& f : v.fields)
+            {
+                EXPECT_LE(f.top + f.height, v.top + v.height);
+                EXPECT_LE(f.left + f.width, width - visualIndent(v, width) - 11);
+                EXPECT_EQ(blockFieldHit(l, 3 + visualIndent(v, width) + f.left + f.width / 2, f.top + 8, width), &f);
+            }
+        }
+    }
+    EXPECT_GT(programLayout(p, 146, 14, measuredNativeText).items[0].height, 20);
+}
+TEST(RulesTests, inlineLayoutsKeepPaletteCanvasControlsAndToolbarSeparate)
+{
+    for (bool line : { false, true })
+    {
+        for (int width : { line ? 560 : 400, line ? 640 : 560, 1000 })
+        {
+            for (int height : { line ? 268 : 240, 320, 700 })
+            {
+                for (bool details : { false, true })
+                {
+                    const auto l = inlineLayout(line ? 194 : 3, 76, width - 28, height - (line ? 62 : 31), true, details);
+                    EXPECT_EQ(l.palette.width, 88);
+                    EXPECT_LE(l.palette.x + l.palette.width, l.canvas.x);
+                    EXPECT_GT(l.canvas.height, 0);
+                    EXPECT_LE(l.canvas.y + l.canvas.height, l.controls.y);
+                    EXPECT_LE(l.controls.y + l.controls.height, l.toolbar.y);
+                    EXPECT_LE(l.toolbar.y + l.toolbar.height, height - (line ? 62 : 31));
+                    EXPECT_LE(l.canvas.x + l.canvas.width, width - 28);
+                }
+            }
+        }
+    }
+    const auto normal = inlineLayout(3, 58, 237, 171, false, false);
+    EXPECT_EQ(normal.palette.width, 0);
+    EXPECT_EQ(normal.canvas.x, 3);
+    EXPECT_EQ(normal.toolbar.height, 0);
+}
+TEST(RulesTests, inlineExpansionPreservesLargerSizesAndFitsScreen)
+{
+    using OpenLoco::Ui::Size;
+    expectEditorSize(expandedEditorSize({ 265, 202 }, { 1024, 768 }, false), (Size{ 560, 320 }));
+    expectEditorSize(expandedEditorSize({ 420, 268 }, { 1024, 768 }, true), (Size{ 640, 320 }));
+    expectEditorSize(expandedEditorSize({ 900, 600 }, { 1024, 768 }, false), (Size{ 900, 600 }));
+    expectEditorSize(expandedEditorSize({ 1000, 700 }, { 640, 480 }, true), (Size{ 640, 452 }));
+}
+TEST(RulesTests, inlineSessionsKeepIndependentSelectionAndDrags)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 1)));
+    EditorSession a, b;
+    a.bind({ OwnerKind::vehicle, 1 }, p);
+    b.bind({ OwnerKind::vehicle, 2 }, p);
+    a.selectRows(0, 1);
+    a.selectBlock(p.blocks[0].id);
+    a.startDrag(EditorDrag::section, 0, 1, p.blocks[0].id);
+    b.selectRows(2, 3);
+    EXPECT_TRUE(a.dragging());
+    EXPECT_FALSE(b.dragging());
+    EXPECT_EQ(a.selectedBlock(), p.blocks[0].id);
+    EXPECT_EQ(b.selectedBlock(), 0U);
+    EXPECT_EQ(a.selection()->second, 1U);
+    EXPECT_EQ(b.selection()->first, 2U);
+    a.cancel();
+    EXPECT_FALSE(a.dragging());
+    EXPECT_EQ(b.selection()->first, 2U);
+}
+TEST(RulesTests, inlineOwnerAndRevisionChangesCancelPendingInteraction)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 1)));
+    EditorSession s;
+    s.bind({ OwnerKind::vehicle, 1 }, p);
+    s.selectBlock(p.blocks[0].id);
+    s.selectRows(0, 1);
+    s.startDrag(EditorDrag::row, 2, 2);
+    auto changed = p;
+    changed.revision++;
+    s.bind({ OwnerKind::vehicle, 1 }, changed);
+    EXPECT_FALSE(s.dragging());
+    EXPECT_FALSE(s.dropProposal(s.layout().height));
+    s.startDrag(EditorDrag::row, 2, 2);
+    s.bind({ OwnerKind::line, 3 }, changed);
+    EXPECT_FALSE(s.dragging());
+    EXPECT_FALSE(s.selection());
+    EXPECT_EQ(s.selectedBlock(), 0U);
+}
+TEST(RulesTests, inlineRowAndSectionDropsKeepContainerMembership)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 0)));
+    EditorSession s;
+    s.bind({ OwnerKind::vehicle, 1 }, p);
+    s.startDrag(EditorDrag::row, 1, 1);
+    auto closing = std::find_if(s.layout().items.begin(), s.layout().items.end(), [](const auto& v) { return v.closing; });
+    ASSERT_NE(closing, s.layout().items.end());
+    const auto command = s.dropProposal(closing->top + 3);
+    ASSERT_TRUE(command);
+    EXPECT_EQ(command->into, p.blocks[0].id);
+    auto updated = p;
+    ASSERT_TRUE(edit(updated, *command));
+    EXPECT_EQ(updated.blocks[0].last, p.rows[1].key);
+    s.bind({ OwnerKind::vehicle, 1 }, updated);
+    s.selectBlock(updated.blocks[0].id);
+    s.startDrag(EditorDrag::section, 0, 1, updated.blocks[0].id);
+    const auto moved = s.dropProposal(s.layout().height);
+    ASSERT_TRUE(moved);
+    ASSERT_TRUE(edit(updated, *moved));
+    EXPECT_EQ(updated.rows[updated.rows.size() - 2].key, p.rows[0].key);
+    EXPECT_EQ(updated.rows.back().key, p.rows[1].key);
+}
+TEST(RulesTests, inlinePaletteAndResizeApplyToMultipleOrders)
+{
+    auto p = route();
+    EditorSession s;
+    s.bind({ OwnerKind::vehicle, 1 }, p);
+    s.selectRows(0, 2);
+    s.startDrag(EditorDrag::palette, 0, 0, 0, Kind::repeat);
+    const auto added = s.dropProposal(s.layout().orderTops[0] + 3);
+    ASSERT_TRUE(added);
+    ASSERT_TRUE(edit(p, *added));
+    EXPECT_EQ(p.blocks[0].last, p.rows[2].key);
+    s.bind({ OwnerKind::vehicle, 1 }, p);
+    s.selectBlock(p.blocks[0].id);
+    s.startDrag(EditorDrag::resize, 0, 2, p.blocks[0].id);
+    const auto grown = s.dropProposal(s.layout().orderTops[3] + 3);
+    ASSERT_TRUE(grown);
+    ASSERT_TRUE(edit(p, *grown));
+    EXPECT_EQ(p.blocks[0].last, p.rows[3].key);
+}
+TEST(RulesTests, inlineReadOnlyAndOutsideProposalsNeverMutateOrders)
+{
+    auto p = route();
+    EditorSession s;
+    s.bind({ OwnerKind::vehicle, 1 }, p, UINT16_MAX, false);
+    s.startDrag(EditorDrag::row, 0, 0);
+    EXPECT_FALSE(s.dropProposal(s.layout().height));
+    EXPECT_EQ(s.program(), p);
+    s.bind({ OwnerKind::vehicle, 1 }, p);
+    s.startDrag(EditorDrag::row, 0, 0);
+    EXPECT_FALSE(s.dropProposal(-1));
+    EXPECT_FALSE(s.dropProposal(s.layout().height + 1));
+    s.cancel();
+    EXPECT_FALSE(s.dropProposal(s.layout().height));
+    EXPECT_EQ(s.program(), p);
+}
+TEST_F(GameRulesFixture, nativeInlineToggleRestoresVehicleWindowSize)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const Owner owner{ OwnerKind::vehicle, enumValue(head->id) };
+    auto* w = inlineTestHost(owner, enumValue(head->id));
+    ASSERT_NE(w, nullptr);
+    CloseInlineHost close{ w };
+    auto& s = editorSession(*w);
+    s.toggle(*w, { 1024, 768 });
+    EXPECT_TRUE(s.expanded());
+    expectEditorSize(w->size(), (Ui::Size{ 560, 320 }));
+    EXPECT_EQ(w->widgets[1].width(), 88);
+    EXPECT_FALSE(w->widgets[1].hidden);
+    EXPECT_GE(w->widgets[0].left, 95);
+    s.toggle(*w, { 1024, 768 });
+    EXPECT_FALSE(s.expanded());
+    expectEditorSize(w->size(), (Ui::Size{ 265, 202 }));
+    EXPECT_TRUE(w->widgets[1].hidden);
+}
+TEST_F(GameRulesFixture, nativeSharedInlineKeepsBrowserAndThirdScrollArea)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    auto line = Lines::createLine("Editor line", TransportMode::rail, 4);
+    ASSERT_TRUE(line.ok);
+    Lines::LineOrder row;
+    row.type = Vehicles::OrderType::RouteWaypoint;
+    row.tileX = 20;
+    row.tileY = 20;
+    ASSERT_TRUE(Lines::addOrder(line.id, row).ok);
+    const Owner owner{ OwnerKind::line, line.id };
+    auto* w = inlineTestHost(owner, enumValue(head->id), true);
+    ASSERT_NE(w, nullptr);
+    CloseInlineHost close{ w };
+    auto& s = editorSession(*w);
+    s.toggle(*w, { 1024, 768 });
+    expectEditorSize(w->size(), (Ui::Size{ 640, 320 }));
+    EXPECT_EQ(w->widgets[0].left, 4);
+    EXPECT_EQ(w->widgets[0].width(), 182);
+    EXPECT_GE(w->widgets[1].left, 286);
+    ASSERT_GE(Ui::Window::kMaxScrollAreas, 3U);
+    EXPECT_EQ(Ui::ScrollView::getPart(*w, &w->widgets[2], w->x + 200, w->y + 83).index, 2U);
+    EXPECT_GT(w->scrollAreas[2].contentHeight, 160);
+}
+TEST_F(GameRulesFixture, nativeInlineDropEditsOrdersAndBinRemovesOnlyBlock)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const Owner owner{ OwnerKind::vehicle, enumValue(head->id) };
+    auto p = snapshot(owner);
+    Edit addBlock;
+    addBlock.block = section(p, Kind::group, 0, 0);
+    ASSERT_TRUE(submit(owner, addBlock));
+    auto* w = inlineTestHost(owner, enumValue(head->id));
+    ASSERT_NE(w, nullptr);
+    CloseInlineHost close{ w };
+    auto& s = editorSession(*w);
+    s.toggle(*w, { 1024, 768 });
+    const auto initial = s.program();
+    const auto& canvas = w->widgets[0];
+    s.mouseDown(*w, 12, s.layout().orderTops[1] + 3, 0);
+    const auto closing = std::find_if(s.layout().items.begin(), s.layout().items.end(), [](const auto& v) { return v.closing; });
+    ASSERT_NE(closing, s.layout().items.end());
+    const int x = w->x + canvas.left + 10, y = w->y + canvas.top + 1 + closing->top + 3;
+    s.mouseDrag(*w, 10, closing->top + 3, 0);
+    ASSERT_TRUE(s.mouseRelease(*w, x, y, 0));
+    auto updated = snapshot(owner);
+    EXPECT_EQ(updated.blocks[0].last, initial.rows[1].key);
+    s.configure(*w, owner, enumValue(head->id), 0, 0, 1, 1, true);
+    s.selectBlock(updated.blocks[0].id);
+    const auto& header = s.layout().items.front();
+    s.mouseDown(*w, 4, header.top + 3, 0);
+    s.mouseDrag(*w, 30, header.top + 25, 0);
+    const auto& bin = w->widgets[14];
+    s.mouseRelease(*w, w->x + bin.left + 5, w->y + bin.top + 5, 0);
+    EXPECT_TRUE(snapshot(owner).blocks.empty());
+    EXPECT_EQ(snapshot(owner).rows, updated.rows);
+}
+TEST_F(GameRulesFixture, nativeInlineOutsideDropAndEscapeCancelWithoutMutation)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const Owner owner{ OwnerKind::vehicle, enumValue(head->id) };
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 0, 0);
+    ASSERT_TRUE(submit(owner, e));
+    auto* w = inlineTestHost(owner, enumValue(head->id));
+    ASSERT_NE(w, nullptr);
+    CloseInlineHost close{ w };
+    auto& s = editorSession(*w);
+    s.toggle(*w, { 1024, 768 });
+    const auto before = snapshot(owner);
+    s.mouseDown(*w, 12, s.layout().orderTops[1] + 3, 0);
+    s.mouseDrag(*w, 12, s.layout().height, 0);
+    s.mouseRelease(*w, -100, -100, 0);
+    EXPECT_EQ(snapshot(owner), before);
+    EXPECT_FALSE(s.dragging());
+    s.mouseDown(*w, 12, s.layout().orderTops[1] + 3, 0);
+    EXPECT_TRUE(s.escape(*w));
+    EXPECT_FALSE(s.dragging());
+    EXPECT_EQ(snapshot(owner), before);
+}
+TEST(RulesTests, capturedScrollDragReportsPaletteCoordinatesAcrossPanes)
+{
+    using namespace OpenLoco;
+    using namespace Ui;
+    static int calls, x, y, index;
+    calls = 0;
+    x = y = index = 0;
+    static const WindowEventList events = { .scrollMouseDrag = [](Window&, int16_t px, int16_t py, uint8_t scroll) {++calls;x=px;y=py;index=scroll; }, .scrollMouseDragOutside = true };
+    Window w{ { 20, 28 }, { 640, 320 } };
+    w.eventHandlers = &events;
+    const auto widgets = makeWidgets(Widgets::ScrollView({ 0, 0 }, { 10, 10 }, WindowColour::secondary), Widgets::ScrollView({ 20, 0 }, { 10, 10 }, WindowColour::secondary), Widgets::ScrollView({ 194, 76 }, { 88, 100 }, WindowColour::secondary, Scrollbars::vertical));
+    w.widgets.assign(widgets.begin(), widgets.end());
+    w.scrollAreas[2].contentHeight = 200;
+    w.scrollAreas[2].contentOffsetY = 37;
+    w.scrollAreas[2].flags = ScrollFlags::vscrollbarVisible;
+    ScrollView::scrollLeftBegin(w.x + 200, w.y + 83, w, &w.widgets[2], 2);
+    ScrollView::scrollLeftContinue(w.x + 330, w.y + 96, w, &w.widgets[2], 2);
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(index, 2);
+    EXPECT_EQ(x, 135);
+    EXPECT_EQ(y, 56);
+    ScrollView::scrollLeftContinue(w.x + 180, w.y + 60, w, &w.widgets[2], 2);
+    EXPECT_EQ(calls, 2);
+    EXPECT_LT(x, 0);
+}
+
+TEST_F(GameRulesFixture, nativeFieldCallbacksEditOnlyTheirCapturedOwner)
+{
+    using namespace OpenLoco;
+    auto* first = vehicle();
+    auto* second = vehicle();
+    const Owner a{ OwnerKind::vehicle, enumValue(first->id) }, b{ OwnerKind::vehicle, enumValue(second->id) };
+    for (const auto owner : { a, b })
+    {
+        auto p = snapshot(owner);
+        Edit e;
+        e.block = section(p, Kind::ifBlock, 0, 1);
+        e.block.condition.check = Check::year;
+        e.block.condition.value = 2000;
+        ASSERT_TRUE(submit(owner, e));
+    }
+    auto* w = inlineTestHost(a, enumValue(first->id));
+    ASSERT_NE(w, nullptr);
+    CloseInlineHost close{ w };
+    auto& s = editorSession(*w);
+    const auto openValue = [&] {
+        const auto& v = s.layout().items.front();
+        const auto f = std::find_if(v.fields.begin(), v.fields.end(), [](const auto& field) { return field.field == BlockField::value; });
+        ASSERT_NE(f, v.fields.end());
+        s.mouseDown(*w, 3 + visualIndent(v, w->widgets[0].width() - 14) + f->left + f->width / 2, f->top + 8, 0);
+    };
+    openValue();
+    ASSERT_TRUE(s.textInput(*w, 0, "2050"));
+    EXPECT_EQ(find(a)->blocks[0].condition.value, 2050);
+    EXPECT_EQ(find(b)->blocks[0].condition.value, 2000);
+    openValue();
+    auto changed = snapshot(a);
+    Edit e;
+    e.kind = EditKind::updateBlock;
+    e.block = changed.blocks[0];
+    e.block.condition.value = 2060;
+    ASSERT_TRUE(submit(a, e));
+    EXPECT_TRUE(s.textInput(*w, 0, "2100"));
+    EXPECT_EQ(find(a)->blocks[0].condition.value, 2060);
+    s.configure(*w, a, enumValue(first->id), 0, 0, 1, 1, true);
+    openValue();
+    s.configure(*w, b, enumValue(second->id), 0, 0, 1, 1, true);
+    EXPECT_FALSE(s.textInput(*w, 0, "2200"));
+    EXPECT_EQ(find(b)->blocks[0].condition.value, 2000);
+    Ui::Windows::TextInput::sub_4CE6C9(w->type, w->number);
+}
+TEST_F(GameRulesFixture, nativePaletteDragCrossesIntoCanvasAndAddsSelectedSection)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const Owner owner{ OwnerKind::vehicle, enumValue(head->id) };
+    auto* w = inlineTestHost(owner, enumValue(head->id));
+    ASSERT_NE(w, nullptr);
+    CloseInlineHost close{ w };
+    auto& s = editorSession(*w);
+    s.toggle(*w, { 1024, 768 });
+    s.selectRows(0, 1);
+    // If is the second palette item; coordinates are relative to the pressed palette scroll.
+    ASSERT_TRUE(s.mouseDown(*w, 6, 25, 1));
+    const auto canvas = w->widgets[0], palette = w->widgets[1];
+    const int targetY = s.layout().orderTops[0] + 3;
+    s.mouseDrag(*w, canvas.left - palette.left + 12, canvas.top - palette.top + targetY, 1);
+    ASSERT_TRUE(s.mouseRelease(*w, w->x + canvas.left + 13, w->y + canvas.top + 1 + targetY, 1));
+    const auto p = snapshot(owner);
+    ASSERT_EQ(p.blocks.size(), 1U);
+    EXPECT_EQ(p.blocks[0].kind, Kind::ifBlock);
+    EXPECT_EQ(p.blocks[0].first, p.rows[0].key);
+    EXPECT_EQ(p.blocks[0].last, p.rows[1].key);
 }

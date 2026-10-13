@@ -122,12 +122,12 @@ namespace OpenLoco::Rules
     }
     int16_t visualIndent(const ProgramVisual& visual, int16_t width)
     {
-        return static_cast<int16_t>(std::min<int>(visual.depth * 10, std::max<int>(0, width - 146)));
+        return static_cast<int16_t>(std::min<int>(visual.depth * 8, std::max<int>(0, width - 146)));
     }
     static std::vector<FieldVisual> blockFields(const Program& program, const Block& b)
     {
         std::vector<FieldVisual> fields;
-        auto add = [&](BlockField field, std::string label, bool extra = false) { fields.push_back({ field, extra, 0, 0, 0, 14, std::move(label) }); };
+        auto add = [&](BlockField field, std::string label, bool extra = false) { fields.push_back({ field, extra, 0, 0, 0, 16, std::move(label) }); };
         auto ordinal = [&](Key key) {
             size_t number = 0;
             for (const auto& row : program.rows)
@@ -322,11 +322,14 @@ namespace OpenLoco::Rules
         const auto left = origin + visualIndent(visual, width) + 4;
         return !visual.block && left <= x && x < left + 18;
     }
-    ProgramLayout programLayout(const Program& program, int16_t width, int16_t orderHeight)
+    ProgramLayout programLayout(const Program& program, int16_t width, int16_t orderHeight, FieldTextWidth measure)
     {
         ProgramLayout layout;
-        int16_t y = 4;
-        orderHeight = std::max<int16_t>(16, orderHeight);
+        int16_t y = 2;
+        orderHeight = std::max<int16_t>(14, orderHeight);
+        const auto textWidth = [measure](std::string_view text, bool heading) {
+            return measure ? measure(text, heading) : static_cast<int16_t>(Gfx::TextRenderer::getStringWidth(heading ? Gfx::Font::medium_bold : Gfx::Font::medium_normal, std::string(text).c_str()));
+        };
         for (size_t row = 0; row < program.rows.size(); ++row)
         {
             std::vector<const Block*> opening;
@@ -354,25 +357,25 @@ namespace OpenLoco::Rules
                 }
                 ProgramVisual v{ y, 0, row, block->id, depth, 0, {} };
                 const auto right = std::max<int>(34, width - visualIndent(v, width) - 11);
-                int16_t left = static_cast<int16_t>(std::min<int>(right, static_cast<int>(std::string(kindName(block->kind)).size()) * 6 + 16));
-                int16_t top = 4;
+                int16_t left = static_cast<int16_t>(std::min<int>(right, textWidth(kindName(block->kind), true) + 14));
+                int16_t top = 2;
                 v.fields = blockFields(program, *block);
                 for (auto& field : v.fields)
                 {
-                    const auto cap = field.field == BlockField::cargo ? 60 : field.field == BlockField::value ? 40
-                                                                                                              : 80;
-                    const auto desired = std::clamp<int>(static_cast<int>(field.label.size()) * 4 + 12, 20, cap);
+                    const auto cap = field.field == BlockField::cargo ? 140 : field.field == BlockField::value ? 64
+                                                                                                               : 180;
+                    const auto desired = std::clamp<int>(textWidth(field.label, false) + 12, 20, cap);
                     field.width = static_cast<int16_t>(std::min<int>(desired, right - 8));
                     if (left + field.width > right)
                     {
                         left = 8;
-                        top += 16;
+                        top += 18;
                     }
                     field.left = left;
                     field.top = v.top + top;
-                    left += field.width + 3;
+                    left += field.width + 2;
                 }
-                v.height = static_cast<int16_t>(top + 19);
+                v.height = static_cast<int16_t>(v.fields.empty() ? 16 : top + 18);
                 layout.items.push_back(std::move(v));
                 y += layout.items.back().height;
             }
@@ -406,9 +409,9 @@ namespace OpenLoco::Rules
             for (auto i : closing)
             {
                 const auto v = layout.items[i];
-                layout.items[i].bottom = y + 17;
-                layout.items.push_back({ y, 18, row, v.block, v.depth, static_cast<int16_t>(y + 17), {}, true });
-                y += 18;
+                layout.items[i].bottom = y + 7;
+                layout.items.push_back({ y, 8, row, v.block, v.depth, static_cast<int16_t>(y + 7), {}, true });
+                y += 8;
             }
         }
         layout.height = y;
@@ -666,7 +669,9 @@ namespace OpenLoco::Rules
     void drawStackBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, Kind kind, Feedback feedback, bool selected)
     {
         const auto colour = blockColour(kind, feedback);
-        stackShape(context, x, y, width, height, Colours::getShade(colour, 5));
+        stackShape(context, x, y, width, height, Colours::getShade(colour, 3));
+        context.fillRect(x + 4, y + 1, x + width - 5, y + 1, Colours::getShade(colour, 6), Gfx::RectFlags::none);
+        context.fillRect(x + 4, y + height - 2, x + width - 5, y + height - 2, Colours::getShade(colour, 1), Gfx::RectFlags::none);
         if (selected)
         {
             context.fillRect(x + 4, y + 4, x + 6, y + height - 3, Colours::getShade(Colour::yellow, 9), Gfx::RectFlags::none);
@@ -674,11 +679,11 @@ namespace OpenLoco::Rules
     }
     void drawOrderBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, bool selected)
     {
-        stackShape(context, x, y, width, height - 3, Colours::getShade(selected ? Colour::yellow : Colour::purple, 9));
+        stackShape(context, x, y, width, height - 3, Colours::getShade(selected ? Colour::yellow : Colour::grey, 9));
     }
     static void socketShape(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, uint8_t colour, bool boolean)
     {
-        const auto radius = std::min<int>(boolean ? 7 : 5, height / 2);
+        const auto radius = std::min<int>(boolean ? 4 : 2, height / 2);
         for (int row = 0; row < height; ++row)
         {
             const auto inset = std::max<int>(0, radius - std::min(row, height - row - 1));
@@ -711,26 +716,24 @@ namespace OpenLoco::Rules
             const auto nextClause = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& next) { return next.parent == b->id && (next.kind == Kind::otherwise || next.kind == Kind::elseIf) && indexOf(program, next.first) == indexOf(program, b->last) + 1; });
             if (visual.closing)
             {
-                if (labels)
-                {
-                    blockText(context, x + 14, visual.top + 1, static_cast<int16_t>(right - x - 18), "+ drop inside", false);
-                }
                 if (nextClause == program.blocks.end())
                 {
-                    stackShape(context, x, visual.top + 11, static_cast<int16_t>(right - x), 7, Colours::getShade(colour, 5));
+                    stackShape(context, x, visual.top, static_cast<int16_t>(right - x), 8, Colours::getShade(colour, 3));
                 }
                 else
                 {
-                    context.fillRect(x, visual.top, x + 7, visual.top + visual.height - 1, Colours::getShade(colour, 5), Gfx::RectFlags::none);
+                    context.fillRect(x, visual.top, x + 3, visual.top + visual.height - 1, Colours::getShade(colour, 3), Gfx::RectFlags::none);
                 }
                 continue;
             }
             const auto previous = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& previous) { return previous.id == b->parent; });
             const bool joined = (b->kind == Kind::otherwise || b->kind == Kind::elseIf) && previous != program.blocks.end() && indexOf(program, previous->last) + 1 == indexOf(program, b->first);
-            stackShape(context, x, visual.top, static_cast<int16_t>(right - x), visual.height - 3, Colours::getShade(colour, 5), !joined);
+            stackShape(context, x, visual.top, static_cast<int16_t>(right - x), visual.height - 1, Colours::getShade(colour, 3), !joined);
+            context.fillRect(x + 4, visual.top + 1, right - 5, visual.top + 1, Colours::getShade(colour, 6), Gfx::RectFlags::none);
+            context.fillRect(x + 4, visual.top + visual.height - 2, right - 5, visual.top + visual.height - 2, Colours::getShade(colour, 1), Gfx::RectFlags::none);
             if (joined)
             {
-                context.fillRect(x, visual.top, x + 7, visual.top + 3, Colours::getShade(colour, 5), Gfx::RectFlags::none);
+                context.fillRect(x, visual.top, x + 3, visual.top + 3, Colours::getShade(colour, 3), Gfx::RectFlags::none);
             }
             if (selected == b->id)
             {
@@ -738,19 +741,21 @@ namespace OpenLoco::Rules
             }
             if (labels)
             {
-                blockText(context, x + 9, visual.top + 6, static_cast<int16_t>(right - x - 15), kindName(b->kind), true);
+                blockText(context, x + 9, visual.top + 3, static_cast<int16_t>(right - x - 15), kindName(b->kind), true);
             }
             if (bracket(*b))
             {
-                context.fillRect(x, visual.top + visual.height - 3, x + 7, visual.bottom, Colours::getShade(colour, 5), Gfx::RectFlags::none);
+                context.fillRect(x, visual.top + visual.height - 3, x + 3, visual.bottom, Colours::getShade(colour, 3), Gfx::RectFlags::none);
             }
             for (const auto& field : visual.fields)
             {
                 const auto boolean = field.field == BlockField::check;
-                socketShape(context, x + field.left, field.top, field.width, field.height, Colours::getShade(boolean ? colour : Colour::white, boolean ? 2 : 9), boolean);
+                socketShape(context, x + field.left, field.top, field.width, field.height, Colours::getShade(boolean ? colour : Colour::grey, boolean ? 2 : 9), boolean);
+                context.fillRect(x + field.left + 4, field.top + 1, x + field.left + field.width - 5, field.top + 1, Colours::getShade(boolean ? colour : Colour::grey, 6), Gfx::RectFlags::none);
+                context.fillRect(x + field.left + 4, field.top + field.height - 2, x + field.left + field.width - 5, field.top + field.height - 2, Colours::getShade(boolean ? colour : Colour::grey, 1), Gfx::RectFlags::none);
                 if (labels)
                 {
-                    blockText(context, x + field.left + 5, field.top + 4, field.width - 10, field.label, boolean, Gfx::Font::small);
+                    blockText(context, x + field.left + 5, field.top + 3, field.width - 10, field.label, boolean, Gfx::Font::medium_normal);
                 }
             }
             if (currentBlock == b->id)
@@ -866,7 +871,7 @@ namespace OpenLoco::Rules
         renderer.clipString(width - 4, text.data());
         renderer.drawString({ static_cast<int16_t>(x + 2), static_cast<int16_t>(y - 1) }, Colour::black, text.c_str());
     }
-    int16_t orderRowHeight(const Program* program) { return program && !program->blocks.empty() ? 20 : 10; }
+    int16_t orderRowHeight(const Program* program) { return program && !program->blocks.empty() ? 14 : 10; }
     void OrderDrag::begin(Owner nextOwner, const Program& program, size_t first, int16_t x, int16_t y)
     {
         owner = nextOwner;

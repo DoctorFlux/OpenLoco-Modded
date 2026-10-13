@@ -52,7 +52,7 @@ namespace OpenLoco::Rules
     {
         BlockField field = BlockField::none;
         bool extra = false;
-        int16_t left = 0, top = 0, width = 0, height = 14;
+        int16_t left = 0, top = 0, width = 0, height = 16;
         std::string label;
     };
     struct ProgramVisual
@@ -73,7 +73,8 @@ namespace OpenLoco::Rules
         int16_t height = 0;
     };
     std::string blockSentence(const Program& program, const Block& block);
-    ProgramLayout programLayout(const Program& program, int16_t width, int16_t orderHeight = 10);
+    using FieldTextWidth = int16_t (*)(std::string_view text, bool heading);
+    ProgramLayout programLayout(const Program& program, int16_t width, int16_t orderHeight = 14, FieldTextWidth measure = nullptr);
     const ProgramVisual* programHit(const ProgramLayout& layout, int16_t y);
     const FieldVisual* blockFieldHit(const ProgramLayout& layout, int16_t x, int16_t y, int16_t width, int16_t origin = 0);
     Result fieldTextEdit(const Program& program, Key block, BlockField field, bool extra, std::string_view value, Edit& command);
@@ -124,8 +125,4 @@ namespace OpenLoco::Rules
         int32_t x, y, width, height;
     };
     EditorRect placeEditor(EditorRect opener, int16_t screenWidth, int16_t screenHeight, const std::vector<EditorRect>& obstacles);
-}
-namespace OpenLoco::Ui::Windows::RulesWindow
-{
-    Window* open(Rules::Owner owner, Window& opener, uint16_t vehicle = UINT16_MAX, std::optional<size_t> row = {}, Rules::Key block = 0, Rules::BlockField field = Rules::BlockField::none, bool extra = false);
 }

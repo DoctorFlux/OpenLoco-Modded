@@ -97,6 +97,8 @@ namespace OpenLoco::Ui
         void (*draw)(Window&, Gfx::DrawingContext&) = nullptr;
         void (*drawScroll)(Window&, Gfx::DrawingContext&, const uint32_t scrollIndex) = nullptr;
         bool (*keyUp)(Window&, uint32_t charCode, uint32_t keyCode) = nullptr;
+        // Opt-in captured content dragging between scroll areas, without a map tool.
+        bool scrollMouseDragOutside = false;
     };
 
     struct SavedViewSimple
@@ -165,7 +167,8 @@ namespace OpenLoco::Ui
 
     struct Window
     {
-        static constexpr size_t kMaxScrollAreas = 2;
+        // Line browser, route canvas and the inline Rules palette.
+        static constexpr size_t kMaxScrollAreas = 3;
 
         sfl::small_vector<Widget, 16> widgets;
         const WindowEventList* eventHandlers;

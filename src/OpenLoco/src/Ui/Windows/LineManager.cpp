@@ -1,4 +1,4 @@
-#include "Rules/Editor.h"
+#include "Rules/EditorSession.h"
 #include "Audio/Audio.h"
 #include "Entities/EntityManager.h"
 #include "Graphics/Colour.h"
@@ -191,7 +191,8 @@ namespace OpenLoco::Ui::Windows::LineManager
         Widgets::Button(Widx::kShowAllLines, { 84, 196 }, { 40, 14 }, WindowColour::secondary, StringIds::line_show_all),
         Widgets::Button(Widx::kPaintVehicles, { 126, 196 }, { 60, 14 }, WindowColour::secondary, StringIds::line_paint_vehicles),
         Widgets::Button(Widx::kSchemes, { 4, 214 }, { 70, 14 }, WindowColour::secondary, StringIds::line_colour_schemes),
-        Widgets::Button(Widx::kRules, { 392, 148 }, { 24, 24 }, WindowColour::secondary, StringIds::rules_button_short, StringIds::rules_title)
+        Widgets::Button(Widx::kRules, { 338, 34 }, { 48, 12 }, WindowColour::secondary, StringIds::rules_title, StringIds::rules_title),
+        Rules::inlineEditorWidgets()
 
     );
 
@@ -717,6 +718,10 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void onMouseDown(Ui::Window& self, WidgetIndex_t widgetIndex, const WidgetId id)
     {
+        if (Rules::editorSession(self).buttonDown(self, widgetIndex, id))
+        {
+            return;
+        }
         if (id == Widx::kAddVehicle)
         {
             showAddVehicleDropdown(self, widgetIndex);
@@ -785,6 +790,10 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void onDropdown(Ui::Window& self, [[maybe_unused]] WidgetIndex_t widgetIndex, const WidgetId id, int16_t itemIndex)
     {
+        if (Rules::editorSession(self).dropdown(self, widgetIndex, itemIndex))
+        {
+            return;
+        }
         const auto item = itemIndex == -1 ? Dropdown::getHighlightedItem() : itemIndex;
         if (item < 0)
         {
@@ -850,11 +859,15 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void onMouseUp(Ui::Window& window, [[maybe_unused]] WidgetIndex_t widgetIndex, const WidgetId id)
     {
+        if (Rules::editorSession(window).buttonUp(window, widgetIndex, id))
+        {
+            return;
+        }
         if (id == Widx::kRules)
         {
             if (const auto* line = selectedLine())
             {
-                RulesWindow::open({ Rules::OwnerKind::line, line->id }, window, progressVehicle());
+                Rules::editorSession(window).toggle(window);
             }
             return;
         }
@@ -876,6 +889,7 @@ namespace OpenLoco::Ui::Windows::LineManager
         }
         if (id == Widx::kTabVehicles)
         {
+            Rules::editorSession(window).suspend(window);
             window.currentTab = 1;
             window.invalidate();
             return;
@@ -1141,6 +1155,81 @@ namespace OpenLoco::Ui::Windows::LineManager
             window.disabledWidgets &= ~((1ULL << widx::colourPrimary) | (1ULL << widx::colourSecondary) | (1ULL << widx::paintVehicles) | (1ULL << widx::schemes));
         }
         Lines::setRouteView(line == nullptr ? 0 : line->id, _showPath && line != nullptr, _showAllLines, progressVehicle());
+        window.widgets[widx::frame].right = window.width - 1;
+        window.widgets[widx::frame].bottom = window.height - 1;
+        window.widgets[widx::panel].right = window.width - 1;
+        window.widgets[widx::panel].bottom = window.height - 1;
+        window.widgets[widx::title].right = window.width - 2;
+        window.widgets[widx::close].left = window.width - 15;
+        window.widgets[widx::close].right = window.width - 3;
+        window.widgets[widx::lines].bottom = window.height - 76;
+        for (int index : { widx::colourPrimary, widx::colourSecondary, widx::showPath, widx::showAllLines, widx::paintVehicles })
+        {
+            window.widgets[index].top = window.height - 72;
+            window.widgets[index].bottom = window.height - 59;
+        }
+        window.widgets[widx::schemes].top = window.height - 54;
+        window.widgets[widx::schemes].bottom = window.height - 41;
+        for (int index : { widx::create, widx::remove, widx::loop, widx::addVehicle, widx::buyVehicle, widx::addSlot, widx::autoUnbunch })
+        {
+            window.widgets[index].top = window.height - 32;
+            window.widgets[index].bottom = window.height - 18;
+        }
+        const auto paneRight = static_cast<int16_t>(window.width - 28);
+        for (int index : { widx::orderForceUnload, widx::orderWait, widx::orderDelete, widx::orderUp, widx::orderDown })
+        {
+            window.widgets[index].left = window.width - 28;
+            window.widgets[index].right = window.width - 5;
+        }
+        window.widgets[widx::rules].left = paneRight - 48;
+        window.widgets[widx::rules].right = paneRight - 1;
+        window.widgets[widx::rules].top = 34;
+        window.widgets[widx::rules].bottom = 45;
+        window.widgets[widx::expressMode].right = paneRight - 51;
+        window.widgets[widx::expressMode].left = (194 + paneRight - 51) / 2;
+        window.widgets[widx::localMode].right = window.widgets[widx::expressMode].left - 2;
+        const int buttonWidth = (window.width - 198) / 3;
+        window.widgets[widx::loop].right = 194 + buttonWidth - 2;
+        for (int index : { widx::addSlot, widx::addVehicle })
+        {
+            window.widgets[index].left = 194 + buttonWidth;
+            window.widgets[index].right = 194 + buttonWidth * 2 - 2;
+        }
+        for (int index : { widx::autoUnbunch, widx::buyVehicle })
+        {
+            window.widgets[index].left = 194 + buttonWidth * 2;
+            window.widgets[index].right = window.width - 5;
+        }
+        auto& editor = Rules::editorSession(window);
+        editor.configure(window, { Rules::OwnerKind::line, _selectedLine }, progressVehicle(), widx::orders, 1, widx::rules + 1, 2, line != nullptr);
+        if (showingOrders)
+        {
+            window.activatedWidgets &= ~(1ULL << widx::rules);
+            if (editor.expanded())
+            {
+                window.activatedWidgets |= 1ULL << widx::rules;
+            }
+            const auto top = static_cast<int16_t>(editor.expanded() ? 63 : 50);
+            editor.prepare(window, 194, top, paneRight, static_cast<int16_t>(window.height - 62));
+            const int indices[] = { widx::orderForceUnload, widx::orderWait, widx::orderDelete, widx::orderUp, widx::orderDown };
+            const int offsets[] = { 0, 24, 48, 72, 84 };
+            const int heights[] = { 24, 24, 24, 12, 12 };
+            for (size_t i = 0; i < std::size(indices); ++i)
+            {
+                window.widgets[indices[i]].top = top + offsets[i];
+                window.widgets[indices[i]].bottom = top + offsets[i] + heights[i] - 1;
+            }
+        }
+        else
+        {
+            for (int index = widx::rules + 1; index <= widx::rules + 16; ++index)
+            {
+                window.widgets[index].hidden = true;
+            }
+            window.widgets[widx::orders].left = 194;
+            window.widgets[widx::orders].right = window.width - 8;
+            window.widgets[widx::orders].bottom = window.height - 62;
+        }
     }
 
     static void draw(Ui::Window& window, Gfx::DrawingContext& drawingCtx)
@@ -1153,29 +1242,11 @@ namespace OpenLoco::Ui::Windows::LineManager
             FormatArguments args{};
             args.push(static_cast<uint16_t>(minute / 60));
             args.push(static_cast<uint16_t>(minute % 60));
-            tr.drawStringLeftClipped(Point(78, 214), 110, Colour::black, StringIds::line_timetable_clock, args);
+            tr.drawStringLeftClipped(Point(78, window.height - 54), 110, Colour::black, StringIds::line_timetable_clock, args);
         }
-        if (ordersTab(window) && orderProgram(window) != nullptr)
+        if (ordersTab(window) && !Rules::editorSession(window).showingProgram() && selectedLine() != nullptr && ToolManager::isToolActive(window.type, window.number))
         {
-            const auto vehicle = progressVehicle();
-            const auto* head = vehicle == UINT16_MAX ? nullptr : EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
-            auto sentence = head ? "Vehicle " + std::to_string(head->ordinalNumber) + ": " + Rules::vehicleStatus(vehicle) : "Rules: no assigned vehicle";
-            const auto mapStatus = Lines::routePreviewStatus(_selectedLine);
-            if (!mapStatus.empty())
-            {
-                sentence = mapStatus + " | " + sentence;
-            }
-            sentence.insert(sentence.begin(), static_cast<char>(ControlCodes::Colour::black));
-            tr.setCurrentFont(Gfx::Font::medium_bold);
-            tr.clipString(220, sentence.data());
-            tr.drawString({ 194, 211 }, Colour::black, sentence.c_str());
-            auto next = std::string(1, static_cast<char>(ControlCodes::Colour::black)) + Rules::vehicleNextStop(vehicle);
-            tr.clipString(220, next.data());
-            tr.drawString({ 194, 223 }, Colour::black, next.c_str());
-        }
-        else if (selectedLine() != nullptr && ToolManager::isToolActive(window.type, window.number))
-        {
-            tr.drawStringLeft(Point(194, 214), Colour::black, StringIds::route_click_on_waypoint);
+            tr.drawStringLeft({ 194, static_cast<int16_t>(window.height - 54) }, Colour::black, StringIds::route_click_on_waypoint);
         }
         if (!ordersTab(window))
         {
@@ -1194,6 +1265,10 @@ namespace OpenLoco::Ui::Windows::LineManager
                                                                   + std::to_string(orderDrag.row + 1),
                                                               Rules::Feedback::idle,
                                                               true });
+        }
+        if (ordersTab(window))
+        {
+            Rules::editorSession(window).draw(window, drawingCtx);
         }
     }
 
@@ -1509,6 +1584,10 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void drawScroll(Ui::Window& window, Gfx::DrawingContext& drawingCtx, const uint32_t scrollIndex)
     {
+        if (ordersTab(window) && Rules::editorSession(window).drawScroll(window, drawingCtx, scrollIndex))
+        {
+            return;
+        }
         const auto shade = Colours::getShade(window.getColour(WindowColour::secondary).c(), 4);
         drawingCtx.clear(shade);
         auto tr = Gfx::TextRenderer(drawingCtx);
@@ -1598,6 +1677,10 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void getScrollSize([[maybe_unused]] Ui::Window& window, uint32_t scrollIndex, [[maybe_unused]] int32_t& scrollWidth, int32_t& scrollHeight)
     {
+        if (ordersTab(window) && Rules::editorSession(window).scrollSize(scrollIndex, scrollWidth, scrollHeight))
+        {
+            return;
+        }
         if (scrollIndex == 0)
         {
             scrollHeight = kLineRowHeight * static_cast<int32_t>(visibleLineIds().size());
@@ -1616,6 +1699,15 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void scrollMouseDown(Ui::Window& window, [[maybe_unused]] int16_t x, int16_t y, uint8_t scrollIndex)
     {
+        if (ordersTab(window) && Rules::editorSession(window).mouseDown(window, x, y, scrollIndex))
+        {
+            if (scrollIndex == 1)
+            {
+                const auto row = Rules::programRowAt(Rules::editorSession(window).layout(), y);
+                _selectedOrder = row < Rules::editorSession(window).program().rows.size() ? static_cast<int16_t>(row) : -1;
+            }
+            return;
+        }
         if (y < 0)
         {
             return;
@@ -1697,17 +1789,6 @@ namespace OpenLoco::Ui::Windows::LineManager
             window.invalidate();
             return;
         }
-        if (orderProgram(window))
-        {
-            const auto layout = orderLayout(window);
-            if (const auto* hit = Rules::programHit(layout, y); hit && hit->block)
-            {
-                orderDrag.cancel();
-                const auto* field = Rules::blockFieldHit(layout, x, y, window.widgets[widx::orders].width() - 14);
-                RulesWindow::open({ Rules::OwnerKind::line, line->id }, window, progressVehicle(), hit->row, hit->block, field ? field->field : Rules::BlockField::none, field && field->extra);
-                return;
-            }
-        }
         const Rules::Owner owner{ Rules::OwnerKind::line, line->id };
         orderDrag.begin(owner, Rules::snapshot(owner), row, x, y);
         if (_selectedOrder == row)
@@ -1731,6 +1812,10 @@ namespace OpenLoco::Ui::Windows::LineManager
 
     static void scrollMouseDrag(Window& window, int16_t x, int16_t y, uint8_t scrollIndex)
     {
+        if (Rules::editorSession(window).mouseDrag(window, x, y, scrollIndex))
+        {
+            return;
+        }
         if (scrollIndex != 1 || !ordersTab(window))
         {
             return;
@@ -1740,6 +1825,10 @@ namespace OpenLoco::Ui::Windows::LineManager
     }
     static void scrollMouseUp(Window& window, int16_t screenX, int16_t screenY, uint8_t scrollIndex)
     {
+        if (Rules::editorSession(window).mouseRelease(window, screenX, screenY, scrollIndex))
+        {
+            return;
+        }
         if (scrollIndex != 1 || !ordersTab(window))
         {
             orderDrag.cancel();
@@ -1764,6 +1853,10 @@ namespace OpenLoco::Ui::Windows::LineManager
     }
     static bool keyUp(Window& window, uint32_t, uint32_t key)
     {
+        if (key == 27 && Rules::editorSession(window).escape(window))
+        {
+            return true;
+        }
         if (key != 27 || !orderDrag.active)
         {
             return false;
@@ -1774,6 +1867,10 @@ namespace OpenLoco::Ui::Windows::LineManager
     }
     static void onTextInput(Ui::Window& window, [[maybe_unused]] WidgetIndex_t widgetIndex, [[maybe_unused]] const WidgetId id, const char* input)
     {
+        if (Rules::editorSession(window).textInput(window, widgetIndex, input))
+        {
+            return;
+        }
         if (input == nullptr || input[0] == '\0' || selectedLine() == nullptr)
         {
             return;
@@ -1802,8 +1899,11 @@ namespace OpenLoco::Ui::Windows::LineManager
     }
 
     static constexpr WindowEventList kEvents = {
-        .onClose = [](Window& window) { orderDrag.cancel(); onClose(window); },
+        .onClose = [](Window& window) { orderDrag.cancel(); Rules::closeEditorSession(window); onClose(window); },
         .onMouseUp = onMouseUp,
+        .onResize = [](Window& window) { if (Rules::editorSession(window).expanded()){ window.setSizeBounds({560,268},{std::min<int>(1000, Ui::width()),std::min<int>(700,Ui::height()-28)});
+} else{ window.setSizeBounds(kWindowSize,{1000,700});
+} },
         .onMouseDown = onMouseDown,
         .onDropdown = onDropdown,
         .onUpdate = onUpdate,
@@ -1816,10 +1916,12 @@ namespace OpenLoco::Ui::Windows::LineManager
         .scrollMouseOver = scrollMouseOver,
         .scrollMouseUp = scrollMouseUp,
         .textInput = onTextInput,
+        .tooltip = [](Window& window, WidgetIndex_t, WidgetId) { return Rules::editorSession(window).tooltip(window); },
         .prepareDraw = prepareDraw,
         .draw = draw,
         .drawScroll = drawScroll,
         .keyUp = keyUp,
+        .scrollMouseDragOutside = true,
     };
 
     static const WindowEventList& getEvents()
@@ -1836,8 +1938,9 @@ namespace OpenLoco::Ui::Windows::LineManager
             return existing;
         }
 
-        auto* window = WindowManager::createWindowCentred(WindowType::lineManager, kWindowSize, WindowFlags::none, getEvents());
+        auto* window = WindowManager::createWindowCentred(WindowType::lineManager, kWindowSize, WindowFlags::resizable, getEvents());
         window->setWidgets(_widgets);
+        window->setSizeBounds(kWindowSize, { 1000, 700 });
         window->initScrollWidgets();
         if (const auto* skin = ObjectManager::get<InterfaceSkinObject>())
         {

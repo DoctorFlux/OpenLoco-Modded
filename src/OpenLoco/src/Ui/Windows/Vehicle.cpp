@@ -1,4 +1,4 @@
-#include "Rules/Editor.h"
+#include "Rules/EditorSession.h"
 #include "Vehicles/Vehicle.h"
 #include "Audio/Audio.h"
 #include "Config.h"
@@ -144,8 +144,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 Widgets::Tab(Widx::kTabDetails, { 34, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_details),
                 Widgets::Tab(Widx::kTabCargo, { 65, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_cargo),
                 Widgets::Tab(Widx::kTabFinances, { 96, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_finance),
-                Widgets::Tab(Widx::kTabRoute, { 158, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_route),
-                Widgets::Button(Widx::kRules, { 127, 15 }, { 31, 27 }, WindowColour::secondary, StringIds::rules_title));
+                Widgets::Tab(Widx::kTabRoute, { 127, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tooltip_vehicle_tab_route),
+                makeWidget({ 0, 0 }, { 1, 1 }, WidgetType::empty, WindowColour::secondary));
         }
 
         static Vehicles::VehicleHead* getVehicle(const Window& self)
@@ -355,6 +355,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             orderDown,
             orderReverse,
             lineAssign,
+            rulesToggle,
+            editorFirst,
         };
 
         namespace Widx
@@ -370,6 +372,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             constexpr WidgetId kOrderDown{ "orderDown" };
             constexpr WidgetId kOrderReverse{ "orderReverse" };
             constexpr WidgetId kLineAssign{ "lineAssign" };
+            constexpr WidgetId kRulesToggle{ "route_rules" };
         }
 
         constexpr uint64_t holdableWidgets = 0;
@@ -416,7 +419,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
             Widgets::ImageButton(Widx::kOrderUp, { 240, 140 }, { 24, 12 }, WindowColour::secondary, ImageIds::red_arrow_up, StringIds::tooltip_route_move_order_up),
             Widgets::ImageButton(Widx::kOrderDown, { 240, 152 }, { 24, 12 }, WindowColour::secondary, ImageIds::red_arrow_down, StringIds::tooltip_route_move_order_down),
             Widgets::ImageButton(Widx::kOrderReverse, { 240, 164 }, { 24, 24 }, WindowColour::secondary, ImageIds::construction_right_turnaround, StringIds::reverseOrderTableTooltip),
-            Widgets::Button(Widx::kLineAssign, { 168, 44 }, { 72, 12 }, WindowColour::secondary, StringIds::line_assign_button)
+            Widgets::Button(Widx::kLineAssign, { 168, 44 }, { 72, 12 }, WindowColour::secondary, StringIds::line_assign_button),
+            Widgets::Button(Widx::kRulesToggle, { 192, 44 }, { 48, 12 }, WindowColour::secondary, StringIds::rules_title),
+            Rules::inlineEditorWidgets()
 
         );
     }
@@ -685,9 +690,6 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
-                    break;
-                case Common::Widx::kRules:
-                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
                     break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
@@ -1173,8 +1175,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 self.activatedWidgets |= (1ULL << widx::showReservedPath);
             }
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
-            self.widgets[Common::widx::tabRoute].left = 158;
-            self.widgets[Common::widx::tabRoute].right = 188;
+            self.widgets[Common::widx::tabRoute].left = 127;
+            self.widgets[Common::widx::tabRoute].right = 157;
         }
 
         // 0x004B226D
@@ -1312,9 +1314,6 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
-                    break;
-                case Common::Widx::kRules:
-                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
                     break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
@@ -1779,8 +1778,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.widgets[Common::widx::closeButton].left = self.width - 15;
             self.widgets[Common::widx::closeButton].right = self.width - 3;
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
-            self.widgets[Common::widx::tabRoute].left = 158;
-            self.widgets[Common::widx::tabRoute].right = 188;
+            self.widgets[Common::widx::tabRoute].left = 127;
+            self.widgets[Common::widx::tabRoute].right = 157;
 
             self.widgets[widx::carList].right = self.width - 26;
             self.widgets[widx::carList].bottom = self.height - kVehicleDetailsTextHeight;
@@ -2403,8 +2402,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             }
 
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
-            self.widgets[Common::widx::tabRoute].left = 158;
-            self.widgets[Common::widx::tabRoute].right = 188;
+            self.widgets[Common::widx::tabRoute].left = 127;
+            self.widgets[Common::widx::tabRoute].right = 157;
         }
 
         // 0x004B3F0D
@@ -2540,9 +2539,6 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     WindowManager::close(&self);
                     break;
 
-                case Common::Widx::kRules:
-                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
-                    break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
                 case Common::Widx::kTabCargo:
@@ -2821,8 +2817,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.widgets[Common::widx::closeButton].right = self.width - 3;
 
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
-            self.widgets[Common::widx::tabRoute].left = 158;
-            self.widgets[Common::widx::tabRoute].right = 188;
+            self.widgets[Common::widx::tabRoute].left = 127;
+            self.widgets[Common::widx::tabRoute].right = 157;
         }
 
         // 0x004B576C
@@ -2935,9 +2931,6 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
                     break;
-                case Common::Widx::kRules:
-                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
-                    break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
                 case Common::Widx::kTabCargo:
@@ -2999,6 +2992,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         static void close(Window& self)
         {
             orderDrag.cancel();
+            Rules::closeEditorSession(self);
             clearLineNameStrings();
             Common::onClose(self);
         }
@@ -3252,6 +3246,15 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B4B43
         static void onMouseUp(Window& self, const WidgetIndex_t widgetIndex, const WidgetId id)
         {
+            if (Rules::editorSession(self).buttonUp(self, widgetIndex, id))
+            {
+                return;
+            }
+            if (id == Widx::kRulesToggle)
+            {
+                Rules::editorSession(self).toggle(self);
+                return;
+            }
             auto* head = Common::getVehicle(self);
             if (head == nullptr)
             {
@@ -3264,9 +3267,6 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     break;
                 case Common::Widx::kCaption:
                     Common::renameVehicle(self, widgetIndex);
-                    break;
-                case Common::Widx::kRules:
-                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number);
                     break;
                 case Common::Widx::kTabMain:
                 case Common::Widx::kTabDetails:
@@ -3421,6 +3421,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B4B8C
         static void onMouseDown(Window& self, const WidgetIndex_t i, const WidgetId id)
         {
+            if (Rules::editorSession(self).buttonDown(self, i, id))
+            {
+                return;
+            }
             switch (id)
             {
                 case Widx::kOrderForceUnload:
@@ -3487,6 +3491,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B4BAC
         static void onDropdown(Window& self, [[maybe_unused]] const WidgetIndex_t i, const WidgetId id, const int16_t dropdownIndex)
         {
+            if (Rules::editorSession(self).dropdown(self, i, dropdownIndex))
+            {
+                return;
+            }
             auto item = dropdownIndex == -1 ? Dropdown::getHighlightedItem() : dropdownIndex;
             if (item == -1)
             {
@@ -3574,6 +3582,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B4D74
         static std::optional<FormatArguments> tooltip(Ui::Window& self, WidgetIndex_t, [[maybe_unused]] const WidgetId id)
         {
+            if (const auto result = Rules::editorSession(self).tooltip(self))
+            {
+                return result;
+            }
             FormatArguments args{};
             args.push(StringIds::tooltip_scroll_orders_list);
             auto head = Common::getVehicle(self);
@@ -3951,6 +3963,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B4D9B
         static void getScrollSize(Ui::Window& self, [[maybe_unused]] const uint32_t scrollIndex, [[maybe_unused]] int32_t& scrollWidth, int32_t& scrollHeight)
         {
+            if (Rules::editorSession(self).scrollSize(scrollIndex, scrollWidth, scrollHeight))
+            {
+                return;
+            }
             auto head = Common::getVehicle(self);
             if (head == nullptr)
             {
@@ -3965,21 +3981,19 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
         static void scrollMouseDown(Window& self, [[maybe_unused]] const int16_t x, const int16_t y, [[maybe_unused]] const uint8_t scrollIndex)
         {
+            if (Rules::editorSession(self).mouseDown(self, x, y, scrollIndex))
+            {
+                if (scrollIndex == 0)
+                {
+                    const auto row = Rules::programRowAt(Rules::editorSession(self).layout(), y);
+                    self.orderTableIndex = row < Rules::editorSession(self).program().rows.size() ? static_cast<int16_t>(row) : -1;
+                }
+                return;
+            }
             auto head = Common::getVehicle(self);
             if (head == nullptr)
             {
                 return;
-            }
-            if (routeProgram(self))
-            {
-                const auto layout = routeLayout(self);
-                if (const auto* hit = Rules::programHit(layout, y); hit && hit->block)
-                {
-                    orderDrag.cancel();
-                    const auto* field = Rules::blockFieldHit(layout, x, y, self.widgets[widx::routeList].width() - 14);
-                    RulesWindow::open(Rules::ownerForVehicle(self.number), self, self.number, hit->row, hit->block, field ? field->field : Rules::BlockField::none, field && field->extra);
-                    return;
-                }
             }
             int16_t item = static_cast<int16_t>(routeRowAt(self, y));
             Vehicles::Order* selectedOrder = getOrderTable(head).atIndex(item);
@@ -4070,13 +4084,21 @@ namespace OpenLoco::Ui::Windows::Vehicle
             }
         }
 
-        static void scrollMouseDrag(Window& self, int16_t x, int16_t y, uint8_t)
+        static void scrollMouseDrag(Window& self, int16_t x, int16_t y, uint8_t scrollIndex)
         {
+            if (Rules::editorSession(self).mouseDrag(self, x, y, scrollIndex))
+            {
+                return;
+            }
             orderDrag.motion(x, y);
             self.invalidate();
         }
-        static void scrollMouseUp(Window& self, int16_t screenX, int16_t screenY, uint8_t)
+        static void scrollMouseUp(Window& self, int16_t screenX, int16_t screenY, uint8_t scrollIndex)
         {
+            if (Rules::editorSession(self).mouseRelease(self, screenX, screenY, scrollIndex))
+            {
+                return;
+            }
             const auto& view = self.widgets[widx::routeList];
             std::optional<size_t> destination;
             Rules::Key into = 0;
@@ -4097,6 +4119,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B530C
         static bool keyUp(Window& self, uint32_t, uint32_t key)
         {
+            if (key == 27 && Rules::editorSession(self).escape(self))
+            {
+                return true;
+            }
             if (key != 27 || !orderDrag.active)
             {
                 return false;
@@ -4257,8 +4283,27 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 self.disabledWidgets &= ~((1 << widx::orderUp) | (1 << widx::orderDown));
             }
             Widget::leftAlignTabs(self, Common::widx::tabMain, Common::widx::tabRoute);
-            self.widgets[Common::widx::tabRoute].left = 158;
-            self.widgets[Common::widx::tabRoute].right = 188;
+            self.widgets[Common::widx::tabRoute].left = 127;
+            self.widgets[Common::widx::tabRoute].right = 157;
+            auto& editor = Rules::editorSession(self);
+            editor.configure(self, Rules::ownerForVehicle(self.number), self.number, widx::routeList, 0, widx::editorFirst, 1, !isControllingCompany);
+            const auto right = static_cast<int16_t>(self.width - (isControllingCompany ? 4 : 28));
+            self.widgets[widx::rulesToggle].hidden = isControllingCompany;
+            self.widgets[widx::rulesToggle].left = right - 48;
+            self.widgets[widx::rulesToggle].right = right - 1;
+            self.widgets[widx::rulesToggle].top = 44;
+            self.widgets[widx::rulesToggle].bottom = 55;
+            self.widgets[widx::lineAssign].right = right - 51;
+            self.widgets[widx::lineAssign].left = right - 125;
+            self.widgets[widx::expressMode].right = right - 128;
+            self.widgets[widx::expressMode].left = (right - 128 + 3) / 2;
+            self.widgets[widx::localMode].right = self.widgets[widx::expressMode].left - 1;
+            self.activatedWidgets &= ~(1ULL << widx::rulesToggle);
+            if (editor.expanded())
+            {
+                self.activatedWidgets |= 1ULL << widx::rulesToggle;
+            }
+            editor.prepare(self, 3, editor.expanded() ? 76 : 58, right, static_cast<int16_t>(self.height - 31));
         }
 
         // 0x004B4866
@@ -4269,23 +4314,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.draw(drawingCtx);
             Common::drawTabs(self, drawingCtx);
 
-            if (Rules::orderRowHeight(Rules::find(Rules::ownerForVehicle(self.number))) > 10)
+            if (!Rules::editorSession(self).showingProgram() && ToolManager::isToolActive(WindowType::vehicle, self.number))
             {
-                auto status = Rules::vehicleStatus(self.number);
-                status.insert(status.begin(), static_cast<char>(ControlCodes::Colour::black));
-                tr.setCurrentFont(Gfx::Font::medium_bold);
-                tr.clipString(self.widgets[widx::routeList].width() - 6, status.data());
-                tr.drawString({ 3, static_cast<int16_t>(self.height - 27) }, Colour::black, status.c_str());
-                auto next = std::string(1, static_cast<char>(ControlCodes::Colour::black)) + Rules::vehicleNextStop(self.number);
-                tr.clipString(self.widgets[widx::routeList].width() - 6, next.data());
-                tr.drawString({ 3, static_cast<int16_t>(self.height - 14) }, Colour::black, next.c_str());
+                tr.drawStringLeftClipped({ 3, self.height - 13 }, self.width - 14, Colour::black, StringIds::route_click_on_waypoint);
             }
-            else if (ToolManager::isToolActive(WindowType::vehicle, self.number))
-            {
-                // Location at bottom left edge of window
-                auto loc = Point(3, self.height - 13);
-                tr.drawStringLeftClipped(loc, self.width - 14, Colour::black, StringIds::route_click_on_waypoint);
-            }
+            Rules::editorSession(self).draw(self, drawingCtx);
             if (orderDrag.active && orderDrag.moved && orderDrag.owner == Rules::ownerForVehicle(self.number))
             {
                 const auto mouse = Input::getMouseLocation();
@@ -4408,6 +4441,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B48BA
         static void drawScroll(Window& self, Gfx::DrawingContext& drawingCtx, [[maybe_unused]] const uint32_t i)
         {
+            if (Rules::editorSession(self).drawScroll(self, drawingCtx, i))
+            {
+                return;
+            }
             auto tr = Gfx::TextRenderer(drawingCtx);
 
             drawingCtx.clear(Colours::getShade(self.getColour(WindowColour::secondary).c(), 4));
@@ -4527,6 +4564,9 @@ namespace OpenLoco::Ui::Windows::Vehicle
         static constexpr WindowEventList kEvents = {
             .onClose = close,
             .onMouseUp = onMouseUp,
+            .onResize = [](Window& w) { if (Rules::editorSession(w).expanded()){ w.setSizeBounds({400,240}, {std::min<int>(1000, Ui::width()),std::min<int>(700, Ui::height()-28)});
+} else{ w.setSizeBounds(kMinWindowSize,kMaxWindowSize);
+} },
             .onMouseDown = onMouseDown,
             .onDropdown = onDropdown,
             .onUpdate = onUpdate,
@@ -4540,7 +4580,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             .scrollMouseDrag = scrollMouseDrag,
             .scrollMouseOver = scrollMouseOver,
             .scrollMouseUp = scrollMouseUp,
-            .textInput = Common::textInput,
+            .textInput = [](Window& w, WidgetIndex_t index, WidgetId id, const char* value) { if (!Rules::editorSession(w).textInput(w, index, value)){ Common::textInput(w, index, id, value);
+} },
             .viewportRotate = createViewport,
             .tooltip = tooltip,
             .cursor = cursor,
@@ -4548,6 +4589,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             .draw = draw,
             .drawScroll = drawScroll,
             .keyUp = keyUp,
+            .scrollMouseDragOutside = true,
         };
 
         static const WindowEventList& getEvents()
@@ -4626,6 +4668,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // NB: not a vanilla function
         static void onClose(Window& self)
         {
+            Rules::closeEditorSession(self);
             if (ToolManager::isToolActive(WindowType::vehicle, self.number))
             {
                 ToolManager::toolCancel();
@@ -5432,6 +5475,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B2566
         static void switchTab(Window& self, WidgetIndex_t widgetIndex)
         {
+            Rules::editorSession(self).suspend(self);
             ToolManager::toolCancel(self.type, self.number);
             TextInput::sub_4CE6C9(self.type, self.number);
 
