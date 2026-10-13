@@ -344,7 +344,9 @@ namespace OpenLoco::Vehicles
             }
             // The planner may have committed this piece before another train
             // was placed or moved onto it. Recheck at actual physical entry.
-            if (component.isVehicle2() && Signals::isRailLogicActive()
+            // Temporary placement motion uses its own validation, not this
+            // live-simulation path, and must not create reservation waits.
+            if (isVeh2UnkM15 && component.isVehicle2() && Signals::isRailLogicActive()
                 && !Signals::physicalEntryIsClear(*train.head, nextPos, routing, tc))
             {
                 return false;

@@ -337,6 +337,26 @@ TEST_F(WaypointSignalFixture, ordinaryUnprotectedPhysicalRoutingKeepsNativeBehav
     EXPECT_FALSE(isInPathMode(enumValue(head->id)));
 }
 
+TEST_F(WaypointSignalFixture, placementMotionDoesNotCreatePhysicalReservationWaits)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    approaching(*head);
+    signal(SignalKind::path);
+    ASSERT_EQ(decide(*head).status, 0);
+    auto* wagon = occupiedWagon(other->id);
+    wagon->tileX = start.x;
+    wagon->tileY = start.y;
+    wagon->moveTo(start);
+    auto* front = Vehicles::Vehicle(*head).veh2;
+    front->subPosition = static_cast<uint16_t>(World::TrackData::getTrackSubPositon(0).size() - 1);
+    front->remainingDistance = 0x368A;
+    // placeDownVehicle uses this non-simulation motion after its own checks.
+    front->updateTrackMotion(0, false);
+    EXPECT_EQ(front->getTrackLoc(), start);
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+}
+
 TEST_F(WaypointSignalFixture, nativeSpecialSignalCannotPassOccupiedRouteWithPassOverride)
 {
     auto* head = vehicle();
