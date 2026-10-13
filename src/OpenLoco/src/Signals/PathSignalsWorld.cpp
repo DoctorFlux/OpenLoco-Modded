@@ -7,6 +7,7 @@
 #include "Map/TileManager.h"
 #include "Map/Track/Track.h"
 #include "Map/Track/TrackData.h"
+#include "Map/Track/SubpositionData.h"
 #include "Map/TrackElement.h"
 #include "Scenario/ScenarioManager.h"
 #include "Signals/PathSearch.h"
@@ -25,6 +26,7 @@
 #include "ZoomLevel.hpp"
 #include <OpenLoco/Math/Vector.hpp>
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <deque>
 #include <map>
@@ -175,12 +177,66 @@ namespace OpenLoco::Signals
             return findHead(hold.owner) != nullptr;
         }
 
+        const std::vector<World::Pos2>& physicalTiles(const PieceKey& piece)
+        {
+            // Some native movement endpoints sit outside the track element's
+            // tiles. Include both traversal directions, computed once from the
+            // actual movement tables, rather than guessing a neighbourhood.
+            static const auto offsets = [] {
+                std::array<std::vector<World::Pos2>, kTrackIdCount * 4> result;
+                for (uint16_t id = 0; id < kTrackIdCount; ++id)
+                {
+                    for (uint8_t rotation = 0; rotation < 4; ++rotation)
+                    {
+                        auto& tiles = result[id * 4 + rotation];
+                        const auto add = [&](World::Pos2 pos) {
+                            pos.x = static_cast<int16_t>(pos.x & ~31);
+                            pos.y = static_cast<int16_t>(pos.y & ~31);
+                            if (std::find(tiles.begin(), tiles.end(), pos) == tiles.end())
+                            {
+                                tiles.push_back(pos);
+                            }
+                        };
+                        for (const auto& part : World::TrackData::getTrackPiece(id))
+                        {
+                            add(Math::Vector::rotate(World::Pos2{ part.x, part.y }, rotation));
+                        }
+                        for (const uint16_t reversed : { uint16_t{ 0 }, uint16_t{ 4 } })
+                        {
+                            const uint16_t tad = (id << 3) | rotation | reversed;
+                            World::Pos3 entrance{};
+                            if (reversed)
+                            {
+                                const auto& delta = World::TrackData::getUnkTrack(tad);
+                                entrance -= delta.pos;
+                                if (delta.rotationEnd < 12)
+                                {
+                                    entrance += World::Pos3{ World::kRotationOffset[delta.rotationEnd], 0 };
+                                }
+                            }
+                            for (const auto& step : World::TrackData::getTrackSubPositon(tad))
+                            {
+                                const auto pos = entrance + step.loc;
+                                add({ pos.x, pos.y });
+                            }
+                        }
+                    }
+                }
+                return result;
+            }();
+            return offsets[piece.trackId * 4 + piece.rotation];
+        }
+
         bool pieceOccupiedByOther(const PieceKey& piece, uint16_t owner)
         {
             if (piece.trackId >= kTrackIdCount)
             {
                 return false;
             }
+            std::vector<PieceKey> candidates{ piece };
+            // A wagon may be on another tile of a long curve or switch whose
+            // footprint conflicts here. Find those physical pieces locally,
+            // then inspect their complete movement footprints as well.
             for (const auto& part : World::TrackData::getTrackPiece(piece.trackId))
             {
                 const auto offset = Math::Vector::rotate(World::Pos2{ part.x, part.y }, piece.rotation);
@@ -189,25 +245,67 @@ namespace OpenLoco::Signals
                 {
                     continue;
                 }
-                for (auto* entity : EntityManager::EntityTileList(tilePos))
+                for (const auto& element : World::TileManager::get(tilePos))
                 {
-                    auto* vehicle = entity->asBase<Vehicles::VehicleBase>();
-                    if (vehicle == nullptr || vehicle->mode != TransportMode::rail || vehicle->tileX == -1)
+                    const auto* track = element.as<World::TrackElement>();
+                    if (track == nullptr || track->isGhost() || track->isAiAllocated() || track->trackId() >= kTrackIdCount)
                     {
                         continue;
                     }
-                    if (vehicle->has38Flags(Vehicles::Flags38::unk_0 | Vehicles::Flags38::unk_2))
+                    const auto parts = World::TrackData::getTrackPiece(track->trackId());
+                    if (track->sequenceIndex() >= parts.size())
                     {
                         continue;
                     }
-                    if (enumValue(vehicle->head) == owner)
+                    const auto& trackPart = parts[track->sequenceIndex()];
+                    const auto originOffset = Math::Vector::rotate(World::Pos2{ trackPart.x, trackPart.y }, track->rotation());
+                    const PieceKey candidate{
+                        static_cast<int16_t>(tilePos.x - originOffset.x),
+                        static_cast<int16_t>(tilePos.y - originOffset.y),
+                        static_cast<int16_t>(track->baseHeight() - trackPart.z),
+                        track->rotation(),
+                        track->trackId()
+                    };
+                    if (std::find(candidates.begin(), candidates.end(), candidate) == candidates.end() && piecesConflict(candidate, piece))
+                    {
+                        candidates.push_back(candidate);
+                    }
+                }
+            }
+            for (const auto& candidate : candidates)
+            {
+                for (const auto& offset : physicalTiles(candidate))
+                {
+                    const World::Pos2 tilePos{ static_cast<int16_t>(candidate.x + offset.x), static_cast<int16_t>(candidate.y + offset.y) };
+                    if (!World::validCoords(tilePos))
                     {
                         continue;
                     }
-                    const auto vehiclePiece = canonicalPiece(vehicle->getTrackLoc(), vehicle->getTrackAndDirection().track._data);
-                    if (vehiclePiece == piece || piecesConflict(vehiclePiece, piece))
+                    for (auto* entity : EntityManager::EntityTileList(tilePos))
                     {
-                        return true;
+                        auto* vehicle = entity->asBase<Vehicles::VehicleBase>();
+                        if (vehicle == nullptr || vehicle->mode != TransportMode::rail || vehicle->tileX == -1)
+                        {
+                            continue;
+                        }
+                        if (vehicle->has38Flags(Vehicles::Flags38::unk_0 | Vehicles::Flags38::unk_2 | Vehicles::Flags38::isGhost))
+                        {
+                            continue;
+                        }
+                        if (enumValue(vehicle->head) == owner)
+                        {
+                            continue;
+                        }
+                        if (((vehicle->getTrackAndDirection().track._data & kBasicTaDMask) >> 3) >= kTrackIdCount)
+                        {
+                            // Invalid real vehicle track data cannot authorize entry.
+                            return true;
+                        }
+                        const auto vehiclePiece = canonicalPiece(vehicle->getTrackLoc(), vehicle->getTrackAndDirection().track._data);
+                        if (vehiclePiece == piece || piecesConflict(vehiclePiece, piece))
+                        {
+                            return true;
+                        }
                     }
                 }
             }
@@ -578,11 +676,9 @@ namespace OpenLoco::Signals
         const auto piece = canonicalPiece(nextPos, connection);
         const auto hold = holdAt(piece);
         const bool ownedProtectedPiece = hold && hold->owner == owner && hold->isProtected;
-        if (!isInPathMode(owner) && !ownedProtectedPiece && !isHeldByProtectedOther(piece, owner))
-        {
-            return true;
-        }
-        if (canHoldInWorld(piece, owner))
+        const bool physicalClear = !pieceOccupiedByOther(piece, owner);
+        const bool claimsClear = isInPathMode(owner) || ownedProtectedPiece ? canHold(piece, owner) : !isHeldByProtectedOther(piece, owner);
+        if (physicalClear && claimsClear)
         {
             return true;
         }

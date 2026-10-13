@@ -357,6 +357,165 @@ TEST_F(WaypointSignalFixture, placementMotionDoesNotCreatePhysicalReservationWai
     EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
 }
 
+TEST_F(WaypointSignalFixture, realMovementSamplesAlwaysDetectForeignRailOccupation)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    setPathMode(enumValue(head->id), true);
+    World::Track::TrackConnections tc;
+    tc.connections.push_back(0);
+    for (uint16_t tad = 0; tad < 44 * 8; ++tad)
+    {
+        wagon->tileX = start.x;
+        wagon->tileY = start.y;
+        wagon->trackAndDirection.track._data = tad;
+        const auto movement = World::TrackData::getTrackSubPositon(tad);
+        for (uint16_t sub = 0; sub < movement.size(); ++sub)
+        {
+            wagon->subPosition = sub;
+            wagon->moveTo(start + movement[sub].loc);
+            EXPECT_FALSE(physicalEntryIsClear(*head, start, tad, tc)) << "tad=" << tad << " sub=" << sub;
+        }
+    }
+}
+
+TEST_F(WaypointSignalFixture, foreignCurveOccupationBlocksItsConflictingJunctionTile)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    constexpr uint16_t curve = 11 << 3;
+    addPiece(junction, curve);
+    ASSERT_TRUE(piecesConflict(canonicalPiece(junction, 0), canonicalPiece(junction, curve)));
+    wagon->tileX = junction.x;
+    wagon->tileY = junction.y;
+    wagon->trackAndDirection.track._data = curve;
+    const auto movement = World::TrackData::getTrackSubPositon(curve);
+    const auto remote = std::find_if(movement.begin(), movement.end(), [&](const auto& step) {
+        const auto loc = junction + step.loc;
+        return loc.x / 32 != junction.x / 32 || loc.y / 32 != junction.y / 32;
+    });
+    ASSERT_NE(remote, movement.end());
+    wagon->moveTo(junction + remote->loc);
+    setPathMode(enumValue(head->id), true);
+    const auto tc = World::Track::getTrackConnections(junction, 0, head->owner, 0, 0, 0);
+    EXPECT_FALSE(physicalEntryIsClear(*head, junction, 0, tc));
+    EXPECT_FALSE(reserveFrom(*head, junction, tc, ReserveStart::extend));
+    EXPECT_EQ(pathHoldCount(), 0U);
+    approaching(*head);
+    signal(SignalKind::path);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+        expectRefused(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+    }
+    const auto line = Lines::createLine("Curve safety", TransportMode::rail, 4);
+    ASSERT_TRUE(line.ok);
+    Lines::LineOrder order;
+    order.type = Vehicles::OrderType::RouteWaypoint;
+    order.tileX = target.x / 32;
+    order.tileY = target.y / 32;
+    order.baseZ = 2;
+    ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    ASSERT_TRUE(Lines::acceptStopKinds(line.id, Lines::LineKind::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(head->id), TransportMode::rail).ok);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+        expectRefused(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+    }
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    EXPECT_EQ(decide(*head).status, 0);
+    ASSERT_NE(pendingPath(enumValue(head->id)), nullptr);
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+}
+
+TEST_F(WaypointSignalFixture, remoteReverseCurveOccupationAlsoBlocksConflictingPiece)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    constexpr uint16_t curve = 11 << 3;
+    addPiece(junction, curve);
+    const auto end = World::Track::getTrackConnectionEnd(junction, curve);
+    const auto reverseEntrance = end.nextPos - World::Pos3{ World::kRotationOffset[end.nextRotation], 0 };
+    const uint16_t reverse = curve ^ 4;
+    ASSERT_EQ(canonicalPiece(reverseEntrance, reverse), canonicalPiece(junction, curve));
+    wagon->tileX = reverseEntrance.x;
+    wagon->tileY = reverseEntrance.y;
+    wagon->trackAndDirection.track._data = reverse;
+    const auto movement = World::TrackData::getTrackSubPositon(reverse);
+    const auto remote = std::find_if(movement.begin(), movement.end(), [&](const auto& step) {
+        const auto loc = reverseEntrance + step.loc;
+        return loc.x / 32 != junction.x / 32 || loc.y / 32 != junction.y / 32;
+    });
+    ASSERT_NE(remote, movement.end());
+    wagon->moveTo(reverseEntrance + remote->loc);
+    setPathMode(enumValue(head->id), true);
+    World::Track::TrackConnections tc;
+    tc.connections.push_back(0);
+    EXPECT_FALSE(physicalEntryIsClear(*head, junction, 0, tc));
+}
+
+TEST_F(WaypointSignalFixture, expandedOccupationKeepsSelfGhostsAndSeparatedTracksClear)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    setPathMode(enumValue(head->id), true);
+    World::Track::TrackConnections tc;
+    tc.connections.push_back(0);
+    EXPECT_FALSE(physicalEntryIsClear(*head, blocked, 0, tc));
+    wagon->head = head->id;
+    EXPECT_TRUE(physicalEntryIsClear(*head, blocked, 0, tc));
+    wagon->head = other->id;
+    wagon->var_38 |= Vehicles::Flags38::isGhost;
+    EXPECT_TRUE(physicalEntryIsClear(*head, blocked, 0, tc));
+    wagon->var_38 &= ~Vehicles::Flags38::isGhost;
+    wagon->tileBaseZ = 20;
+    wagon->moveTo(blocked + World::Pos3{ 0, 0, 64 });
+    EXPECT_TRUE(physicalEntryIsClear(*head, blocked, 0, tc));
+    wagon->tileBaseZ = 4;
+    wagon->tileY += 32;
+    wagon->moveTo(blocked + World::Pos3{ 0, 32, 0 });
+    EXPECT_TRUE(physicalEntryIsClear(*head, blocked, 0, tc));
+}
+
+TEST_F(WaypointSignalFixture, physicalSafetySurvivesUnprotectedOrdinarySignalHandoff)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    approaching(*head);
+    signal(SignalKind::none);
+    signalAt(target, 0, SignalKind::path);
+    setPathMode(enumValue(head->id), true);
+    ASSERT_EQ(decide(*head).status, 0);
+    ASSERT_FALSE(isInPathMode(enumValue(head->id)));
+    ASSERT_TRUE(holdAt(canonicalPiece(start, 0)));
+    ASSERT_FALSE(holdAt(canonicalPiece(start, 0))->isProtected);
+    auto* wagon = occupiedWagon(other->id);
+    wagon->tileX = start.x;
+    wagon->tileY = start.y;
+    wagon->moveTo(start);
+    auto train = Vehicles::Vehicle(*head);
+    auto ahead = train.veh2->routingHandle;
+    ahead.setIndex(ahead.getIndex() + 1);
+    train.veh1->routingHandle = ahead;
+    auto* front = train.veh2;
+    const auto before = front->getTrackLoc();
+    front->subPosition = static_cast<uint16_t>(World::TrackData::getTrackSubPositon(0).size() - 1);
+    front->remainingDistance = 0;
+    EXPECT_TRUE(front->updateTrackMotion(0x368A, true).hasFlags(Vehicles::UpdateVar1136114Flags::unk_m00));
+    EXPECT_EQ(front->getTrackLoc(), before);
+}
+
 TEST_F(WaypointSignalFixture, nativeSpecialSignalCannotPassOccupiedRouteWithPassOverride)
 {
     auto* head = vehicle();
