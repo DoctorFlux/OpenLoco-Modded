@@ -4901,6 +4901,7 @@ namespace OpenLoco::Vehicles
 
                     if (pathLogic && Signals::blockHasForeignPath(head, nextPos, connection))
                     {
+                        Signals::onPathWait(head, nextPos, tc);
                         return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
                     }
                 }
@@ -4919,6 +4920,7 @@ namespace OpenLoco::Vehicles
         {
             if (Signals::pieceHeldByProtectedOther(head, nextPos, connection))
             {
+                Signals::onPathWait(head, nextPos, tc);
                 return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
             }
             if (Signals::isInPathMode(enumValue(head.id)))

@@ -504,25 +504,6 @@ namespace OpenLoco::Signals
                 setChainAspect(side, ChainAspect::green);
             }
         }
-
-        void markWaitingRed(uint16_t owner, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
-        {
-            std::vector<SideKey> sides;
-            for (const auto connection : tc.connections)
-            {
-                if (!(connection & kHasSignal))
-                {
-                    continue;
-                }
-                const auto side = facingSide(nextPos, connection);
-                if (getSignalKind(side) == SignalKind::none)
-                {
-                    continue;
-                }
-                sides.push_back(side);
-            }
-            setWaitingSignals(owner, sides);
-        }
     }
 
     bool hasSignalSide(const PieceKey& piece, uint8_t side)
@@ -627,6 +608,49 @@ namespace OpenLoco::Signals
         return std::nullopt;
     }
 
+    void onPathWait(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
+    {
+        std::vector<SideKey> sides;
+        for (const auto connection : tc.connections)
+        {
+            const auto entry = classifyEntry(nextPos, connection);
+            if (entry.hasFacingSignal && entry.kind != SignalKind::none)
+            {
+                sides.push_back(facingSide(nextPos, connection));
+            }
+        }
+
+        // The planner can already be beyond the signal the physical train is
+        // approaching. Keep that governing post red too, even when the failed
+        // decision is an unsignalled junction. Never cross a facing block post.
+        auto pos = World::Pos3{ head.tileX, head.tileY, static_cast<int16_t>(head.tileBaseZ * World::kSmallZStep) };
+        auto handle = head.routingHandle;
+        for (size_t i = 0; i < Limits::kMaxRoutingsPerVehicle; ++i)
+        {
+            const auto routing = Vehicles::RoutingManager::getRouting(handle);
+            const auto tad = routing & kBasicTaDMask;
+            if (routing == Vehicles::RoutingManager::kAllocatedButFreeRouting || routing == Vehicles::RoutingManager::kRoutingNull || ((tad >> 3) & 0x3F) >= kTrackIdCount)
+            {
+                break;
+            }
+            if (i != 0)
+            {
+                pos -= World::TrackData::getUnkTrack(tad).pos;
+            }
+            const auto entry = classifyEntry(pos, routing);
+            if (entry.hasFacingSignal)
+            {
+                if (entry.kind != SignalKind::none)
+                {
+                    sides.push_back(facingSide(pos, routing));
+                }
+                break;
+            }
+            handle.setIndex(static_cast<uint8_t>(handle.getIndex() - 1));
+        }
+        setWaitingSignals(enumValue(head.id), sides);
+    }
+
     std::optional<uint16_t> reserveFrom(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc, ReserveStart start)
     {
         const auto owner = enumValue(head.id);
@@ -651,7 +675,7 @@ namespace OpenLoco::Signals
         if (!result.found)
         {
             _retryTick[owner] = now + kRetryTicks;
-            markWaitingRed(owner, nextPos, tc);
+            onPathWait(head, nextPos, tc);
             return std::nullopt;
         }
 
@@ -666,14 +690,14 @@ namespace OpenLoco::Signals
             if (pieceOccupiedByOther(canonicalPiece(step.pos, step.connection), owner))
             {
                 _retryTick[owner] = now + kRetryTicks;
-                markWaitingRed(owner, nextPos, tc);
+                onPathWait(head, nextPos, tc);
                 return std::nullopt;
             }
         }
         if (!reservePath(owner, steps))
         {
             _retryTick[owner] = now + kRetryTicks;
-            markWaitingRed(owner, nextPos, tc);
+            onPathWait(head, nextPos, tc);
             return std::nullopt;
         }
         _retryTick.erase(owner);
@@ -725,6 +749,11 @@ namespace OpenLoco::Signals
     void onHeadEntersPiece(Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection)
     {
         const auto owner = enumValue(head.id);
+        if (isTrainWaiting(owner))
+        {
+            clearWaitingSignals(owner);
+            _retryTick.erase(owner);
+        }
         const uint16_t tad = connection & kBasicTaDMask;
         consumePendingFront(owner, entrance, connection);
         holdOccupied(owner, canonicalPiece(entrance, tad), isInPathMode(owner));

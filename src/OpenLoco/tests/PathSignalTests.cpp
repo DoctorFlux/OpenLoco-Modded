@@ -11,6 +11,7 @@
 #include <OpenLoco/Signals/PathSearch.h>
 #include <OpenLoco/Signals/PathSignals.h>
 #include <OpenLoco/Vehicles/OrderManager.h>
+#include <OpenLoco/Vehicles/RoutingManager.h>
 #include <OpenLoco/Vehicles/Vehicle1.h>
 #include <OpenLoco/Vehicles/Vehicle2.h>
 #include <OpenLoco/Vehicles/VehicleBogie.h>
@@ -90,6 +91,7 @@ namespace
             reset();
             EntityManager::reset();
             Vehicles::OrderManager::reset();
+            Vehicles::RoutingManager::resetRoutingTable();
             Rules::clear();
             Lines::clearLines();
             CompanyManager::setControllingId(static_cast<CompanyId>(0));
@@ -137,6 +139,7 @@ namespace
             using namespace Vehicles;
             VehicleBase* parts[4]{};
             const VehicleEntityType types[]{ VehicleEntityType::head, VehicleEntityType::vehicle_1, VehicleEntityType::vehicle_2, VehicleEntityType::tail };
+            const auto routing = RoutingManager::getAndAllocateFreeRoutingHandle().value();
             for (size_t i = 0; i < 4; ++i)
             {
                 parts[i] = reinterpret_cast<VehicleBase*>(EntityManager::createEntityVehicle());
@@ -147,6 +150,7 @@ namespace
                 parts[i]->tileX = start.x;
                 parts[i]->tileY = start.y;
                 parts[i]->tileBaseZ = 4;
+                parts[i]->routingHandle = routing;
                 parts[i]->nextCarId = EntityId::null;
                 parts[i]->head = parts[0]->id;
                 if (i)
@@ -249,6 +253,141 @@ TEST_F(WaypointSignalFixture, freeCircleDoesNotSubstituteForBlockedDirectWaypoin
     ASSERT_TRUE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
     EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
     EXPECT_EQ(pendingPath(enumValue(head->id))->size(), 4U);
+}
+
+TEST_F(WaypointSignalFixture, blockedUnsignalledExtensionKeepsApproachPostRedAcrossRetries)
+{
+    using namespace Vehicles;
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    const auto owner = enumValue(head->id);
+    const auto side = facingSide(start, 0);
+    signalAt(start, 0, SignalKind::path);
+    World::SignalElement* post = nullptr;
+    // Locate the native post, independently of the tile's surface/track order.
+    for (auto& el : World::TileManager::get(start))
+    {
+        if (auto* signal = el.as<World::SignalElement>())
+        {
+            post = signal;
+        }
+    }
+    ASSERT_NE(post, nullptr);
+    post->getLeft().setFrame(6); // Native yellow from the planner passing a later signal.
+    post->getLeft().setUnk4(2);
+    post->getLeft().setAllLights(0xF);
+    const auto begin = head->routingHandle;
+    RoutingManager::setRouting(begin, World::Track::AdditionalTaDFlags::hasSignal);
+    head->routingHandle.setIndex(1);
+    RoutingManager::setRouting(head->routingHandle, 0);
+    head->tileX = junction.x;
+    head->tileY = junction.y;
+    setPathMode(owner, true);
+    World::Track::TrackConnections tc;
+    tc.connections.push_back(0); // Failed decision is beyond the approach post.
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(side, kind);
+        EXPECT_FALSE(reserveFrom(*head, blocked, tc, ReserveStart::extend));
+        EXPECT_TRUE(isSignalWaiting(side));
+        EXPECT_EQ(postFrameForDisplay(kind, isSignalWaiting(side), post->getLeft().frame(), 7), 3);
+        EXPECT_EQ(post->getLeft().frame(), 6); // Rendering must not change packed state or lights.
+        EXPECT_EQ(post->getLeft().getUnk4(), 2);
+        EXPECT_EQ(post->getLeft().allLights(), 0xF);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 1);
+        EXPECT_FALSE(reserveFrom(*head, blocked, tc, ReserveStart::extend));
+        EXPECT_TRUE(isSignalWaiting(side));
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 15);
+    }
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ASSERT_TRUE(reserveFrom(*head, blocked, tc, ReserveStart::extend));
+    EXPECT_FALSE(isSignalWaiting(side));
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, isSignalWaiting(side), post->getLeft().frame(), 7), 6);
+    EXPECT_EQ(head->currentOrder, 0);
+}
+
+TEST_F(WaypointSignalFixture, approachWaitStopsAtFacingBlockBoundary)
+{
+    using namespace Vehicles;
+    auto* head = vehicle();
+    auto* other = vehicle();
+    occupiedWagon(other->id);
+    signalAt(start, 0, SignalKind::chain);
+    signalAt(junction, 0, SignalKind::none);
+    RoutingManager::setRouting(head->routingHandle, World::Track::AdditionalTaDFlags::hasSignal);
+    head->routingHandle.setIndex(1);
+    RoutingManager::setRouting(head->routingHandle, World::Track::AdditionalTaDFlags::hasSignal);
+    head->tileX = junction.x;
+    head->tileY = junction.y;
+    setPathMode(enumValue(head->id), true);
+    World::Track::TrackConnections tc;
+    tc.connections.push_back(0);
+    EXPECT_FALSE(reserveFrom(*head, blocked, tc, ReserveStart::extend));
+    EXPECT_FALSE(isSignalWaiting(facingSide(start, 0)));
+    EXPECT_FALSE(isSignalWaiting(facingSide(junction, 0)));
+}
+
+TEST_F(WaypointSignalFixture, approachWaitUsesNearestFacingPostAcrossRoutingRingWrap)
+{
+    using namespace Vehicles;
+    auto* head = vehicle();
+    signalAt(start, 0, SignalKind::path);
+    signalAt(junction, 0, SignalKind::chain);
+    // An opposite-direction post must never inherit this train's red wait.
+    for (auto& el : World::TileManager::get(junction))
+    {
+        if (auto* post = el.as<World::SignalElement>())
+        {
+            post->getRight().setHasSignal(true);
+        }
+    }
+    const auto opposite = behindSide(junction, 0);
+    setSignalKind(opposite, SignalKind::path);
+    auto handle = head->routingHandle;
+    handle.setIndex(62);
+    RoutingManager::setRouting(handle, World::Track::AdditionalTaDFlags::hasSignal);
+    handle.setIndex(63);
+    RoutingManager::setRouting(handle, World::Track::AdditionalTaDFlags::hasSignal);
+    RoutingManager::setRouting(head->routingHandle, 0); // Slot zero follows slot 63.
+    head->tileX = blocked.x;
+    head->tileY = blocked.y;
+    World::Track::TrackConnections tc;
+    onPathWait(*head, target, tc);
+    EXPECT_TRUE(isSignalWaiting(facingSide(junction, 0)));
+    EXPECT_FALSE(isSignalWaiting(facingSide(start, 0)));
+    EXPECT_FALSE(isSignalWaiting(opposite));
+    clearWaitingSignals(enumValue(head->id));
+
+    // A train travelling in reverse uses the right-hand side of the same post.
+    RoutingManager::resetRoutings(head->routingHandle);
+    const auto reverse = entranceOf(opposite);
+    head->tileX = reverse.pos.x;
+    head->tileY = reverse.pos.y;
+    RoutingManager::setRouting(head->routingHandle, reverse.connection | World::Track::AdditionalTaDFlags::hasSignal);
+    onPathWait(*head, start, tc);
+    EXPECT_TRUE(isSignalWaiting(opposite));
+    EXPECT_FALSE(isSignalWaiting(facingSide(junction, 0)));
+}
+
+TEST_F(WaypointSignalFixture, nativeProgressClearsOnlyItsOwnApproachWait)
+{
+    using namespace Vehicles;
+    auto* head = vehicle();
+    auto* other = vehicle();
+    signalAt(start, 0, SignalKind::chain);
+    RoutingManager::setRouting(head->routingHandle, World::Track::AdditionalTaDFlags::hasSignal);
+    const auto side = facingSide(start, 0);
+    World::Track::TrackConnections tc;
+    onPathWait(*head, junction, tc); // Native protected-piece refusal also records this wait.
+    setWaitingSignals(enumValue(other->id), { side });
+    EXPECT_TRUE(isTrainWaiting(enumValue(head->id)));
+    onHeadEntersPiece(*head, junction, 0);
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+    EXPECT_TRUE(isSignalWaiting(side));
+    forgetTrain(enumValue(other->id));
+    EXPECT_FALSE(isSignalWaiting(side));
 }
 
 TEST(PathSignalTests, requiredWaypointCannotBeReachedByCirclingBackAfterAReservationBoundary)
