@@ -97,3 +97,5 @@ D54 placement isolation (`023ec618`): native temporary placement motion uses the
 
 
 D55 occupation uses local native track elements, physical entity tile lists, quarter-tile conflicts and immutable native movement tables. A fixed 176-entry footprint offset cache includes both directions and endpoint overhangs; it has no per-game entities, new persistence, worker, global vehicle scan, recursive expansion or extra search dependency. Live entry safety continues through ordinary posts while the existing rail-logic flag is active.
+
+D56 adds no dependency. Bounded PathSearch target-reached state keeps safety checks running past route-through waypoints; native rail waypoint advancement releases unused continuation claims through the existing Signals API while retaining occupied holds. Physical wagon/entity queries, foreign claim validation and native red display are unchanged.

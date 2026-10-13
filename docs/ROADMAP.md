@@ -87,6 +87,9 @@ D54 (`023ec618`, following `1a541252` and `ab57d310`), same waypoint-aspect bran
 
 D55 (`99ee01af`) follows the user's failed D54 movement recheck. Complete local conflicting-piece occupation and native endpoint footprints replace the incomplete local-tile fallback inherited from master. Physical entry remains protected through ordinary-signal handoffs while rail logic is active. Focused checks passed 78/78, including private/shared Path/Chain/combined admission and every native movement sample; full Debug/Release suites each passed 418/418. Next task is the user's real long-curve/blocked-waypoint stopping and resumption check. Retain TESTING; no merge or milestone advancement.
 
+
+D56 (`cf47b6db`), same branch, follows another failed D55 manual stopping check. A waypoint no longer ends signal protection before occupied/reserved track: bounded safety checks continue to the safe waiting boundary for all three kinds. Native waypoint advancement replans unused continuation claims without releasing occupied holds. Nine new checks cover stopped wagons, foreign reservations, shared orders/resumption, later orders, Chain exits, safe boundaries, bounds and station compatibility. Focused checks passed 87/87; both rebuilt full suites passed 427/427. The next task is the user's short waypoint-before-blocker/red-stop/resumption check; keep signals TESTING.
+
 ## Phase 8 — Shunting
 
 1. Job records and state machine.
