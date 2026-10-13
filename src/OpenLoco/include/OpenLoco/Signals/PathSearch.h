@@ -61,7 +61,7 @@ namespace OpenLoco::Signals
         std::vector<StepEdge> starts;
         SearchMode mode = SearchMode::pathSignal;
         bool hasTarget = false;
-        bool requireTarget = false; // Waypoints cannot use a fallback that has not proved a route to them.
+        bool requireTarget = false; // A waypoint proves direction; protection continues to a safe waiting point.
         uint32_t maxExpansions = 4096;
         uint32_t maxReservedPieces = 64;
     };

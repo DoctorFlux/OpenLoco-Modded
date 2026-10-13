@@ -26,6 +26,7 @@ namespace OpenLoco::Signals
             uint32_t cost = 0;
             uint32_t reservedPieces = 0;
             std::array<uint64_t, 4> visited{};
+            bool reachedTarget = false;
         };
 
         struct StateKey
@@ -143,6 +144,12 @@ namespace OpenLoco::Signals
         const auto initialStage = request.mode == SearchMode::chainSignal ? Stage::chainArea : Stage::exitSegment;
         Candidate best;
 
+        const auto complete = [&](int32_t index) {
+            result.reachedTarget = true;
+            result.reservation = buildReservation(nodes, index);
+            result.found = !result.reservation.empty();
+        };
+
         auto considerCandidate = [&](int32_t index) {
             const auto& node = nodes[index];
             const uint32_t distance = request.hasTarget ? node.edge.distanceToTarget : 0;
@@ -153,6 +160,7 @@ namespace OpenLoco::Signals
         };
 
         auto push = [&](Node node) {
+            node.reachedTarget = node.edge.isTarget || (node.parent >= 0 && nodes[node.parent].reachedTarget);
             if (request.requireTarget)
             {
                 if (node.parent >= 0 && revisitsJunction(nodes, node.parent, node.edge))
@@ -207,7 +215,10 @@ namespace OpenLoco::Signals
             }
             ++expansions;
 
-            if (node.edge.isTarget)
+            // A route-through waypoint proves the requested direction, but is
+            // not a place to stop safely. Keep checking to the signal boundary
+            // even when another train stands just beyond the waypoint.
+            if (node.edge.isTarget && (!request.requireTarget || node.stage == Stage::released))
             {
                 int32_t end = index;
                 if (node.stage != Stage::released)
@@ -233,9 +244,7 @@ namespace OpenLoco::Signals
                         end = static_cast<int32_t>(nodes.size() - 1);
                     }
                 }
-                result.reachedTarget = true;
-                result.reservation = buildReservation(nodes, end);
-                result.found = !result.reservation.empty();
+                complete(end);
                 return result;
             }
 
@@ -246,6 +255,11 @@ namespace OpenLoco::Signals
             if (node.stage != Stage::released)
             {
                 const bool deadEnd = std::none_of(successors.begin(), successors.end(), [](const StepEdge& edge) { return edge.signal != EntrySignal::blockedFromBehind; });
+                if (node.reachedTarget && request.requireTarget && (deadEnd || reserveLimit))
+                {
+                    complete(index);
+                    return result;
+                }
                 if (deadEnd || (reserveLimit && !request.requireTarget))
                 {
                     considerCandidate(index);
@@ -282,6 +296,11 @@ namespace OpenLoco::Signals
 
                 if (node.stage != Stage::released && stage == Stage::released)
                 {
+                    if (node.reachedTarget && request.requireTarget)
+                    {
+                        complete(index);
+                        return result;
+                    }
                     considerCandidate(index);
                 }
 

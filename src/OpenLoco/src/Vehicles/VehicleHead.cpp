@@ -4983,6 +4983,9 @@ namespace OpenLoco::Vehicles
         {
             return Sub4ACEE7Result{ 5, 0, StationId::null };
         }
+        // Safety proof may extend past this route-through waypoint. Choose the
+        // following order afresh instead of committing that proof's later forks.
+        Signals::dropPendingPath(enumValue(head.id));
         Rules::passed(enumValue(head.id));
         curOrder++;
         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;

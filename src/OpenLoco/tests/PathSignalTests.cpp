@@ -302,6 +302,107 @@ TEST_F(WaypointSignalFixture, physicalFrontRechecksCommittedPathSignalPiece)
     checkCommittedPhysicalEntry(SignalKind::path);
 }
 
+TEST_F(WaypointSignalFixture, waypointBeforeStoppedWagonDoesNotEndSignalProtection)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    other->status = Vehicles::Status::stopped;
+    occupiedWagon(other->id);
+    auto* waypoint = head->getCurrentOrders().begin()->as<Vehicles::OrderRouteWaypoint>();
+    waypoint->setWaypoint({ static_cast<coord_t>(junction.x / 32), static_cast<coord_t>(junction.y / 32) }, 2);
+    approaching(*head);
+    signal(SignalKind::path);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+        refreshApproachSignals(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+        expectRefused(*head);
+    }
+}
+
+TEST_F(WaypointSignalFixture, waypointBeforeForeignReservationDoesNotEndSignalProtection)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    ASSERT_TRUE(reservePath(enumValue(other->id), { { blocked, 0 }, { target, 0 } }));
+    auto* waypoint = head->getCurrentOrders().begin()->as<Vehicles::OrderRouteWaypoint>();
+    waypoint->setWaypoint({ static_cast<coord_t>(junction.x / 32), static_cast<coord_t>(junction.y / 32) }, 2);
+    approaching(*head);
+    signal(SignalKind::path);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+        expectRefused(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+    }
+}
+
+TEST_F(WaypointSignalFixture, sharedWaypointBeforeStoppedWagonKeepsSignalRedUntilClear)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    other->status = Vehicles::Status::stopped;
+    auto* wagon = occupiedWagon(other->id);
+    const auto line = Lines::createLine("Waypoint protection", TransportMode::rail, 4);
+    ASSERT_TRUE(line.ok);
+    Lines::LineOrder order;
+    order.type = Vehicles::OrderType::RouteWaypoint;
+    order.tileX = junction.x / 32;
+    order.tileY = junction.y / 32;
+    order.baseZ = 2;
+    ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    ASSERT_TRUE(Lines::acceptStopKinds(line.id, Lines::LineKind::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(head->id), TransportMode::rail).ok);
+    approaching(*head);
+    signal(SignalKind::chain);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+        expectRefused(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+    }
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    ASSERT_EQ(decide(*head).status, 0);
+    ASSERT_NE(pendingPath(enumValue(head->id)), nullptr);
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+    EXPECT_FALSE(isSignalBlockedForDisplay(facingSide(start, 0)));
+}
+
+TEST_F(WaypointSignalFixture, passingWaypointReplansLaterForksWithoutReleasingOccupiedHolds)
+{
+    auto* head = vehicle();
+    auto* first = head->getCurrentOrders().begin()->as<Vehicles::OrderRouteWaypoint>();
+    first->setWaypoint({ static_cast<coord_t>(junction.x / 32), static_cast<coord_t>(junction.y / 32) }, 2);
+    Vehicles::OrderRouteWaypoint next({ static_cast<coord_t>(target.x / 32), static_cast<coord_t>(target.y / 32) }, 2, 0, 0);
+    Vehicles::OrderManager::insertOrder(head, sizeof(Vehicles::OrderRouteWaypoint), &next);
+    approaching(*head);
+    signal(SignalKind::path);
+    ASSERT_EQ(decide(*head).status, 0);
+    ASSERT_NE(pendingPath(enumValue(head->id)), nullptr);
+    ASSERT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+    head->tileX = start.x;
+    head->tileY = start.y;
+    head->routingHandle.setIndex(head->routingHandle.getIndex() + 1);
+    ASSERT_EQ(decide(*head).status, 0);
+    EXPECT_EQ(head->currentOrder, sizeof(Vehicles::OrderRouteWaypoint));
+    EXPECT_TRUE(pendingPath(enumValue(head->id))->empty());
+    for (auto pos : { start, junction })
+    {
+        ASSERT_TRUE(holdAt(canonicalPiece(pos, 0)));
+        EXPECT_EQ(holdAt(canonicalPiece(pos, 0))->kind, HoldKind::occupied);
+        EXPECT_TRUE(holdAt(canonicalPiece(pos, 0))->isProtected);
+    }
+    const auto tc = World::Track::getTrackConnections(blocked, 0, head->owner, 0, 0, 0);
+    ASSERT_TRUE(reserveFrom(*head, blocked, tc, ReserveStart::extend));
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+}
+
 TEST_F(WaypointSignalFixture, physicalFrontRechecksCommittedChainSignalPiece)
 {
     checkCommittedPhysicalEntry(SignalKind::chain);
@@ -1090,7 +1191,102 @@ TEST(PathSignalTests, changingOutgoingPieceDoesNotDisguiseReturningToSameJunctio
     const auto result = findReservation(graph, request);
     ASSERT_TRUE(result.found);
     EXPECT_EQ(result.reservation.front().step.tad, 0U);
-    EXPECT_EQ(result.reservation.size(), 1U);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 2, 8 })); // Protect through to the next signal, past the waypoint.
+}
+
+TEST(PathSignalTests, waypointBeforeBlockedTrackCannotShortenReservation)
+{
+    for (auto mode : { SearchMode::pathSignal, SearchMode::chainSignal, SearchMode::extend })
+    {
+        TestGraph graph;
+        graph.add(1, 2).isTarget = true;
+        auto& occupied = graph.add(2, 3);
+        occupied.blocked = true;
+        graph.add(3, 4);
+        SearchRequest request;
+        request.starts.push_back(graph.start(1));
+        request.mode = mode;
+        request.hasTarget = request.requireTarget = true;
+        EXPECT_FALSE(findReservation(graph, request).found);
+        occupied.blocked = false;
+        const auto result = findReservation(graph, request);
+        ASSERT_TRUE(result.found);
+        EXPECT_TRUE(result.reachedTarget);
+        EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 2, 3, 4 }));
+    }
+}
+
+TEST(PathSignalTests, waypointDoesNotSkipChainExitBlockOccupation)
+{
+    TestGraph graph;
+    graph.add(1, 2).isTarget = true;
+    auto& exit = graph.add(2, 3);
+    exit.signal = EntrySignal::block;
+    exit.exitOccupied = true;
+    graph.add(3, 4);
+    graph.add(4, 5).signal = EntrySignal::path;
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.mode = SearchMode::chainSignal;
+    request.hasTarget = request.requireTarget = true;
+    EXPECT_FALSE(findReservation(graph, request).found);
+    exit.exitOccupied = false;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 2, 3, 4 }));
+}
+
+TEST(PathSignalTests, waypointProtectionStillEndsBeforeTheNextSafeSignal)
+{
+    TestGraph graph;
+    graph.add(1, 2).isTarget = true;
+    graph.add(2, 3);
+    auto& nextSignal = graph.add(3, 4);
+    nextSignal.signal = EntrySignal::path;
+    nextSignal.blocked = true;
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = request.requireTarget = true;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 2, 3 }));
+    request.mode = SearchMode::chainSignal;
+    EXPECT_FALSE(findReservation(graph, request).found); // A chain must protect through its exit.
+}
+
+TEST(PathSignalTests, waypointProtectionAfterTargetKeepsReservationAndSearchBounds)
+{
+    TestGraph graph;
+    graph.add(1, 2).isTarget = true;
+    for (int16_t i = 2; i < 100; ++i)
+    {
+        graph.add(i, i + 1);
+    }
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = request.requireTarget = true;
+    request.maxExpansions = 2;
+    EXPECT_FALSE(findReservation(graph, request).found);
+    request.maxExpansions = 4096;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.reservation.size(), request.maxReservedPieces);
+    EXPECT_EQ(ids(result).back(), 64);
+}
+
+TEST(PathSignalTests, stationTargetKeepsItsPlatformStoppingBoundary)
+{
+    TestGraph graph;
+    graph.add(1, 2).isTarget = true;
+    graph.add(2, 3).blocked = true;
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = true;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 2 }));
+    request.requireTarget = true;
+    EXPECT_FALSE(findReservation(graph, request).found);
 }
 
 TEST(PathSignalTests, requiredAlternativesWithDifferentHistoryAreNotCollapsedByEndpoint)
