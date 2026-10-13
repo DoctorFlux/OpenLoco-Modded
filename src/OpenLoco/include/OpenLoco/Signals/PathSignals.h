@@ -140,6 +140,8 @@ namespace OpenLoco::Signals
     DisplayState chooseDisplayState(SignalKind kind, const DisplayChoice& choice);
     // A two-state signal has no yellow frame; proceed is green there.
     DisplayState postStateFor(DisplayState state, uint8_t stateCount);
+    // Waiting at a special signal displays red without changing packed occupancy.
+    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount);
 
     struct SignalClaim
     {

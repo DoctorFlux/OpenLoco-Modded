@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <fstream>
 #include <map>
+#include <set>
 #include <string>
 #include <system_error>
 
@@ -53,7 +54,7 @@ namespace OpenLoco::Signals
         uint16_t _viewedOwner = kNoReservationView;
         std::map<PieceKey, uint8_t> _viewedSides;
         std::map<PieceKey, ReservationArrow> _allReserved;
-        std::map<SideKey, uint16_t> _waitingSignals;
+        std::map<SideKey, std::set<uint16_t>> _waitingSignals;
         bool _lightRepairPending = false;
         ReservationViewDirty _viewDirty = nullptr;
 
@@ -397,6 +398,15 @@ namespace OpenLoco::Signals
         return state;
     }
 
+    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount)
+    {
+        if (kind == SignalKind::none || !waiting || frameCount == 0)
+        {
+            return vanillaFrame;
+        }
+        return std::min<uint8_t>(3, frameCount - 1);
+    }
+
     std::map<SideKey, SignalClaim> buildSignalClaims(const std::vector<std::pair<uint16_t, std::vector<SideKey>>>& routes)
     {
         std::map<SideKey, SignalClaim> claims;
@@ -651,9 +661,22 @@ namespace OpenLoco::Signals
 
     void setWaitingSignals(uint16_t owner, const std::vector<SideKey>& sides)
     {
+        std::map<SideKey, bool> previous;
+        for (const auto& [side, owners] : _waitingSignals)
+        {
+            if (owners.contains(owner))
+            {
+                previous.emplace(side, true);
+            }
+        }
+        for (const auto& side : sides)
+        {
+            previous.try_emplace(side, isSignalWaiting(side));
+        }
         for (auto it = _waitingSignals.begin(); it != _waitingSignals.end();)
         {
-            if (it->second == owner)
+            it->second.erase(owner);
+            if (it->second.empty())
             {
                 it = _waitingSignals.erase(it);
             }
@@ -664,7 +687,17 @@ namespace OpenLoco::Signals
         }
         for (const auto& side : sides)
         {
-            _waitingSignals[side] = owner;
+            _waitingSignals[side].insert(owner);
+        }
+        if (_viewDirty != nullptr)
+        {
+            for (const auto& [side, wasWaiting] : previous)
+            {
+                if (wasWaiting != isSignalWaiting(side))
+                {
+                    _viewDirty(side.piece);
+                }
+            }
         }
     }
 
@@ -680,7 +713,7 @@ namespace OpenLoco::Signals
 
     bool isTrainWaiting(uint16_t owner)
     {
-        return std::any_of(_waitingSignals.begin(), _waitingSignals.end(), [owner](const auto& entry) { return entry.second == owner; });
+        return std::any_of(_waitingSignals.begin(), _waitingSignals.end(), [owner](const auto& entry) { return entry.second.contains(owner); });
     }
 
     std::optional<ReservationArrow> reservationArrowAt(const PieceKey& piece)
@@ -831,6 +864,13 @@ namespace OpenLoco::Signals
     void clearAll()
     {
         _viewedOwner = kNoReservationView;
+        if (_viewDirty != nullptr)
+        {
+            for (const auto& [side, owners] : _waitingSignals)
+            {
+                _viewDirty(side.piece);
+            }
+        }
         _waitingSignals.clear();
         _lightRepairPending = false;
         _kinds.clear();

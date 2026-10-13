@@ -100,6 +100,10 @@ namespace OpenLoco::Signals
     SearchResult findReservation(TrackGraph& graph, const SearchRequest& request)
     {
         SearchResult result;
+        if (request.requireTarget && !request.hasTarget)
+        {
+            return result;
+        }
         std::vector<Node> nodes;
         std::map<StateKey, uint32_t> bestCost;
         using QueueItem = std::pair<uint64_t, int32_t>;
@@ -188,10 +192,11 @@ namespace OpenLoco::Signals
             successors.clear();
             graph.successors(node.edge.step, successors);
 
+            const bool reserveLimit = node.stage != Stage::released && node.reservedPieces >= request.maxReservedPieces;
             if (node.stage != Stage::released)
             {
                 const bool deadEnd = std::none_of(successors.begin(), successors.end(), [](const StepEdge& edge) { return edge.signal != EntrySignal::blockedFromBehind; });
-                if (deadEnd || node.reservedPieces >= request.maxReservedPieces)
+                if (deadEnd || (reserveLimit && !request.requireTarget))
                 {
                     considerCandidate(index);
                     continue;
@@ -205,7 +210,9 @@ namespace OpenLoco::Signals
                     continue;
                 }
                 bool allowed = true;
-                const auto stage = nextStage(node.stage, edge, allowed);
+                // A required waypoint can lie beyond the bounded reservation.
+                // Prove connectivity there without adding more occupied pieces.
+                const auto stage = reserveLimit ? Stage::released : nextStage(node.stage, edge, allowed);
                 if (!allowed)
                 {
                     continue;
@@ -233,7 +240,7 @@ namespace OpenLoco::Signals
             }
         }
 
-        if (best.node >= 0)
+        if (best.node >= 0 && !request.requireTarget)
         {
             result.reservation = buildReservation(nodes, best.node);
             result.found = !result.reservation.empty();

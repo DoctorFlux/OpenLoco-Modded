@@ -162,7 +162,7 @@ namespace OpenLoco::Paint
         return bothDirections ? Colour::mutedAvocadoGreen : Colour::grey;
     }
 
-    static void paintSignalSide(PaintSession& session, const World::SignalElement::Side& side, const bool isRight, const bool isGhost, const uint8_t trackId, const uint8_t rotation, const coord_t height, const Signals::SignalKind kind, const bool bothDirections, const Signals::SignalKind otherKind)
+    static void paintSignalSide(PaintSession& session, const World::SignalElement::Side& side, const bool isRight, const bool isGhost, const uint8_t trackId, const uint8_t rotation, const coord_t height, const Signals::SignalKind kind, const bool bothDirections, const Signals::SignalKind otherKind, const bool waiting)
     {
         const bool showArrows = (session.getViewFlags() & Ui::ViewportFlags::one_way_direction_arrows) != Ui::ViewportFlags::none && session.getZoom() <= ZoomLevel::full;
         if (side.hasSignal() && showArrows)
@@ -184,7 +184,8 @@ namespace OpenLoco::Paint
             const auto& offsetAndBBoffsetArr = signalObj->hasFlags(TrainSignalObjectFlags::isLeft) ? _4FE870 : _4FE830;
             const auto& offsetAndBBoffset = offsetAndBBoffsetArr[trackRotation];
             const auto imageRotationOffset = ((trackRotation & 0x3) << 1) | (trackRotation >= 12 ? 1 : 0);
-            const auto imageOffset = imageRotationOffset + signalObj->image + (side.frame() << 3);
+            const auto frame = Signals::postFrameForDisplay(kind, waiting && !isGhost, side.frame(), signalObj->numFrames);
+            const auto imageOffset = imageRotationOffset + signalObj->image + (frame << 3);
 
             ImageId imageId{ imageOffset };
             if (isGhost)
@@ -274,6 +275,8 @@ namespace OpenLoco::Paint
         auto rightKind = Signals::SignalKind::none;
         bool leftPlaced = false;
         bool rightPlaced = false;
+        bool leftWaiting = false;
+        bool rightWaiting = false;
         {
             const auto tilePos = session.getUnkPosition();
             const auto piece = Signals::pieceFromElement(World::Pos3{ tilePos.x, tilePos.y, elTrack->baseHeight() }, elTrack->rotation(), trackId, elTrack->sequenceIndex());
@@ -283,6 +286,8 @@ namespace OpenLoco::Paint
             {
                 leftKind = Signals::getSignalKind(Signals::SideKey{ piece, 0 });
                 rightKind = Signals::getSignalKind(Signals::SideKey{ piece, 1 });
+                leftWaiting = Signals::isSignalWaiting(Signals::SideKey{ piece, 0 });
+                rightWaiting = Signals::isSignalWaiting(Signals::SideKey{ piece, 1 });
             }
         }
 
@@ -290,7 +295,7 @@ namespace OpenLoco::Paint
         {
             auto& leftSignal = elSignal.getLeft();
             const bool leftIsGhost = elSignal.isGhost() || elSignal.isLeftGhost();
-            paintSignalSide(session, leftSignal, false, leftIsGhost, trackId, rotation, height, leftKind, leftPlaced && rightPlaced, rightKind);
+            paintSignalSide(session, leftSignal, false, leftIsGhost, trackId, rotation, height, leftKind, leftPlaced && rightPlaced, rightKind, leftWaiting);
         }
         if (!elTrack->isFlag6())
         {
@@ -299,6 +304,6 @@ namespace OpenLoco::Paint
 
         auto& rightSignal = elSignal.getRight();
         const bool rightIsGhost = elSignal.isGhost() || elSignal.isRightGhost();
-        paintSignalSide(session, rightSignal, true, rightIsGhost, trackId, rotation, height, rightKind, leftPlaced && rightPlaced, leftKind);
+        paintSignalSide(session, rightSignal, true, rightIsGhost, trackId, rotation, height, rightKind, leftPlaced && rightPlaced, leftKind, rightWaiting);
     }
 }

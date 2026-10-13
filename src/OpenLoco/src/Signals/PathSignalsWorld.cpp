@@ -377,6 +377,11 @@ namespace OpenLoco::Signals
                 return _hasTarget;
             }
 
+            bool requiresTarget() const
+            {
+                return _hasTarget && _targetStation == StationId::null;
+            }
+
             StepEdge makeEdge(const World::Pos3& pos, uint16_t connection, StationId tileStation) const
             {
                 StepEdge edge;
@@ -612,6 +617,7 @@ namespace OpenLoco::Signals
         SearchRequest request;
         request.mode = start == ReserveStart::chainSignal ? SearchMode::chainSignal : (start == ReserveStart::pathSignal ? SearchMode::pathSignal : SearchMode::extend);
         request.hasTarget = graph.hasTarget();
+        request.requireTarget = graph.requiresTarget();
         for (const auto connection : tc.connections)
         {
             request.starts.push_back(graph.makeEdge(nextPos, connection, tc.stationId));

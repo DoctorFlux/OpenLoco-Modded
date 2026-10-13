@@ -1,5 +1,22 @@
+#include <OpenLoco/Entities/EntityManager.h>
+#include <OpenLoco/Lines/Line.h>
+#include <OpenLoco/Map/SignalElement.h>
+#include <OpenLoco/Map/TileManager.h>
+#include <OpenLoco/Map/Track/Track.h>
+#include <OpenLoco/Map/Track/TrackData.h>
+#include <OpenLoco/Map/TrackElement.h>
+#include <OpenLoco/Math/Vector.hpp>
+#include <OpenLoco/Rules/Rules.h>
+#include <OpenLoco/Scenario/ScenarioManager.h>
 #include <OpenLoco/Signals/PathSearch.h>
 #include <OpenLoco/Signals/PathSignals.h>
+#include <OpenLoco/Vehicles/OrderManager.h>
+#include <OpenLoco/Vehicles/Vehicle1.h>
+#include <OpenLoco/Vehicles/Vehicle2.h>
+#include <OpenLoco/Vehicles/VehicleBogie.h>
+#include <OpenLoco/Vehicles/VehicleHead.h>
+#include <OpenLoco/Vehicles/VehicleTail.h>
+#include <OpenLoco/World/CompanyManager.h>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -62,6 +79,381 @@ namespace
     {
         return ReservedStep{ World::Pos3{ x, y, 0 }, static_cast<uint16_t>(rotation) };
     }
+
+    struct WaypointSignalFixture : testing::Test
+    {
+        const World::Pos3 start{ 640, 640, 16 };
+        World::Pos3 junction{}, blocked{}, target{};
+
+        void SetUp() override
+        {
+            reset();
+            EntityManager::reset();
+            Vehicles::OrderManager::reset();
+            Rules::clear();
+            Lines::clearLines();
+            CompanyManager::setControllingId(static_cast<CompanyId>(0));
+            ScenarioManager::setScenarioTicks(0);
+            World::TileManager::allocateMapElements();
+            World::TileManager::initialise();
+            junction = World::Track::getTrackConnectionEnd(start, 0).nextPos;
+            blocked = World::Track::getTrackConnectionEnd(junction, 0).nextPos;
+            target = World::Track::getTrackConnectionEnd(blocked, 0).nextPos;
+            for (auto pos : { start, junction, blocked, target })
+            {
+                addPiece(pos, 0);
+            }
+            addPiece(junction, 2 << 3); // Free small curve leads to an unrelated dead end.
+        }
+
+        void TearDown() override
+        {
+            reset();
+            setHoldValidator(nullptr);
+            setReservationViewDirty(nullptr);
+            Rules::clear();
+            Lines::clearLines();
+        }
+
+        void addPiece(World::Pos3 entrance, uint16_t tad)
+        {
+            const auto piece = canonicalPiece(entrance, tad);
+            const auto parts = World::TrackData::getTrackPiece(piece.trackId);
+            for (const auto& part : parts)
+            {
+                const auto offset = Math::Vector::rotate(World::Pos2{ part.x, part.y }, piece.rotation);
+                auto* track = World::TileManager::insertElement(World::ElementType::track, { static_cast<coord_t>(piece.x + offset.x), static_cast<coord_t>(piece.y + offset.y) }, static_cast<uint8_t>((piece.z + part.z) / 4), 0)->as<World::TrackElement>();
+                track->setTrackId(piece.trackId);
+                track->setRotation(piece.rotation);
+                track->setSequenceIndex(part.index);
+                track->setFlag6(part.index == parts.back().index);
+                track->setTrackObjectId(0);
+                track->setOwner(static_cast<CompanyId>(0));
+            }
+        }
+
+        Vehicles::VehicleHead* vehicle()
+        {
+            using namespace Vehicles;
+            VehicleBase* parts[4]{};
+            const VehicleEntityType types[]{ VehicleEntityType::head, VehicleEntityType::vehicle_1, VehicleEntityType::vehicle_2, VehicleEntityType::tail };
+            for (size_t i = 0; i < 4; ++i)
+            {
+                parts[i] = reinterpret_cast<VehicleBase*>(EntityManager::createEntityVehicle());
+                parts[i]->baseType = EntityBaseType::vehicle;
+                parts[i]->subType = types[i];
+                parts[i]->mode = TransportMode::rail;
+                parts[i]->owner = static_cast<CompanyId>(0);
+                parts[i]->tileX = start.x;
+                parts[i]->tileY = start.y;
+                parts[i]->tileBaseZ = 4;
+                parts[i]->nextCarId = EntityId::null;
+                parts[i]->head = parts[0]->id;
+                if (i)
+                {
+                    parts[i - 1]->nextCarId = parts[i]->id;
+                }
+            }
+            auto* head = reinterpret_cast<VehicleHead*>(parts[0]);
+            EntityManager::moveEntityToList(head, EntityManager::EntityListType::vehicleHead);
+            head->status = Status::travelling;
+            head->vehicleType = VehicleType::train;
+            head->trackType = 0;
+            OrderManager::allocateOrders(*head);
+            OrderRouteWaypoint waypoint({ static_cast<coord_t>(target.x / 32), static_cast<coord_t>(target.y / 32) }, 2, 0, 0);
+            OrderManager::insertOrder(head, 0, &waypoint);
+            head->currentOrder = 0;
+            return head;
+        }
+
+        Vehicles::VehicleBogie* occupiedWagon(EntityId owner)
+        {
+            auto* wagon = reinterpret_cast<Vehicles::VehicleBogie*>(EntityManager::createEntityVehicle());
+            wagon->baseType = EntityBaseType::vehicle;
+            wagon->subType = Vehicles::VehicleEntityType::bogie;
+            wagon->head = owner;
+            wagon->mode = TransportMode::rail;
+            wagon->tileX = blocked.x;
+            wagon->tileY = blocked.y;
+            wagon->tileBaseZ = 4;
+            wagon->trackAndDirection.track._data = 0;
+            wagon->moveTo(blocked);
+            return wagon;
+        }
+
+        World::Track::TrackConnections signal(SignalKind kind)
+        {
+            auto tile = World::TileManager::get(start);
+            for (auto& el : tile)
+            {
+                if (auto* track = el.as<World::TrackElement>())
+                {
+                    track->setHasSignal(true);
+                    break;
+                }
+            }
+            auto* post = World::TileManager::insertElement(World::ElementType::signal, { start.x, start.y }, 4, 0)->as<World::SignalElement>();
+            post->getLeft().setHasSignal(true);
+            setSignalKind(facingSide(start, 0), kind);
+            World::Track::TrackConnections tc;
+            tc.connections.push_back(World::Track::AdditionalTaDFlags::hasSignal);
+            return tc;
+        }
+    };
+}
+
+TEST_F(WaypointSignalFixture, blockedWaypointWaitsInsteadOfTakingFreeDeadEnd)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    const auto tc = signal(SignalKind::path);
+    const auto cursor = head->currentOrder;
+    EXPECT_FALSE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
+    EXPECT_TRUE(isTrainWaiting(enumValue(head->id)));
+    EXPECT_EQ(pathHoldCount(), 0U);
+    EXPECT_EQ(head->currentOrder, cursor);
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ScenarioManager::setScenarioTicks(15);
+    EXPECT_FALSE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
+    ScenarioManager::setScenarioTicks(16);
+    ASSERT_TRUE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
+    const auto* path = pendingPath(enumValue(head->id));
+    ASSERT_NE(path, nullptr);
+    ASSERT_EQ(path->size(), 4U);
+    for (const auto& step : *path)
+    {
+        EXPECT_EQ(step.connection & World::Track::AdditionalTaDFlags::basicTaDMask, 0U);
+    }
+    EXPECT_EQ(path->back().pos, target);
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+    EXPECT_EQ(head->currentOrder, cursor);
+}
+
+TEST_F(WaypointSignalFixture, sharedDirectionalWaypointWaitsAtChainAndCombinedSignals)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    const auto line = Lines::createLine("Required waypoint", TransportMode::rail, 4);
+    ASSERT_TRUE(line.ok);
+    for (const auto pos : { target, start })
+    {
+        Lines::LineOrder order;
+        order.type = Vehicles::OrderType::RouteWaypoint;
+        order.tileX = pos.x / 32;
+        order.tileY = pos.y / 32;
+        order.baseZ = 2; // Waypoints encode height in 8-unit steps, track elements in 4.
+        ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::acceptStopKinds(line.id, Lines::LineKind::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(head->id), TransportMode::rail).ok);
+    const auto tc = signal(SignalKind::chain);
+    for (auto kind : { SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        EXPECT_FALSE(reserveFrom(*head, start, tc, ReserveStart::chainSignal));
+        EXPECT_TRUE(isSignalWaiting(facingSide(start, 0)));
+        EXPECT_EQ(pathHoldCount(), 0U);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+    EXPECT_EQ(head->currentOrder, 0U);
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ASSERT_TRUE(reserveFrom(*head, start, tc, ReserveStart::chainSignal));
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+    EXPECT_FALSE(isSignalWaiting(facingSide(start, 0)));
+}
+
+TEST_F(WaypointSignalFixture, sameTileWithWrongWaypointDirectionDoesNotCountAsTarget)
+{
+    auto* head = vehicle();
+    head->getCurrentOrders().begin()->as<Vehicles::OrderRouteWaypoint>()->setDirection(1);
+    const auto tc = signal(SignalKind::path);
+    EXPECT_FALSE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
+    EXPECT_TRUE(isSignalWaiting(facingSide(start, 0)));
+    EXPECT_EQ(pathHoldCount(), 0U);
+    EXPECT_EQ(head->currentOrder, 0U);
+}
+
+TEST_F(WaypointSignalFixture, evaluatingTrainIsExcludedFromWaypointOccupation)
+{
+    auto* head = vehicle();
+    occupiedWagon(head->id);
+    const auto tc = signal(SignalKind::path);
+    ASSERT_TRUE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+}
+
+TEST(PathSignalTests, requiredTargetRejectsUnrelatedFreeFallbackInEverySearchMode)
+{
+    TestGraph graph;
+    graph.add(1, 2);
+    graph.add(2, 3).blocked = true;
+    graph.add(3, 4).isTarget = true;
+    graph.add(2, 8); // Unrelated free dead end.
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = true;
+    request.requireTarget = true;
+    for (auto mode : { SearchMode::pathSignal, SearchMode::chainSignal, SearchMode::extend })
+    {
+        request.mode = mode;
+        const auto result = findReservation(graph, request);
+        EXPECT_FALSE(result.found);
+        EXPECT_TRUE(result.reservation.empty());
+    }
+    request.requireTarget = false; // Station/no-strict-order compatibility keeps its fallback.
+    EXPECT_TRUE(findReservation(graph, request).found);
+}
+
+TEST(PathSignalTests, requiredWaypointCanUseAnotherRouteToTheExactTarget)
+{
+    TestGraph graph;
+    graph.add(1, 2);
+    graph.add(2, 3).blocked = true;
+    graph.add(3, 4).isTarget = true;
+    graph.add(2, 5);
+    graph.add(5, 6);
+    graph.add(6, 4).isTarget = true;
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = request.requireTarget = true;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_TRUE(result.reachedTarget);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 2, 5, 6, 4 }));
+}
+
+TEST(PathSignalTests, waypointBeyondNextSignalReservesOnlyItsFreeApproach)
+{
+    TestGraph graph;
+    graph.add(1, 2);
+    graph.add(2, 3).signal = EntrySignal::path;
+    graph.add(3, 4).blocked = true;
+    graph.add(4, 5).isTarget = true;
+    graph.add(1, 8); // Free fallback in the wrong direction cannot win.
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = request.requireTarget = true;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_TRUE(result.reachedTarget);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 2 }));
+}
+
+TEST(PathSignalTests, requiredWaypointDoesNotTakeWrongChainExitOrBackOfOneWaySignal)
+{
+    TestGraph graph;
+    graph.add(1, 2);
+    auto& exit = graph.add(2, 3);
+    exit.signal = EntrySignal::block;
+    exit.exitOccupied = true;
+    graph.add(3, 4).isTarget = true;
+    graph.add(2, 8).signal = EntrySignal::block;
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.mode = SearchMode::chainSignal;
+    request.hasTarget = request.requireTarget = true;
+    EXPECT_FALSE(findReservation(graph, request).found);
+    TestGraph oneWay;
+    oneWay.add(1, 2).signal = EntrySignal::path;
+    oneWay.add(2, 3).signal = EntrySignal::blockedFromBehind;
+    oneWay.add(3, 4).isTarget = true;
+    request.mode = SearchMode::pathSignal;
+    EXPECT_FALSE(findReservation(oneWay, request).found);
+}
+
+TEST(PathSignalTests, requiredWaypointProofContinuesBeyondReservationLengthWithoutClaimingMore)
+{
+    TestGraph graph;
+    for (int16_t i = 1; i < 80; ++i)
+    {
+        graph.add(i, i + 1).isTarget = i == 79;
+    }
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = request.requireTarget = true;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_TRUE(result.reachedTarget);
+    ASSERT_EQ(result.reservation.size(), 64U);
+    EXPECT_EQ(result.reservation.front().step.pos.x, 1);
+    EXPECT_EQ(result.reservation.back().step.pos.x, 64);
+    request.maxExpansions = 64;
+    EXPECT_FALSE(findReservation(graph, request).found); // No unproved fallback on exhaustion.
+    request.hasTarget = false;
+    EXPECT_FALSE(findReservation(graph, request).found);
+}
+
+TEST(PathSignalTests, requiredWaypointWaitsAtBlockedStartAndOccupiedTarget)
+{
+    TestGraph graph;
+    auto& target = graph.add(1, 2);
+    target.isTarget = true;
+    target.blocked = true;
+    SearchRequest request;
+    auto start = graph.start(1);
+    request.starts.push_back(start);
+    request.hasTarget = request.requireTarget = true;
+    EXPECT_FALSE(findReservation(graph, request).found);
+    target.blocked = false;
+    request.starts.front().blocked = true;
+    EXPECT_FALSE(findReservation(graph, request).found);
+    request.starts.front().blocked = false;
+    const auto result = findReservation(graph, request);
+    EXPECT_TRUE(result.found);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 2 }));
+}
+
+TEST(PathSignalTests, waitingSpecialPostsShowRedAndResumeTheirNativeFrame)
+{
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        EXPECT_EQ(postFrameForDisplay(kind, true, 0, 4), 3);
+        EXPECT_EQ(postFrameForDisplay(kind, true, 6, 7), 3);
+        EXPECT_EQ(postFrameForDisplay(kind, false, 0, 4), 0);
+        EXPECT_EQ(postFrameForDisplay(kind, false, 6, 7), 6);
+    }
+    EXPECT_EQ(postFrameForDisplay(SignalKind::none, true, 0, 4), 0);
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, true, 0, 1), 0);
+    EXPECT_EQ(postFrameForDisplay(SignalKind::path, true, 0, 0), 0);
+}
+
+TEST(PathSignalTests, waitingPostRemainsRedUntilEveryWaitingTrainClearsAndInvalidatesOnlyChanges)
+{
+    clearAll();
+    static int dirty = 0;
+    dirty = 0;
+    setReservationViewDirty(+[](const PieceKey&) { ++dirty; });
+    const SideKey side{ PieceKey{ 320, 320, 16, 0, 0 }, 0 };
+    setSignalKind(side, SignalKind::path);
+    setWaitingSignals(1, { side });
+    EXPECT_EQ(dirty, 1);
+    setWaitingSignals(1, { side });
+    setWaitingSignals(2, { side });
+    EXPECT_EQ(dirty, 1);
+    EXPECT_TRUE(isTrainWaiting(1));
+    EXPECT_TRUE(isTrainWaiting(2));
+    clearWaitingSignals(1);
+    EXPECT_TRUE(isSignalWaiting(side));
+    EXPECT_FALSE(isTrainWaiting(1));
+    EXPECT_EQ(dirty, 1);
+    clearWaitingSignals(2);
+    EXPECT_FALSE(isSignalWaiting(side));
+    EXPECT_EQ(dirty, 2);
+    setWaitingSignals(3, { side });
+    forgetTrain(3);
+    EXPECT_FALSE(isSignalWaiting(side));
+    EXPECT_EQ(dirty, 4);
+    setWaitingSignals(4, { side });
+    clearAll();
+    EXPECT_FALSE(isSignalWaiting(side));
+    EXPECT_EQ(dirty, 6);
+    setReservationViewDirty(nullptr);
+    clearAll();
 }
 
 TEST(PathSignalTests, registryStoresOnlySpecialKinds)
