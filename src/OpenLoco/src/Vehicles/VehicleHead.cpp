@@ -4723,6 +4723,11 @@ namespace OpenLoco::Vehicles
         uint16_t connection = tc.connections[0];
 
         const bool pathLogic = head.var_52 != 1 && !isPlaceDown && Signals::isRailLogicActive();
+        if (pathLogic && !Signals::validatePendingPath(head, nextPos, tc))
+        {
+            train.veh1->var_48 &= ~Flags48::passSignal;
+            return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
+        }
         const auto reservedConnection = pathLogic ? Signals::reservedConnectionAt(head, nextPos, tc) : std::nullopt;
         bool pathApproved = reservedConnection.has_value();
 
@@ -4818,21 +4823,16 @@ namespace OpenLoco::Vehicles
             {
                 if (!reservedConnection)
                 {
-                    if (head.var_5C != 0 && !Signals::pieceHeldByProtectedOther(head, nextPos, connection))
+                    // A pass override cannot substitute for a safe waypoint
+                    // route, including physical wagons without protected holds.
+                    const auto start = Signals::isChainSignal(entry.kind) ? Signals::ReserveStart::chainSignal : Signals::ReserveStart::pathSignal;
+                    const auto reserved = Signals::reserveFrom(head, nextPos, tc, start);
+                    if (!reserved)
                     {
-                        Signals::setPathMode(enumValue(head.id), false);
+                        train.veh1->var_48 &= ~Flags48::passSignal;
+                        return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
                     }
-                    else
-                    {
-                        const auto start = Signals::isChainSignal(entry.kind) ? Signals::ReserveStart::chainSignal : Signals::ReserveStart::pathSignal;
-                        const auto reserved = Signals::reserveFrom(head, nextPos, tc, start);
-                        if (!reserved)
-                        {
-                            train.veh1->var_48 &= ~Flags48::passSignal;
-                            return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
-                        }
-                        connection = *reserved;
-                    }
+                    connection = *reserved;
                     pathApproved = true;
                 }
 

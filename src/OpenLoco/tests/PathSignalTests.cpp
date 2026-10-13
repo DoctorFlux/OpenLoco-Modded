@@ -4,6 +4,7 @@
 #include <OpenLoco/Map/TileManager.h>
 #include <OpenLoco/Map/Track/Track.h>
 #include <OpenLoco/Map/Track/TrackData.h>
+#include <OpenLoco/Map/Track/SubpositionData.h>
 #include <OpenLoco/Map/TrackElement.h>
 #include <OpenLoco/Math/Vector.hpp>
 #include <OpenLoco/Rules/Rules.h>
@@ -227,7 +228,158 @@ namespace
             });
             Vehicles::RoutingManager::setRouting(head.routingHandle, 0);
         }
+
+        Vehicles::Sub4ACEE7Result decide(Vehicles::VehicleHead& head)
+        {
+            head.subPosition = static_cast<uint16_t>(World::TrackData::getTrackSubPositon(head.trackAndDirection.track._data).size() - 1);
+            head.remainingDistance = 0;
+            head.var_3C = 0;
+            return head.sub_4ACEE7(0x368A, 0, false);
+        }
+
+        void expectRefused(Vehicles::VehicleHead& head)
+        {
+            auto next = head.routingHandle;
+            next.setIndex(next.getIndex() + 1);
+            const auto beforeOrder = head.currentOrder;
+            const auto result = decide(head);
+            EXPECT_EQ(result.status, 3);
+            EXPECT_EQ(result.flags & kPathWaitFlag, kPathWaitFlag);
+            EXPECT_EQ(Vehicles::RoutingManager::getRouting(next), Vehicles::RoutingManager::kAllocatedButFreeRouting);
+            EXPECT_EQ(head.currentOrder, beforeOrder);
+            EXPECT_TRUE(isTrainWaiting(enumValue(head.id)));
+            auto* physicalFront = Vehicles::Vehicle(head).veh2;
+            const auto beforePosition = physicalFront->getTrackLoc();
+            physicalFront->subPosition = static_cast<uint16_t>(World::TrackData::getTrackSubPositon(physicalFront->trackAndDirection.track._data).size() - 1);
+            physicalFront->remainingDistance = 0;
+            const auto motion = physicalFront->updateTrackMotion(0x368A, false);
+            EXPECT_TRUE(motion.hasFlags(Vehicles::UpdateVar1136114Flags::unk_m00));
+            EXPECT_EQ(physicalFront->getTrackLoc(), beforePosition);
+        }
     };
+}
+
+TEST_F(WaypointSignalFixture, nativeSpecialSignalCannotPassOccupiedRouteWithPassOverride)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    occupiedWagon(other->id);
+    approaching(*head);
+    signal(SignalKind::path);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        head->var_5C = 2;
+        Vehicles::Vehicle(*head).veh1->var_48 |= Vehicles::Flags48::passSignal;
+        expectRefused(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+}
+
+TEST_F(WaypointSignalFixture, nativeJunctionCannotBypassBlockedWaypointWithPassOverride)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    occupiedWagon(other->id);
+    Vehicles::RoutingManager::setRouting(head->routingHandle, 0);
+    signalAt(junction, 0, SignalKind::path);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(junction, 0), kind);
+        head->var_5C = 2;
+        expectRefused(*head);
+        EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(junction, 0)));
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+}
+
+TEST_F(WaypointSignalFixture, nativePendingReservationRechecksWagonBeforePassingSignal)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    approaching(*head);
+    const auto tc = signal(SignalKind::path);
+    ASSERT_TRUE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
+    auto* wagon = occupiedWagon(other->id);
+    expectRefused(*head);
+    EXPECT_EQ(pathHoldCount(), 0U);
+    EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ScenarioManager::setScenarioTicks(16);
+    const auto resumed = decide(*head);
+    EXPECT_EQ(resumed.status, 0);
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+    auto next = head->routingHandle;
+    next.setIndex(next.getIndex() + 1);
+    EXPECT_EQ(Vehicles::RoutingManager::getRouting(next) & World::Track::AdditionalTaDFlags::basicTaDMask, 0U);
+}
+
+TEST_F(WaypointSignalFixture, nativeFreshBlockedRouteStopsPhysicalFrontForEverySignalKind)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    occupiedWagon(other->id);
+    approaching(*head);
+    signal(SignalKind::path);
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(start, 0), kind);
+        ASSERT_EQ(head->var_5C, 0);
+        expectRefused(*head);
+        EXPECT_EQ(postFrameForDisplay(kind, isSignalBlockedForDisplay(facingSide(start, 0)), 3, 7), 0);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+}
+
+TEST_F(WaypointSignalFixture, nativeSharedLineWaitsWithOverrideAndResumesRequiredWaypoint)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    const auto line = Lines::createLine("Required waypoint", TransportMode::rail, 4);
+    ASSERT_TRUE(line.ok);
+    Lines::LineOrder order;
+    order.type = Vehicles::OrderType::RouteWaypoint;
+    order.tileX = target.x / 32;
+    order.tileY = target.y / 32;
+    order.baseZ = 2;
+    ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    ASSERT_TRUE(Lines::acceptStopKinds(line.id, Lines::LineKind::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(head->id), TransportMode::rail).ok);
+    approaching(*head);
+    signal(SignalKind::path | SignalKind::chain);
+    head->var_5C = 2;
+    expectRefused(*head);
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ScenarioManager::setScenarioTicks(16);
+    EXPECT_EQ(decide(*head).status, 0);
+    ASSERT_NE(pendingPath(enumValue(head->id)), nullptr);
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+}
+
+TEST_F(WaypointSignalFixture, pendingRevalidationAllowsOwnWagonsAndKeepsOccupiedHoldsOnRefusal)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    approaching(*head);
+    occupiedWagon(head->id);
+    const auto tc = signal(SignalKind::chain);
+    ASSERT_TRUE(reserveFrom(*head, start, tc, ReserveStart::chainSignal));
+    const auto occupied = canonicalPiece(head->getTrackLoc(), 0);
+    holdOccupied(enumValue(head->id), occupied, true);
+    ASSERT_TRUE(validatePendingPath(*head, start, tc));
+    ASSERT_GT(pathHoldCount(), 0U);
+    occupiedWagon(other->id);
+    EXPECT_FALSE(validatePendingPath(*head, start, tc));
+    EXPECT_EQ(pathHoldCount(), 0U);
+    ASSERT_TRUE(holdAt(occupied));
+    EXPECT_EQ(holdAt(occupied)->kind, HoldKind::occupied);
+    EXPECT_EQ(holdAt(occupied)->owner, enumValue(head->id));
+    EXPECT_TRUE(isInPathMode(enumValue(head->id)));
 }
 
 TEST_F(WaypointSignalFixture, blockedWaypointPostIsRedBeforeRoutingHeadReachesIt)
@@ -660,7 +812,7 @@ TEST_F(WaypointSignalFixture, ordinaryJunctionsRemainVanillaUnlessTrainAlreadyUs
     auto signalled = World::Track::getTrackConnections(junction, World::TrackData::getUnkTrack(0).rotationBegin, head->owner, 0, 0, 0);
     EXPECT_TRUE(reservationStartAtJunction(*head, junction, signalled));
     head->var_5C = 1;
-    EXPECT_FALSE(reservationStartAtJunction(*head, junction, signalled));
+    EXPECT_TRUE(reservationStartAtJunction(*head, junction, signalled));
 }
 
 TEST(PathSignalTests, changingOutgoingPieceDoesNotDisguiseReturningToSameJunction)

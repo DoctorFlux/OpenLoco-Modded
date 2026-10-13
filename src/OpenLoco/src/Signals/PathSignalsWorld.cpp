@@ -550,6 +550,28 @@ namespace OpenLoco::Signals
         return getSignalKind(facingSide(entrance, trackAndDirection)) != SignalKind::none;
     }
 
+    bool validatePendingPath(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
+    {
+        const auto owner = enumValue(head.id);
+        const auto* pending = pendingPath(owner);
+        if (pending != nullptr)
+        {
+            for (const auto& step : *pending)
+            {
+                // Pending holds are a plan, not proof that no wagon has been
+                // placed or moved onto it since the reservation was granted.
+                if (!canHoldInWorld(canonicalPiece(step.pos, step.connection), owner))
+                {
+                    dropPendingPath(owner);
+                    _retryTick[owner] = ScenarioManager::getScenarioTicks() + kRetryTicks;
+                    onPathWait(head, nextPos, tc);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
     {
         const auto owner = enumValue(head.id);
@@ -579,10 +601,6 @@ namespace OpenLoco::Signals
         {
             return ReserveStart::extend;
         }
-        if (head.var_5C != 0)
-        {
-            return std::nullopt;
-        }
         for (const auto connection : tc.connections)
         {
             const auto entry = classifyEntry(nextPos, connection);
@@ -599,7 +617,7 @@ namespace OpenLoco::Signals
     void refreshApproachSignals(Vehicles::VehicleHead& head)
     {
         const auto owner = enumValue(head.id);
-        if (head.mode != TransportMode::rail || head.tileX == -1 || head.has38Flags(Vehicles::Flags38::isGhost) || head.var_5C != 0 || specialSignalCount() == 0)
+        if (head.mode != TransportMode::rail || head.tileX == -1 || head.has38Flags(Vehicles::Flags38::isGhost) || specialSignalCount() == 0)
         {
             clearApproachingSignals(owner);
             return;
