@@ -223,6 +223,7 @@ namespace OpenLoco::Signals
     bool isRailLogicActive();
     bool isSpecialFacingSide(const World::Pos3& entrance, uint16_t trackAndDirection);
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
+    std::optional<ReserveStart> reservationStartAtJunction(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
     std::optional<uint16_t> reserveFrom(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc, ReserveStart start);
     bool pieceHeldByProtectedOther(const Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection);
     bool blockHasForeignPath(const Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection);

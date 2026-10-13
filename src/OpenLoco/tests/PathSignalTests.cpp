@@ -181,25 +181,217 @@ namespace
             return wagon;
         }
 
-        World::Track::TrackConnections signal(SignalKind kind)
+        void signalAt(World::Pos3 pos, uint16_t tad, SignalKind kind)
         {
-            auto tile = World::TileManager::get(start);
+            auto tile = World::TileManager::get(pos);
+            World::TileElementEntry* trackEntry = nullptr;
             for (auto& el : tile)
             {
-                if (auto* track = el.as<World::TrackElement>())
+                if (auto* track = el.as<World::TrackElement>(); track && track->trackId() == ((tad >> 3) & 0x3F) && track->rotation() == (tad & 3))
                 {
                     track->setHasSignal(true);
+                    trackEntry = &el;
                     break;
                 }
             }
-            auto* post = World::TileManager::insertElement(World::ElementType::signal, { start.x, start.y }, 4, 0)->as<World::SignalElement>();
+            ASSERT_NE(trackEntry, nullptr);
+            auto* post = World::TileManager::insertElementAfterNoReorg(trackEntry, World::ElementType::signal, { pos.x, pos.y }, 4, 0)->as<World::SignalElement>();
             post->getLeft().setHasSignal(true);
-            setSignalKind(facingSide(start, 0), kind);
+            post->setRotation(tad & 3);
+            setSignalKind(facingSide(pos, tad), kind);
+        }
+
+        World::Track::TrackConnections signal(SignalKind kind)
+        {
+            signalAt(start, 0, kind);
             World::Track::TrackConnections tc;
             tc.connections.push_back(World::Track::AdditionalTaDFlags::hasSignal);
             return tc;
         }
     };
+}
+
+TEST_F(WaypointSignalFixture, freeCircleDoesNotSubstituteForBlockedDirectWaypointApproach)
+{
+    auto pos = junction;
+    uint16_t tad = 2 << 3;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (i != 0)
+        {
+            addPiece(pos, tad);
+        }
+        if (i == 1)
+        {
+            signalAt(pos, tad, SignalKind::path);
+        }
+        const auto end = World::Track::getTrackConnectionEnd(pos, tad);
+        pos = end.nextPos;
+        tad = static_cast<uint16_t>((2 << 3) | end.nextRotation);
+    }
+    ASSERT_EQ(pos, junction);
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    wagon->tileX = target.x;
+    wagon->tileY = target.y;
+    wagon->moveTo(target);
+    const auto tc = signal(SignalKind::path);
+    for (auto mode : { ReserveStart::pathSignal, ReserveStart::chainSignal, ReserveStart::extend })
+    {
+        EXPECT_FALSE(reserveFrom(*head, start, tc, mode));
+        EXPECT_TRUE(isTrainWaiting(enumValue(head->id)));
+        EXPECT_EQ(pathHoldCount(), 0U);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    ASSERT_TRUE(reserveFrom(*head, start, tc, ReserveStart::pathSignal));
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+    EXPECT_EQ(pendingPath(enumValue(head->id))->size(), 4U);
+}
+
+TEST(PathSignalTests, requiredWaypointCannotBeReachedByCirclingBackAfterAReservationBoundary)
+{
+    TestGraph graph;
+    graph.add(1, 2);
+    auto& goal = graph.add(2, 3);
+    goal.isTarget = true;
+    goal.blocked = true;
+    graph.add(2, 8);
+    graph.add(8, 9).signal = EntrySignal::path;
+    graph.add(9, 1).signal = EntrySignal::path;
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = request.requireTarget = true;
+    for (auto mode : { SearchMode::pathSignal, SearchMode::chainSignal, SearchMode::extend })
+    {
+        request.mode = mode;
+        EXPECT_FALSE(findReservation(graph, request).found);
+    }
+}
+
+TEST_F(WaypointSignalFixture, junctionSignalsReserveBeforeTrainHasEnteredPathMode)
+{
+    auto* head = vehicle();
+    auto* other = vehicle();
+    auto* wagon = occupiedWagon(other->id);
+    signalAt(junction, 0, SignalKind::path);
+    const auto tc = World::Track::getTrackConnections(junction, World::TrackData::getUnkTrack(0).rotationBegin, head->owner, 0, 0, 0);
+    ASSERT_EQ(tc.connections.size(), 2U);
+    ASSERT_FALSE(isInPathMode(enumValue(head->id)));
+    for (auto kind : { SignalKind::path, SignalKind::chain, SignalKind::path | SignalKind::chain })
+    {
+        setSignalKind(facingSide(junction, 0), kind);
+        const auto mode = reservationStartAtJunction(*head, junction, tc);
+        ASSERT_TRUE(mode);
+        EXPECT_FALSE(reserveFrom(*head, junction, tc, *mode));
+        EXPECT_TRUE(isSignalWaiting(facingSide(junction, 0)));
+        EXPECT_EQ(pathHoldCount(), 0U);
+        EXPECT_EQ(head->currentOrder, 0U);
+        ScenarioManager::setScenarioTicks(ScenarioManager::getScenarioTicks() + 16);
+    }
+    wagon->tileX = -1;
+    wagon->moveTo({ 960, 960, 16 });
+    const auto mode = reservationStartAtJunction(*head, junction, tc);
+    ASSERT_TRUE(mode);
+    const auto chosen = reserveFrom(*head, junction, tc, *mode);
+    ASSERT_TRUE(chosen);
+    EXPECT_EQ(*chosen & World::Track::AdditionalTaDFlags::basicTaDMask, 0U);
+    EXPECT_EQ(pendingPath(enumValue(head->id))->back().pos, target);
+}
+
+TEST_F(WaypointSignalFixture, ordinaryJunctionsRemainVanillaUnlessTrainAlreadyUsesPathMode)
+{
+    auto* head = vehicle();
+    const auto tc = World::Track::getTrackConnections(junction, World::TrackData::getUnkTrack(0).rotationBegin, head->owner, 0, 0, 0);
+    ASSERT_EQ(tc.connections.size(), 2U);
+    EXPECT_FALSE(reservationStartAtJunction(*head, junction, tc));
+    setPathMode(enumValue(head->id), true);
+    EXPECT_EQ(reservationStartAtJunction(*head, junction, tc), ReserveStart::extend);
+    setPathMode(enumValue(head->id), false);
+    signalAt(junction, 0, SignalKind::chain);
+    auto signalled = World::Track::getTrackConnections(junction, World::TrackData::getUnkTrack(0).rotationBegin, head->owner, 0, 0, 0);
+    EXPECT_TRUE(reservationStartAtJunction(*head, junction, signalled));
+    head->var_5C = 1;
+    EXPECT_FALSE(reservationStartAtJunction(*head, junction, signalled));
+}
+
+TEST(PathSignalTests, changingOutgoingPieceDoesNotDisguiseReturningToSameJunction)
+{
+    TestGraph graph;
+    graph.add(2, 8);
+    graph.add(8, 9).signal = EntrySignal::path;
+    graph.add(9, 2).isTarget = true;
+    auto wrong = graph.start(2);
+    wrong.step.tad = 16;
+    auto correct = graph.start(2);
+    correct.isTarget = correct.blocked = true;
+    SearchRequest request;
+    request.starts = { wrong, correct };
+    request.hasTarget = request.requireTarget = true;
+    EXPECT_FALSE(findReservation(graph, request).found);
+    request.starts.back().blocked = false;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.reservation.front().step.tad, 0U);
+    EXPECT_EQ(result.reservation.size(), 1U);
+}
+
+TEST(PathSignalTests, requiredAlternativesWithDifferentHistoryAreNotCollapsedByEndpoint)
+{
+    TestGraph graph;
+    graph.add(1, 2).step.tad = 16;
+    graph.add(2, 4).signal = EntrySignal::path;
+    graph.add(1, 8).cost = 100;
+    graph.add(8, 4).signal = EntrySignal::path;
+    graph.add(4, 5);
+    graph.add(5, 2).isTarget = true;
+    SearchRequest request;
+    request.starts.push_back(graph.start(1));
+    request.hasTarget = request.requireTarget = true;
+    const auto result = findReservation(graph, request);
+    ASSERT_TRUE(result.found);
+    EXPECT_TRUE(result.reachedTarget);
+    EXPECT_EQ(ids(result), (std::vector<int16_t>{ 1, 8 }));
+}
+
+TEST(PathSignalTests, distinctJunctionEntrancesAndHeightsRemainValidAlternatives)
+{
+    for (const bool differentHeight : { false, true })
+    {
+        TestGraph graph;
+        graph.add(2, 8);
+        graph.add(8, 9).signal = EntrySignal::path;
+        auto& goal = graph.add(9, 2);
+        goal.isTarget = true;
+        goal.entryDirection = differentHeight ? 0 : 1;
+        goal.step.pos.z = differentHeight ? 16 : 0;
+        SearchRequest request;
+        request.starts.push_back(graph.start(2));
+        request.hasTarget = request.requireTarget = true;
+        EXPECT_TRUE(findReservation(graph, request).found);
+    }
+}
+
+TEST(PathSignalTests, mixedJunctionStartsUseTheirOwnChainRulesAndRejectOccupiedBlockStarts)
+{
+    TestGraph graph;
+    auto& exit = graph.add(1, 2);
+    exit.signal = EntrySignal::block;
+    exit.exitOccupied = true;
+    graph.add(2, 3).isTarget = true;
+    SearchRequest request;
+    auto chain = graph.start(1);
+    chain.signal = EntrySignal::chain;
+    request.starts.push_back(chain);
+    request.hasTarget = request.requireTarget = true;
+    EXPECT_FALSE(findReservation(graph, request).found); // Automatic path mode must respect this chain arm.
+    exit.exitOccupied = false;
+    EXPECT_TRUE(findReservation(graph, request).found);
+    request.starts.front().signal = EntrySignal::block;
+    request.starts.front().exitOccupied = true;
+    EXPECT_FALSE(findReservation(graph, request).found);
 }
 
 TEST_F(WaypointSignalFixture, blockedWaypointWaitsInsteadOfTakingFreeDeadEnd)

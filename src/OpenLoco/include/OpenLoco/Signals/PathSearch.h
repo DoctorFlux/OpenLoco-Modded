@@ -39,6 +39,7 @@ namespace OpenLoco::Signals
         bool blocked = false;
         bool isTarget = false;
         uint32_t distanceToTarget = 0;
+        uint8_t entryDirection = 0; // Incoming graph junction, independent of the outgoing piece.
     };
 
     class TrackGraph

@@ -387,6 +387,7 @@ namespace OpenLoco::Signals
                 StepEdge edge;
                 edge.step = TrackStep{ pos, static_cast<uint16_t>(connection & kBasicTaDMask) };
                 edge.connection = connection;
+                edge.entryDirection = World::TrackData::getUnkTrack(edge.step.tad).rotationBegin;
                 const auto trackId = static_cast<uint8_t>((edge.step.tad >> 3) & 0x3F);
                 edge.cost = std::max<uint32_t>(1, World::TrackData::getTrackMiscData(trackId).unkWeighting);
 
@@ -600,6 +601,29 @@ namespace OpenLoco::Signals
             }
         }
         dropPendingPath(owner);
+        return std::nullopt;
+    }
+
+    std::optional<ReserveStart> reservationStartAtJunction(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
+    {
+        if (isInPathMode(enumValue(head.id)))
+        {
+            return ReserveStart::extend;
+        }
+        if (head.var_5C != 0)
+        {
+            return std::nullopt;
+        }
+        for (const auto connection : tc.connections)
+        {
+            const auto entry = classifyEntry(nextPos, connection);
+            if (entry.hasFacingSignal && entry.kind != SignalKind::none)
+            {
+                // The chosen start's signal determines Path versus Chain in
+                // the search; one chain arm must not govern every other arm.
+                return ReserveStart::pathSignal;
+            }
+        }
         return std::nullopt;
     }
 

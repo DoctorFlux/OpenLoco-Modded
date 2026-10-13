@@ -4731,9 +4731,9 @@ namespace OpenLoco::Vehicles
             {
                 connection = trackLongestPathing(head, nextPos, tc, requiredMods, queryMods);
             }
-            else if (pathLogic && Signals::isInPathMode(enumValue(head.id)))
+            else if (const auto start = pathLogic ? Signals::reservationStartAtJunction(head, nextPos, tc) : std::nullopt; start)
             {
-                const auto reserved = Signals::reserveFrom(head, nextPos, tc, Signals::ReserveStart::extend);
+                const auto reserved = Signals::reserveFrom(head, nextPos, tc, *start);
                 if (!reserved)
                 {
                     return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
@@ -4780,6 +4780,19 @@ namespace OpenLoco::Vehicles
                 else if (reverseRouting & (1U << 14))
                 {
                     break;
+                }
+            }
+            // A selected junction arm can itself carry a special signal. Apply
+            // the same native passing colours as the single-connection case.
+            if (pathApproved && (connection & World::Track::AdditionalTaDFlags::hasSignal))
+            {
+                const auto entry = Signals::classifyEntry(nextPos, connection);
+                if (entry.hasFacingSignal && entry.kind != Signals::SignalKind::none)
+                {
+                    TrackAndDirection::_TrackAndDirection passedTad{ 0, 0 };
+                    passedTad._data = connection & World::Track::AdditionalTaDFlags::basicTaDMask;
+                    setReverseSignalOccupiedInBlock(nextPos, passedTad, head.owner, head.trackType);
+                    applyPassedSignalColours(nextPos, connection, pos, head);
                 }
             }
         }

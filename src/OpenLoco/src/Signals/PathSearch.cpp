@@ -1,6 +1,7 @@
 #include "Signals/PathSearch.h"
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <queue>
 #include <tuple>
@@ -24,6 +25,7 @@ namespace OpenLoco::Signals
             Stage stage = Stage::exitSegment;
             uint32_t cost = 0;
             uint32_t reservedPieces = 0;
+            std::array<uint64_t, 4> visited{};
         };
 
         struct StateKey
@@ -42,6 +44,35 @@ namespace OpenLoco::Signals
 
         constexpr uint32_t kBlockedPenalty = 2000;
         constexpr uint32_t kMaxPlatformPieces = 32;
+
+        uint8_t junctionHash(const StepEdge& edge)
+        {
+            uint64_t hash = static_cast<uint16_t>(edge.step.pos.x) | (uint64_t(static_cast<uint16_t>(edge.step.pos.y)) << 16)
+                | (uint64_t(static_cast<uint16_t>(edge.step.pos.z)) << 32) | (uint64_t(edge.entryDirection) << 48);
+            hash ^= hash >> 33;
+            hash *= 0xff51afd7ed558ccdULL;
+            hash ^= hash >> 33;
+            return static_cast<uint8_t>(hash);
+        }
+
+        bool revisitsJunction(const std::vector<Node>& nodes, int32_t parent, const StepEdge& edge)
+        {
+            const auto hash = junctionHash(edge);
+            if ((nodes[parent].visited[hash / 64] & (uint64_t{ 1 } << (hash % 64))) == 0)
+            {
+                return false;
+            }
+            // The bitset only rejects impossible matches cheaply. Hash collisions
+            // are checked against the exact ancestry and never reject a valid route.
+            for (auto i = parent; i >= 0; i = nodes[i].parent)
+            {
+                if (nodes[i].edge.step.pos == edge.step.pos && nodes[i].edge.entryDirection == edge.entryDirection)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         StateKey keyOf(const Node& node)
         {
@@ -121,14 +152,32 @@ namespace OpenLoco::Signals
             }
         };
 
-        auto push = [&](const Node& node) {
+        auto push = [&](Node node) {
+            if (request.requireTarget)
+            {
+                if (node.parent >= 0 && revisitsJunction(nodes, node.parent, node.edge))
+                {
+                    return;
+                }
+                if (node.parent >= 0)
+                {
+                    node.visited = nodes[node.parent].visited;
+                }
+                const auto hash = junctionHash(node.edge);
+                node.visited[hash / 64] |= uint64_t{ 1 } << (hash % 64);
+            }
             const auto key = keyOf(node);
             const auto found = bestCost.find(key);
-            if (found != bestCost.end() && found->second <= node.cost)
+            if (!request.requireTarget && found != bestCost.end() && found->second <= node.cost)
             {
                 return;
             }
-            bestCost[key] = node.cost;
+            // Required paths carry different visited junctions. Collapsing them
+            // by endpoint alone can discard a valid non-circular alternative.
+            if (!request.requireTarget)
+            {
+                bestCost[key] = node.cost;
+            }
             nodes.push_back(node);
             const uint64_t priority = static_cast<uint64_t>(node.cost) + (request.hasTarget ? node.edge.distanceToTarget : 0);
             open.push({ priority, static_cast<int32_t>(nodes.size() - 1) });
@@ -136,11 +185,12 @@ namespace OpenLoco::Signals
 
         for (const auto& start : request.starts)
         {
-            if (start.blocked || start.signal == EntrySignal::blockedFromBehind)
+            if (start.blocked || start.signal == EntrySignal::blockedFromBehind || (start.signal == EntrySignal::block && start.exitOccupied))
             {
                 continue;
             }
-            push(Node{ start, -1, initialStage, start.cost, 1 });
+            const auto stage = start.signal == EntrySignal::chain ? Stage::chainArea : initialStage;
+            push(Node{ start, -1, stage, start.cost, 1 });
         }
 
         uint32_t expansions = 0;
@@ -151,7 +201,7 @@ namespace OpenLoco::Signals
             open.pop();
             const Node node = nodes[index];
             const auto stale = bestCost.find(keyOf(node));
-            if (stale != bestCost.end() && stale->second < node.cost)
+            if (!request.requireTarget && stale != bestCost.end() && stale->second < node.cost)
             {
                 continue;
             }
