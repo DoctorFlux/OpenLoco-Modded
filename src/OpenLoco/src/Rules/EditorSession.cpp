@@ -810,8 +810,15 @@ namespace OpenLoco::Rules
     {
         auto& s = *state;
         s.geometry = inlineLayout(left, top, right, bottom, s.expanded, s.showDetails);
+        const auto canvasChanged = window.widgets[s.canvas].width() != s.geometry.canvas.width || window.widgets[s.canvas].height() != s.geometry.canvas.height;
+        const auto paletteChanged = window.widgets[s.palette].width() != s.geometry.palette.width || window.widgets[s.palette].height() != s.geometry.palette.height;
         auto rect = [&](WidgetIndex_t index, EditorRect r) {
             auto& w = window.widgets[index];
+            if ((index == s.canvas || index == s.palette) && (w.width() != r.width || w.height() != r.height))
+            {
+                // Force native updateScrollWidgets to recalculate thumbs even when content is unchanged.
+                window.scrollAreas[index == s.canvas ? s.canvasScroll : s.paletteScroll].contentHeight = -1;
+            }
             w.left = r.x;
             w.top = r.y;
             w.right = r.x + r.width - 1;
@@ -824,6 +831,21 @@ namespace OpenLoco::Rules
         {
             s.layoutWidth = std::max<int>(32, s.geometry.canvas.width - 14);
             s.refresh();
+        }
+        if (s.expanded)
+        {
+            // Expanded editing is entered only after the host has initialized its scroll areas.
+            for (const auto scroll : { s.canvasScroll, s.paletteScroll })
+            {
+                if ((scroll == s.canvasScroll && canvasChanged) || (scroll == s.paletteScroll && paletteChanged))
+                {
+                    int32_t contentWidth = 0, contentHeight = 0;
+                    scrollSize(scroll, contentWidth, contentHeight);
+                    const auto& view = window.widgets[scroll == s.canvasScroll ? s.canvas : s.palette];
+                    auto& area = window.scrollAreas[scroll];
+                    area.contentOffsetY = static_cast<int16_t>(std::clamp<int>(area.contentOffsetY, 0, std::max<int>(0, contentHeight + 3 - view.height())));
+                }
+            }
         }
         const auto controlsWidth = s.geometry.controls.width;
         const auto columns = controlsWidth >= 360 ? 6 : 3;

@@ -4708,6 +4708,19 @@ TEST_F(GameRulesFixture, nativeSharedInlineKeepsBrowserAndThirdScrollArea)
     ASSERT_GE(Ui::Window::kMaxScrollAreas, 3U);
     EXPECT_EQ(Ui::ScrollView::getPart(*w, &w->widgets[2], w->x + 200, w->y + 83).index, 2U);
     EXPECT_GT(w->scrollAreas[2].contentHeight, 160);
+    const auto oldThumbEnd = w->scrollAreas[2].vThumbBottom;
+    w->setSize({ 640, 268 });
+    w->callPrepareDraw();
+    w->updateScrollWidgets();
+    EXPECT_LT(w->scrollAreas[2].vThumbBottom, oldThumbEnd);
+    EXPECT_LE(w->scrollAreas[2].vThumbBottom, w->widgets[2].height() - 11);
+    w->scrollAreas[2].contentOffsetY = 30;
+    w->setSize({ 640, 320 });
+    w->callPrepareDraw();
+    w->updateScrollWidgets();
+    EXPECT_EQ(w->scrollAreas[2].contentOffsetY, 0);
+
+
 }
 TEST_F(GameRulesFixture, nativeInlineDropEditsOrdersAndBinRemovesOnlyBlock)
 {
