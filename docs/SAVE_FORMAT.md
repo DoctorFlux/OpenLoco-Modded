@@ -70,3 +70,5 @@ The stable Path/All fix adds transient published geometry, build pins, admission
 D46's current-condition line diagram starts with fresh transient interpreter state. It does not import saved branches/waits/counters into the displayed route; the existing vehicle-progress projection still reads a copy when requested. No persisted model/runtime fields or companion versions change, and the `v26.09-modded.1` checkpoint remains untouched.
 
 The D47 geometry-pending/view-dirty flags are transient and are not serialized. Clearing Rules or Lines immediately clears the view/cache/publications, including before loading a different save; topology refreshes within the current game retain completed snapshots only until replacement. Existing `.orules`, `.olines`, `.osignals` and packed Order/S5 formats remain unchanged.
+
+D48's required-waypoint search policy, waiting-owner sets and red display override are transient. Current native order bytes supply the waypoint identity after loading. Packed Order/S5, `.orules` v1/PHASES 1, `.olines` v5 and `.osignals` v3 remain unchanged. No new signal or order save record is introduced.

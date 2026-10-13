@@ -71,6 +71,8 @@ Implemented ahead of the save container, using the `.osignals` companion (D20). 
 3. Path and chain flags on the normal signal, combined with the existing one-way and two-way buttons. Block signals stay the default. Implemented.
 4. Deadlock detection that stops and reports instead of freezing. Not implemented; trains waiting for a path retry every 16 ticks.
 
+Directional-waypoint correction (D48) is implemented at `a728d749` on `codex/directional-waypoint-signals`, based on the preserved block-logic branch. Required waypoint reachability prevents a blocked route falling back to an unrelated exit; the train retains its order and waits red. Proof/search and reservation length remain bounded. Full Debug/Release suites each passed 377/377; 37 focused signal checks passed. Next concrete task is the user's short blocked-route/clear-and-resume native check. Signals remain TESTING; no later milestone or merge starts here.
+
 ## Phase 8 — Shunting
 
 1. Job records and state machine.
