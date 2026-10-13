@@ -74,3 +74,5 @@ The D47 geometry-pending/view-dirty flags are transient and are not serialized. 
 D48's required-waypoint search policy, waiting-owner sets and red display override are transient. Current native order bytes supply the waypoint identity after loading. Packed Order/S5, `.orules` v1/PHASES 1, `.olines` v5 and `.osignals` v3 remain unchanged. No new signal or order save record is introduced.
 
 D49's edge incoming direction, search ancestry and junction-start decision are transient. No fields are added to Order, S5 or signal companions; existing versions remain. This fix changes how new reservations are selected and does not create a new save format.
+
+D57 editor sessions, selections, callbacks, normal-window sizes and captured scroll state are transient UI only. Expanding Ui::Window to three scroll areas and adding an opt-in WindowEventList flag changes no Order, S5::GameState or companion schema. Existing .orules v1/PHASES, .olines v5 and .osignals v3 load and run with the inline editor; no save conversion or migration is required.

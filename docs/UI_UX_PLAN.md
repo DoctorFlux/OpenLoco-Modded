@@ -4,7 +4,7 @@
 
 Use the existing OpenLoco window widgets, colours, and string ids. Do not add a separate toolkit. Windows should look like the vehicle and station windows players already know.
 
-The Rules button sits on the vehicle window and the line window. The Rules window stays closed until the player opens it. It is specified in `docs/mods/PROGRAMMABLE_LOGIC.md`.
+The Rules button sits in the vehicle Route and shared-line Orders controls. It expands that same window into the inline editor; no separate Rules window opens. It is specified in `docs/mods/PROGRAMMABLE_LOGIC.md`.
 
 ## Windows to add
 
@@ -16,8 +16,8 @@ The Rules button sits on the vehicle window and the line window. The Rules windo
 | Mod config | Mod manager | Settings declared by the mod schema |
 | Shared lines | Vehicle or a lines button | Line name, mode, stops, assigned vehicles, status |
 | Timetable | A line | Interval, dwell, targets, lateness |
-| Rules | The empty tab slot between Finances and Route on a vehicle, or the empty 24 by 24 slot under the order down button on a line | One window. Palette on the left, that order list in the centre, blocks around one row or a group of stops and waypoints. Dragging stays inside the window. Separate footer lines show current program/status and next stop/waypoint. Spec: `docs/mods/PROGRAMMABLE_LOGIC.md` |
-| Yard controller | A configured yard | Track roles, the Rules window, job queue |
+| Rules | Normal Rules button in Vehicle Route or shared-line Orders | Inline editor with independently scrolling 88-pixel palette, compact native C blocks, directly editable medium-font fields, Actions/Details/bin, multi-order dragging/resizing and progress. Shared-line browser stays visible. Spec: `docs/mods/PROGRAMMABLE_LOGIC.md` |
+| Yard controller | A configured yard | Track roles, the shared Rules editor, job queue |
 | Consist | A train | Order of vehicles, couplers, which end is powered |
 | Wagon requests | A freight line or yard | Open requests and assigned jobs |
 | Path signal | Signal tab checkboxes in rail construction | Path and chain checks on the normal signal, plus the existing one-way and two-way buttons. Arrows: white two-way path, yellow one-way path, red/blue/green chain aspect |
@@ -34,14 +34,22 @@ The Rules button sits on the vehicle window and the line window. The Rules windo
 - Destructive actions (discard mod state, delete a yard) name the save file they will write. They never overwrite the original SV5.
 - Disable buttons that do not apply to the transport mode. Ships do not get coupler controls.
 - Words on a block are the words in the tooltip.
-- The Rules window is placed beside the window that opened it. If that spot would cover the line window, the vehicle window, or schemes, it tries below and left, then compact sizing. If they still cannot fit, normal movable overlap is permitted (D29).
+- Rules expands the current window, clamped to the logical screen. Defaults are 560x320 (vehicle) and 640x320 (line); editing minimums are 400x240 and 560x268. Closing editing restores the prior normal size. Native windows remain movable; no overlay panel covers existing widgets (D57).
 - The vehicle route column already holds unload, wait, skip, delete, up, down, and reverse. The line orders tab already holds Local, Express, Loop, the timetable slot, and auto spacing. Rules does not take those widgets.
 
 ## Current build
 
 Rules has native widgets and is in TESTING. The mod manager described in older notes is gone.
 
-## Block-rules implementation (2026-10-12, TESTING)
+## Current inline editor (2026-10-13, D57, TESTING)
+
+On `codex/native-inline-rules`, the tab-shaped vehicle entry and separate window are replaced by direct editing in the existing order windows. Keep the shared-line browser visible. Medium condition text uses actual font measurements; 20-pixel headers, 14-pixel orders and 8-pixel closing arms reduce wasted space. Muted native colours, bevels and shallow C connectors preserve Locomotion presentation. Thin append strips replace permanent drop-inside text rows. Colour feedback and both progress indicators remain.
+
+Each host owns an EditorSession, with independent selection, drag and guarded field callbacks. A third transient native scroll area accommodates the line browser, orders and palette; only these hosts opt into captured scroll motion outside the pressed pane. Map tools, validated commands, runtime and save formats remain as before. The palette, optional Details, Actions/bin, caption, existing controls and two progress footers have distinct layout regions. Final build/test evidence and the user's short visual/edit/drag acceptance belong in development status.
+
+## Earlier block-rules implementation (2026-10-12, historical)
+
+The following records the former separate-window workflow. D57 above supersedes its entry, placement, font/row metrics and singleton interaction state.
 
 The native Rules subsystem is implemented on `codex/block-logic-programming`. See `mods/PROGRAMMABLE_LOGIC.md` for current controls, limits, runtime and companion behavior; see `DEVELOPMENT_STATUS.md` for actual verification and remaining manual checks. Geometry supports default 560x320 and compact 360x240, with a pinned palette, scrolling list, section grips, bracket dragging, deletion bin, and mouse-following dragged-item label. Commands validate before simulation mutation. No map tool is claimed by Rules dragging.
 
@@ -66,3 +74,7 @@ D47 retains the completed line during construction-related Updating intervals, r
 D48 changes existing special-signal feedback without adding widgets: while an approach reservation fails, that path/chain/combined head displays its red frame. The override is read-only and leaves native occupancy/animation and route lights intact; it clears back to the native frame when no train waits there. Block signals and ghosts retain native frames. Multiple waiting trains share the red indication without one clearing another's wait. Native object appearance remains a user manual check.
 
 D49 adds no controls: Else/Next waypoint 3 feedback retains its existing meaning. A blocked outer approach now keeps the incoming train waiting red rather than approving the inner circle; selected special junction arms use the same native passing colours as single connections. The supplied screenshot layout still needs the user's final native recheck.
+
+D57 regression verification also covers native scroll-index lookup for adjacent browser/order panes: the previous pre-incremented widget index selected the preceding pane. The corrected lookup includes widget zero, preserves the scrollbar-to-content mapping and is required for the three-pane editor.
+
+Inline geometry changes force thumb recalculation for both editing panes, including the third shared-line palette, and clamp expanded content offsets. Changing the window size or showing/hiding Details therefore keeps scrolling consistent with the drawn viewport.

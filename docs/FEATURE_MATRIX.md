@@ -5,7 +5,7 @@
 | Feature | Vanilla | Framework plan | Default without opt-in features |
 | --- | --- | --- | --- |
 | Orders | Per vehicle, six types | Shared lines can reference one list | Vanilla orders |
-| Conditional orders | No | Implemented, TESTING: block rules on a vehicle order list or a shared-line order list. A list with no blocks runs as it does now. A group can hold several stops and waypoints | Off until a block is added |
+| Conditional orders | No | Implemented, TESTING: native inline editor in vehicle Route/shared-line Orders, directly editable readable fields, multi-stop/waypoint containers and drag/drop. Rules expands the current window; the line browser stays visible. A list with no blocks runs as it does now | Off until a block is added |
 | Timetable | No | Shared-line timetable | Off |
 | Block signals | Yes | Kept | On |
 | Path signals | No | Path and chain checkboxes on a normal signal, with one-way or two-way placement, and a train-window reservation viewer. Implemented | Off until a player places one |
@@ -19,17 +19,17 @@
 | Object count | Fixed caps, 859 total | Dynamic after NOF-aligned format | Current caps |
 | Saves | SV5/SC5 exact version | Import SV5, write a new container | SV5 |
 | Mods | None (`plugin.dat` is unrelated) | Loader removed (D23); gameplay features use native windows | None |
-| Scripts | None | No script language. Rules are blocks in the Rules window | None |
+| Scripts | None | No script language. Rules are native blocks in vehicle Route/shared-line Orders; Rules toggles the inline palette | None |
 | Multiplayer | Incomplete, UI hidden | Later, command replication | Unchanged |
 | Native mod DLLs | None | Rejected by default | n/a |
 
 ## Native feature surface
 
-Block rules, shared lines, timetables and path signals are implemented and remain TESTING for the recorded native acceptance items. Latest maintenance checkpoint `cf47b6db` on `codex/waypoint-signal-aspects` includes placement fix `3027c2d8` and signal fix `4f5faaae` and block-rules checkpoint `e42b1da8`; full Debug/Release suites each passed 427/427, with 87 focused safety/placement checks passed. D54 and D55 failed the user's native movement recheck; D56 fixes waypoint protection ending before an occupied or reserved continuation. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-13) for the consolidated delivery and manual checks.
+Block rules, shared lines, timetables and path signals are implemented and remain TESTING for the recorded native acceptance items. Latest UI checkpoint `91037492` on `codex/native-inline-rules` includes D56 safety checkpoint `cf47b6db`, placement fix `3027c2d8`, signal fix `4f5faaae` and block-rules checkpoint `e42b1da8`. Reconfigured Debug/Release builds and complete suites each passed 447/447; focused Rules passed 182/182 (20 new UI regressions), with earlier 87 focused safety/placement checks preserved. D54 and D55 failed the user's native movement recheck; D56 fixes waypoint protection ending before an occupied or reserved continuation. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-13) for the consolidated delivery and manual checks.
 
 | Feature | Player-visible surface | Still works without opting in |
 | --- | --- | --- |
-| Block rules | Actual nested blocks in Rules and normal order lists; current program plus next destination, green/red decisions, Else/Else if, Forever/Break; explicit inside slots grow sections; nested palette blocks and grips; MakeCode-style shapes with clickable fields, compact layout, optional Details and paged selectors; palette clicks and branch Actions; manual Skip retains the white arrow in Vehicle/Rules; dragging refreshes map numbers; Wait alone exposes When; ordinary blocks use automatic timing, saved explicit timing stays readable, and waits finish native braking before arming | Orders and lines with no blocks |
+| Block rules | Native inline C blocks in Vehicle Route/shared-line Orders; Rules expands/restores that host and reveals an independent 88-pixel palette, Actions/Details/bin while retaining the line browser and existing controls. Directly editable medium-font fields work with the palette hidden. Current program/next destination, green/red feedback, white arrow, Else/Else if, Forever/Break, multi-row insertion/resize, validated drag/drop and world-number refresh remain. Wait alone exposes When; saved timing and native braking are preserved (D57) | Orders and lines with no blocks |
 | Shared lines | Line window; Path/All map overlays evaluate complete routes from current conditions using the selected vehicle's facts; inactive multi-row clauses disappear and vehicle movement/cursor changes preserve geometry, with incrementally built, atomically published geometry, stable All-mode lanes, retained paths during construction refreshes, geometry reuse for metadata edits and preview-limit feedback | Per-vehicle orders |
 | Timetables | Timetable window on a line | Lines without schedules |
 | Native rail placement | Shared checked reverse-position conversion in placement, pickup preview and train reversal; unequal curve-direction sample counts cannot overrun the destination span. Invalid placement inputs are rejected before vehicle changes (D51, native acceptance TESTING) | Existing placement tool and occupation checks |

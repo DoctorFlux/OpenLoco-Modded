@@ -8,7 +8,7 @@ A list with no blocks is the current game. A vehicle with its own orders keeps t
 
 ## What the first build includes
 
-The first build is the blocks, the Rules window, and those blocks running on both of these lists:
+The delivered build is the blocks, the inline Rules editor, and those blocks running on both of these lists:
 
 - the orders of one vehicle that is not on a line
 - the orders of one shared line, for every vehicle assigned to that line
@@ -96,27 +96,23 @@ Same list. An If says this vehicle is full, and the inside is Go to Depot. Else 
 
 The stops stay on the list either way. Skipping does not delete them.
 
-## Rules window
+## Inline Rules editor (D57)
 
-Rules is its own window. It uses the normal window colours and widgets. It is not a tab of the line window, and it is not a page inside the vehicle window.
+The player edits blocks directly in the vehicle Route or shared-line Orders window. A normal **Rules** button in the order controls toggles the palette and tools; there is no separate Rules window or tab-shaped Rules entry. Field clicks open native dropdowns or value/name dialogs in the originating window even when the palette is closed. Clicking a header selects its section instead of opening another window.
 
-The vehicle route tab is already full. Local and Express fill the row above the list, the Line button sits on that same row, and the right-hand column is unload, wait, skip, delete, up, down, and reverse. The empty tab slot between Finances and Route, at the same size as those tabs, is the Rules button. It opens this window. It does not replace the route list.
+Opening editing expands that same window to 560x320 for a vehicle or 640x320 for a shared line, preserving a larger existing size. Minimum editing sizes are 400x240 and 560x268; the maximum is 1000x700, constrained to the logical screen. Closing editing restores the previous normal size. Leaving Route/Orders cancels editing and unfinished interactions. The shared-line browser remains visible. Vehicle editing of assigned orders explicitly says **Editing shared line: [name]**; edits affect that line. Private blocks are not copied onto it.
 
-The line window is 420 by 268. Orders, Vehicles, Local, Express, the order list, the order buttons, Loop, the timetable slot, and auto spacing already occupy their rows. The Rules button is a 24 by 24 button in the right-hand order column, under the down button and above the bottom row. It does not cover the order list, Schemes, the filters, or the timetable controls.
+An 88-pixel palette scrolls independently beside the order canvas. Actions provides Else if, Else and block removal. Details is initially hidden and shows applicable check/value/section controls in responsive rows. The deletion bin removes a block while preserving its orders, or deletes the dragged order selection through validated commands. Existing Local/Express, line assignment, route controls, timetable/spacing, colours and Schemes remain available. The timetable clock retains its own space beside Schemes.
 
-One Rules window is open at a time. Opening Rules for another vehicle or line switches this window. Closing it leaves the vehicle window and the line window open.
+C-shaped blocks use native Locomotion palette shades, shallow connectors, bevels and medium text. Condition fields use the normal medium font; headings use medium bold. Widths come from native glyph metrics. Single-line headers are 20 pixels (16 without fields), sockets 16, order rows 14, and closing arms 8. Narrow headers wrap without shrinking their font. Full field/block information remains available through hover text. The former permanent `+ drop inside` text row becomes a thin highlighted append strip; section end grips remain reachable. Ordinary lists with no blocks and the palette closed retain their native 10-pixel order rows.
 
-The window shows the vehicle name, or the line name when the vehicle is on a line. The left side is the palette. The centre is this order list, with the same numbers the route already uses. The player drags a block from the palette onto one row or onto a selected run. A run is selected by dragging across consecutive rows in this window. The header of a C-shape or a group moves that whole stretch. A block dropped on the bin at the bottom of this window is removed, and the orders stay. An order dropped on the bin is deleted by the existing delete command.
+Drag blocks from the palette, individual stops/waypoints, consecutive selections, or a complete header section. The selected end grip resizes a section across multiple orders. Drag previews follow the pointer and valid destinations are highlighted using model validation. Drops into an append strip explicitly grow that container. Invalid drops, the map, another window, Escape, closing the window, changed ownership and intervening edits cancel without mutation. Captured scroll input handles palette-to-canvas dragging without claiming the map tool. Genuine map clicks retain native stop/waypoint insertion. Structural edits refresh active white map-number circles.
 
-Dragging stays inside this window. A block cannot be dropped on the map, the line list, the vehicle route list, or another window. Adding a stop by clicking the map stays the tool on the vehicle route and the line orders tab.
+Each window owns its editor state; multiple vehicle windows cannot share selections, drags or pending field callbacks. Native menus retain pagination and owner/block/revision guards. Unchanged edits preserve live runtime. Missing or incompatible choices and rejected edits report a specific reason. Read-only vehicle lists cannot change blocks.
 
-The normal vehicle and shared-line order tabs retain their existing controls and draw actual nested block headers and C-shaped brackets around their numbered stops and waypoints. Editable fields wrap to the list width; headers, orders, selection, hit testing and scrolling share the same variable layout. Clicking a header opens that block in Rules; clicking a field opens its exact editor there. Both normal lists support validated stop/waypoint dragging, with a pointer preview and valid-position marker. Lists without blocks keep their original row height. End remains outside all brackets. Successful structural edits refresh the active white numbered circles on the map (D32).
+Both order views retain green/red branch feedback, current-program markers, the outlined white committed travel/hold arrow and separate program/status and next-destination footer lines. Shared-line progress identifies its representative vehicle. Unfinished decisions still show a provisional next listed destination. Rules execution, native movement, signal safety and all save versions are unchanged.
 
-The window is placed with its left edge against the right edge of the window that opened it, and with the same top. If that rectangle would cover the line window, the vehicle window, or the schemes window, it moves down, then left, with compact sizing if necessary. If related windows still cannot fit, normal movable overlap is allowed (D29). It is a separate window, not a panel drawn on top of those lists.
-
-All three windows show two separate footer lines: the current program block/row with wait or fault status, and the next stop/waypoint. During an unfinished decision, the latter says "Next listed" and "after decision": that row is provisional until evaluation resumes. A shared-line window identifies the vehicle used for progress. There is no second inspector window.
-
-The outlined white arrow beside an order is the vehicle's committed travel or hold point, distinct from the active program block. It follows the selected stop/waypoint after Skip, Go to or a Repeat return. While approaching a rule stop, waiting, loading/unloading or choosing an unfinished decision, it stays at the approach/reached anchor instead of following a cargo scan or provisional next row. All three views use the same read-only stable-key lookup and nested row coordinates; the shared line uses its selected progress vehicle's independent state. No-block vehicle lists retain the native arrow (D38).
+D57 supersedes the separate-window entry, placement and singleton editing workflow in D29/D39/D40. Earlier implementation/verification sections below are historical snapshots. Final native appearance and interaction acceptance remains user-run; keep TESTING.
 
 ## How a vehicle runs the blocks
 
@@ -225,3 +221,5 @@ Shared-line Path/All draws a read-only current-choice projection through the sam
 Path/All condition changes retain the last completed map snapshot until its replacement is ready; Updating feedback distinguishes that temporary display from a completed current-choice preview. Build-cache eviction cannot remove published pieces, and All capacity limits stop repeated rebuilding. A completed empty Wait preview publishes once without changing other lines' lane positions. During station loading the map still uses fresh current conditions, while the physical white arrow stays at the reached station. The copied vehicle-progress projection remains available separately; Path/All never seeds committed travel or a moving origin (D46). Simulation branch evaluation and waits remain unchanged (D45).
 
 D47 extends atomic display replacement to topology refreshes, including unrelated AI construction. Invalidating search geometry no longer blanks published paths. Hidden rule edits/skips do not touch visible geometry; line colour/order edits use view-only invalidation and reuse cached legs. Actual graph changes force replacement even for identical endpoints. Resetting Rules/Lines clears all snapshots immediately. This is transient display state; no rule execution or persistence semantics change.
+
+D57 final verification (`91037492`, `codex/native-inline-rules`): reconfigured Debug/Release game builds and complete suites passed 447/447 each; focused Rules passed 182/182. The separate-window workflow is retired; the user controls the remaining compact native appearance/edit/drag acceptance. See development status and testing instructions for actual evidence and outstanding gameplay checks. Keep TESTING.
