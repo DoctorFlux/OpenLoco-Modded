@@ -13,6 +13,7 @@
 #include "Objects/AirportObject.h"
 #include "Objects/ObjectManager.h"
 #include "Objects/RoadObject.h"
+#include "Signals/PathSignals.h"
 #include "Ui/WindowManager.h"
 #include "Vehicles/RoutingManager.h"
 #include "Vehicles/Vehicle1.h"
@@ -339,6 +340,13 @@ namespace OpenLoco::Vehicles
             if (!routingFound)
             {
                 flags |= UpdateVar1136114Flags::noRouteFound;
+                return false;
+            }
+            // The planner may have committed this piece before another train
+            // was placed or moved onto it. Recheck at actual physical entry.
+            if (component.isVehicle2() && Signals::isRailLogicActive()
+                && !Signals::physicalEntryIsClear(*train.head, nextPos, routing, tc))
+            {
                 return false;
             }
             component.routingHandle = newRoutingHandle;

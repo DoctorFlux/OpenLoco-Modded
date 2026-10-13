@@ -232,6 +232,9 @@ namespace OpenLoco::Signals
     // Recheck physical occupation and holds before consuming an existing path.
     // A rejected path is released and the train enters a normal path wait.
     bool validatePendingPath(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
+    // The physical front also checks protected routing already committed by
+    // the planning head, before changing its piece or routing handle.
+    bool physicalEntryIsClear(Vehicles::VehicleHead& head, const World::Pos3& nextPos, uint16_t connection, const World::Track::TrackConnections& tc);
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
     std::optional<ReserveStart> reservationStartAtJunction(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
     void onPathWait(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);

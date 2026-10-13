@@ -572,6 +572,24 @@ namespace OpenLoco::Signals
         return true;
     }
 
+    bool physicalEntryIsClear(Vehicles::VehicleHead& head, const World::Pos3& nextPos, uint16_t connection, const World::Track::TrackConnections& tc)
+    {
+        const auto owner = enumValue(head.id);
+        const auto piece = canonicalPiece(nextPos, connection);
+        const auto hold = holdAt(piece);
+        const bool ownedProtectedPiece = hold && hold->owner == owner && hold->isProtected;
+        if (!isInPathMode(owner) && !ownedProtectedPiece && !isHeldByProtectedOther(piece, owner))
+        {
+            return true;
+        }
+        if (canHoldInWorld(piece, owner))
+        {
+            return true;
+        }
+        onPathWait(head, nextPos, tc);
+        return false;
+    }
+
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
     {
         const auto owner = enumValue(head.id);

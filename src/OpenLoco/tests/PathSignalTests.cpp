@@ -256,7 +256,85 @@ namespace
             EXPECT_TRUE(motion.hasFlags(Vehicles::UpdateVar1136114Flags::unk_m00));
             EXPECT_EQ(physicalFront->getTrackLoc(), beforePosition);
         }
+
+        void checkCommittedPhysicalEntry(SignalKind kind, bool plannerPassedBlock = false)
+        {
+            auto* head = vehicle();
+            auto* other = vehicle();
+            approaching(*head);
+            signal(kind);
+            ASSERT_EQ(decide(*head).status, 0);
+            ASSERT_TRUE(isInPathMode(enumValue(head->id)));
+            ASSERT_NE(pendingPath(enumValue(head->id)), nullptr);
+            ASSERT_NE(pendingPath(enumValue(head->id))->front().pos, start);
+            if (plannerPassedBlock)
+            {
+                onPassedBlockSignal(*head);
+                ASSERT_FALSE(isInPathMode(enumValue(head->id)));
+            }
+            auto* wagon = occupiedWagon(other->id);
+            wagon->tileX = start.x;
+            wagon->tileY = start.y;
+            wagon->moveTo(start);
+            auto* front = Vehicles::Vehicle(*head).veh2;
+            const auto before = front->getTrackLoc();
+            const auto handle = front->routingHandle;
+            auto ahead = handle;
+            ahead.setIndex(ahead.getIndex() + 1);
+            Vehicles::Vehicle(*head).veh1->routingHandle = ahead;
+            front->subPosition = static_cast<uint16_t>(World::TrackData::getTrackSubPositon(0).size() - 1);
+            front->remainingDistance = 0;
+            const auto refused = front->updateTrackMotion(0x368A, true);
+            EXPECT_TRUE(refused.hasFlags(Vehicles::UpdateVar1136114Flags::unk_m00));
+            EXPECT_EQ(front->getTrackLoc(), before);
+            EXPECT_EQ(front->routingHandle, handle);
+            EXPECT_TRUE(isSignalBlockedForDisplay(facingSide(start, 0)));
+            wagon->tileX = -1;
+            wagon->moveTo({ 960, 960, 16 });
+            front->updateTrackMotion(0x368A, true);
+            EXPECT_EQ(front->getTrackLoc(), start);
+        }
     };
+}
+
+TEST_F(WaypointSignalFixture, physicalFrontRechecksCommittedPathSignalPiece)
+{
+    checkCommittedPhysicalEntry(SignalKind::path);
+}
+
+TEST_F(WaypointSignalFixture, physicalFrontRechecksCommittedChainSignalPiece)
+{
+    checkCommittedPhysicalEntry(SignalKind::chain);
+}
+
+TEST_F(WaypointSignalFixture, physicalFrontRechecksCommittedCombinedSignalPiece)
+{
+    checkCommittedPhysicalEntry(SignalKind::path | SignalKind::chain);
+}
+
+TEST_F(WaypointSignalFixture, physicalFrontProtectsRouteAfterPlannerPassesOrdinaryBlockSignal)
+{
+    checkCommittedPhysicalEntry(SignalKind::path, true);
+}
+
+TEST_F(WaypointSignalFixture, ordinaryUnprotectedPhysicalRoutingKeepsNativeBehavior)
+{
+    auto* head = vehicle();
+    approaching(*head);
+    auto train = Vehicles::Vehicle(*head);
+    auto next = head->routingHandle;
+    next.setIndex(next.getIndex() + 1);
+    Vehicles::RoutingManager::setRouting(next, 0);
+    train.veh1->routingHandle = next;
+    // A special post elsewhere must not opt this ordinary train into path mode.
+    signalAt(target, 0, SignalKind::path);
+    auto* front = train.veh2;
+    front->subPosition = static_cast<uint16_t>(World::TrackData::getTrackSubPositon(0).size() - 1);
+    front->remainingDistance = 0;
+    EXPECT_FALSE(front->updateTrackMotion(0x368A, true).hasFlags(Vehicles::UpdateVar1136114Flags::unk_m00));
+    EXPECT_EQ(front->getTrackLoc(), start);
+    EXPECT_FALSE(isTrainWaiting(enumValue(head->id)));
+    EXPECT_FALSE(isInPathMode(enumValue(head->id)));
 }
 
 TEST_F(WaypointSignalFixture, nativeSpecialSignalCannotPassOccupiedRouteWithPassOverride)
