@@ -75,6 +75,8 @@ Directional-waypoint correction (D48) is implemented at `a728d749` on `codex/dir
 
 D49 screenshot follow-up is implemented at `b9f7eb33` on the same signal-fix branch: a free circle returning to the same directed junction cannot substitute for the required waypoint route, and facing special junction arms gate selection before path mode. Full suites passed 385/385 each; native screenshot-layout recheck is the next task. Phase 4 and signals remain TESTING.
 
+D50 (`4f5faaae`) fixes yellow waiting sprites when the planner is beyond the approach post. Failed path decisions mark the nearest facing special post in the bounded routing ring, stop at block boundaries and clear on successful progression. Full Debug/Release suites passed 389/389 each; 49 focused signal checks passed. Next task is the user's short red-sprite/clear-and-resume check in the screenshot layout. Signals remain TESTING.
+
 ## Phase 8 — Shunting
 
 1. Job records and state machine.

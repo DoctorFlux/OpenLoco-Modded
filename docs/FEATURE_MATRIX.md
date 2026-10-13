@@ -25,14 +25,14 @@
 
 ## Native feature surface
 
-Block rules, shared lines, timetables and path signals are implemented and remain TESTING for the recorded native acceptance items. Latest signal-fix checkpoint `b9f7eb33` includes block-rules checkpoint `e42b1da8`; full Debug/Release suites each passed 385/385. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-13) for the consolidated delivery and manual checks.
+Block rules, shared lines, timetables and path signals are implemented and remain TESTING for the recorded native acceptance items. Latest signal-fix checkpoint `4f5faaae` includes block-rules checkpoint `e42b1da8`; full Debug/Release suites each passed 389/389. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-13) for the consolidated delivery and manual checks.
 
 | Feature | Player-visible surface | Still works without opting in |
 | --- | --- | --- |
 | Block rules | Actual nested blocks in Rules and normal order lists; current program plus next destination, green/red decisions, Else/Else if, Forever/Break; explicit inside slots grow sections; nested palette blocks and grips; MakeCode-style shapes with clickable fields, compact layout, optional Details and paged selectors; palette clicks and branch Actions; manual Skip retains the white arrow in Vehicle/Rules; dragging refreshes map numbers; Wait alone exposes When; ordinary blocks use automatic timing, saved explicit timing stays readable, and waits finish native braking before arming | Orders and lines with no blocks |
 | Shared lines | Line window; Path/All map overlays evaluate complete routes from current conditions using the selected vehicle's facts; inactive multi-row clauses disappear and vehicle movement/cursor changes preserve geometry, with incrementally built, atomically published geometry, stable All-mode lanes, retained paths during construction refreshes, geometry reuse for metadata edits and preview-limit feedback | Per-vehicle orders |
 | Timetables | Timetable window on a line | Lines without schedules |
-| Path signals | Native path/chain/combined flags and reservation view; directional waypoints require a non-circular route to the target, blocked trains wait red, junction-arm signals gate early and genuine alternatives remain available (D48/D49, TESTING) | Block signals |
+| Path signals | Native path/chain/combined flags and reservation view; directional waypoints require a non-circular route to the target, blocked trains retain a red governing approach sprite even beyond an unsignalled planner decision, junction-arm signals gate early and genuine alternatives remain available (D48/D49/D50, TESTING) | Block signals |
 | Shunting | Yard tools and job list | Depot coupling |
 | Cargo demand | Destination and request UI | Classic freight |
 | Passenger destinations | Demand and transfer UI | Classic passengers |
