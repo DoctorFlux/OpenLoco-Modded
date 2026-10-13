@@ -1704,12 +1704,12 @@ TEST(RulesTests, cShapeRasterLeavesAnOpenMouthAndIncludesFullClosingArm)
     drawProgramBlocks(ctx, p, nullptr, layout, 200, 0, 0, false); // Geometry uses no original font assets.
     auto at = [&](int x, int y) { return pixels[y * 200 + x]; };
     const auto body = layout.orderTops[1] + 7;
-    EXPECT_NE(at(5, body), 255);  // Thick C spine.
-    EXPECT_EQ(at(12, body), 255); // Open cavity before the inserted statement.
+    EXPECT_NE(at(5, body), 255);  // Compact C spine.
+    EXPECT_EQ(at(9, body), 255);  // Open cavity before the inserted statement.
     EXPECT_NE(at(30, body), 255); // The order's puzzle body.
     const auto end = std::find_if(layout.items.begin(), layout.items.end(), [](const ProgramVisual& v) { return v.closing; });
     ASSERT_NE(end, layout.items.end());
-    EXPECT_NE(at(150, end->top + 15), 255); // Full-width closing arm.
+    EXPECT_NE(at(150, end->top + end->height / 2), 255); // Full-width closing arm.
     ctx.reset();
 }
 
@@ -4430,7 +4430,9 @@ namespace
         static const WindowEventList events = {
             .onClose = [](Window& w) { closeEditorSession(w); },
             .getScrollSize = [](Window& w, uint32_t scroll, int32_t& width, int32_t& height) { editorSession(w).scrollSize(scroll, width, height); },
-            .prepareDraw = [](Window& w) {const bool line=w.type==WindowType::lineManager;editorSession(w).prepare(w,line?194:3,76,w.width-28,w.height-(line?62:31)); },
+            .prepareDraw = [](Window& w) {
+                const bool line = w.type == WindowType::lineManager;
+                editorSession(w).prepare(w, line ? 194 : 3, 76, w.width - 28, w.height - (line ? 62 : 31)); },
             .scrollMouseDragOutside = true,
         };
         auto* w = WindowManager::createWindow(line ? WindowType::lineManager : WindowType::vehicle, { 20, 28 }, line ? Size{ 420, 268 } : Size{ 265, 202 }, WindowFlags::resizable, events);
@@ -4773,12 +4775,19 @@ TEST(RulesTests, capturedScrollDragReportsPaletteCoordinatesAcrossPanes)
     static int calls, x, y, index;
     calls = 0;
     x = y = index = 0;
-    static const WindowEventList events = { .scrollMouseDrag = [](Window&, int16_t px, int16_t py, uint8_t scroll) {++calls;x=px;y=py;index=scroll; }, .scrollMouseDragOutside = true };
+    static const WindowEventList events = { .scrollMouseDrag = [](Window&, int16_t px, int16_t py, uint8_t scroll) {
+                                               ++calls;
+                                               x = px;
+                                               y = py;
+                                               index = scroll;
+                                           },
+                                            .scrollMouseDragOutside = true };
     Window w{ { 20, 28 }, { 640, 320 } };
     w.eventHandlers = &events;
     const auto widgets = makeWidgets(Widgets::ScrollView({ 0, 0 }, { 10, 10 }, WindowColour::secondary), Widgets::ScrollView({ 20, 0 }, { 10, 10 }, WindowColour::secondary), Widgets::ScrollView({ 194, 76 }, { 88, 100 }, WindowColour::secondary, Scrollbars::vertical));
     w.widgets.assign(widgets.begin(), widgets.end());
     w.scrollAreas[2].contentHeight = 200;
+    w.scrollAreas[2].contentOffsetX = 0;
     w.scrollAreas[2].contentOffsetY = 37;
     w.scrollAreas[2].flags = ScrollFlags::vscrollbarVisible;
     ScrollView::scrollLeftBegin(w.x + 200, w.y + 83, w, &w.widgets[2], 2);
@@ -4859,4 +4868,73 @@ TEST_F(GameRulesFixture, nativePaletteDragCrossesIntoCanvasAndAddsSelectedSectio
     EXPECT_EQ(p.blocks[0].kind, Kind::ifBlock);
     EXPECT_EQ(p.blocks[0].first, p.rows[0].key);
     EXPECT_EQ(p.blocks[0].last, p.rows[1].key);
+}
+
+TEST(RulesTests, inlineSelectionFollowsStableKeysAcrossRouteEdits)
+{
+    auto p = route();
+    EditorSession s;
+    const Owner owner{ OwnerKind::vehicle, 1 };
+    s.bind(owner, p);
+    s.selectRows(0, 1);
+    const auto first = p.rows[0].key, last = p.rows[1].key;
+    Edit move;
+    move.kind = EditKind::moveRows;
+    move.first = 0;
+    move.last = 1;
+    move.destination = p.rows.size();
+    ASSERT_TRUE(edit(p, move));
+    s.bind(owner, p);
+    ASSERT_TRUE(s.selection());
+    EXPECT_EQ(p.rows[s.selection()->first].key, first);
+    EXPECT_EQ(p.rows[s.selection()->second].key, last);
+    Edit remove;
+    remove.kind = EditKind::deleteRows;
+    remove.first = remove.last = s.selection()->first;
+    ASSERT_TRUE(edit(p, remove));
+    s.bind(owner, p);
+    EXPECT_FALSE(s.selection());
+}
+TEST_F(GameRulesFixture, nativeInlineReadOnlyTransitionAndClosingGripStayIndependent)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const Owner owner{ OwnerKind::vehicle, enumValue(head->id) };
+    auto p = snapshot(owner);
+    Edit block;
+    block.block = section(p, Kind::group, 0, 0);
+    ASSERT_TRUE(submit(owner, block));
+    auto* w = inlineTestHost(owner, enumValue(head->id));
+    ASSERT_NE(w, nullptr);
+    CloseInlineHost close{ w };
+    auto& s = editorSession(*w);
+    s.toggle(*w, { 1024, 768 });
+    s.configure(*w, owner, enumValue(head->id), 0, 0, 1, 1, false);
+    w->callPrepareDraw();
+    EXPECT_TRUE(w->disabledWidgets & (1ULL << 1));
+    s.configure(*w, owner, enumValue(head->id), 0, 0, 1, 1, true);
+    w->callPrepareDraw();
+    EXPECT_FALSE(w->disabledWidgets & (1ULL << 1));
+    const auto closing = std::find_if(s.layout().items.begin(), s.layout().items.end(), [](const auto& v) { return v.closing; });
+    ASSERT_NE(closing, s.layout().items.end());
+    const auto before = snapshot(owner);
+    s.mouseDown(*w, 20, closing->top + 3, 0);
+    EXPECT_FALSE(s.dragging());
+    EXPECT_EQ(s.selectedBlock(), before.blocks[0].id);
+    s.mouseDown(*w, w->widgets[0].width() - 25, closing->top + 3, 0);
+    EXPECT_TRUE(s.dragging());
+    EXPECT_TRUE(s.escape(*w));
+    EXPECT_EQ(snapshot(owner), before);
+}
+
+TEST(RulesTests, scrollIndexLookupSupportsFirstAndAdjacentEditorPanes)
+{
+    using namespace OpenLoco;
+    using namespace Ui;
+    Window w{ { 20, 28 }, { 640, 320 } };
+    const auto widgets = makeWidgets(Widgets::ScrollView({ 0, 0 }, { 40, 80 }, WindowColour::secondary), Widgets::ScrollView({ 50, 0 }, { 40, 80 }, WindowColour::secondary), Widgets::ScrollView({ 100, 0 }, { 40, 80 }, WindowColour::secondary));
+    w.widgets.assign(widgets.begin(), widgets.end());
+    EXPECT_EQ(w.getScrollDataIndex(0), 0);
+    EXPECT_EQ(w.getScrollDataIndex(1), 1);
+    EXPECT_EQ(w.getScrollDataIndex(2), 2);
 }

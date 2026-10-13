@@ -4287,6 +4287,15 @@ namespace OpenLoco::Ui::Windows::Vehicle
             self.widgets[Common::widx::tabRoute].right = 157;
             auto& editor = Rules::editorSession(self);
             editor.configure(self, Rules::ownerForVehicle(self.number), self.number, widx::routeList, 0, widx::editorFirst, 1, !isControllingCompany);
+            if (editor.showingProgram())
+            {
+                self.orderTableIndex = editor.selection() ? static_cast<int16_t>(editor.selection()->first) : -1;
+                self.disabledWidgets |= (1ULL << widx::orderUp) | (1ULL << widx::orderDown);
+                if (self.orderTableIndex >= 0)
+                {
+                    self.disabledWidgets &= ~((1ULL << widx::orderUp) | (1ULL << widx::orderDown));
+                }
+            }
             const auto right = static_cast<int16_t>(self.width - (isControllingCompany ? 4 : 28));
             self.widgets[widx::rulesToggle].hidden = isControllingCompany;
             self.widgets[widx::rulesToggle].left = right - 48;
@@ -4564,9 +4573,15 @@ namespace OpenLoco::Ui::Windows::Vehicle
         static constexpr WindowEventList kEvents = {
             .onClose = close,
             .onMouseUp = onMouseUp,
-            .onResize = [](Window& w) { if (Rules::editorSession(w).expanded()){ w.setSizeBounds({400,240}, {std::min<int>(1000, Ui::width()),std::min<int>(700, Ui::height()-28)});
-} else{ w.setSizeBounds(kMinWindowSize,kMaxWindowSize);
-} },
+            .onResize = [](Window& w) {
+            if (Rules::editorSession(w).expanded())
+            {
+                w.setSizeBounds({ std::min<int>(400, Ui::width()), std::min<int>(240, Ui::height() - 28) }, { std::min<int>(1000, Ui::width()), std::min<int>(700, Ui::height() - 28) });
+            }
+            else
+            {
+                w.setSizeBounds(kMinWindowSize, kMaxWindowSize);
+            } },
             .onMouseDown = onMouseDown,
             .onDropdown = onDropdown,
             .onUpdate = onUpdate,

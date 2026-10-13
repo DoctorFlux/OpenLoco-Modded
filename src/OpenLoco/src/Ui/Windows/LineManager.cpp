@@ -1202,6 +1202,19 @@ namespace OpenLoco::Ui::Windows::LineManager
         }
         auto& editor = Rules::editorSession(window);
         editor.configure(window, { Rules::OwnerKind::line, _selectedLine }, progressVehicle(), widx::orders, 1, widx::rules + 1, 2, line != nullptr);
+        if (showingOrders && editor.showingProgram())
+        {
+            _selectedOrder = editor.selection() ? static_cast<int16_t>(editor.selection()->first) : -1;
+            window.disabledWidgets |= (1ULL << widx::orderUp) | (1ULL << widx::orderDown) | (1ULL << widx::addSlot);
+            if (_selectedOrder >= 0 && line != nullptr)
+            {
+                window.disabledWidgets &= ~((1ULL << widx::orderUp) | (1ULL << widx::orderDown));
+                if (static_cast<size_t>(_selectedOrder) < line->orders.size() && numberedOrder(line->orders[_selectedOrder].type))
+                {
+                    window.disabledWidgets &= ~(1ULL << widx::addSlot);
+                }
+            }
+        }
         if (showingOrders)
         {
             window.activatedWidgets &= ~(1ULL << widx::rules);
@@ -1901,9 +1914,15 @@ namespace OpenLoco::Ui::Windows::LineManager
     static constexpr WindowEventList kEvents = {
         .onClose = [](Window& window) { orderDrag.cancel(); Rules::closeEditorSession(window); onClose(window); },
         .onMouseUp = onMouseUp,
-        .onResize = [](Window& window) { if (Rules::editorSession(window).expanded()){ window.setSizeBounds({560,268},{std::min<int>(1000, Ui::width()),std::min<int>(700,Ui::height()-28)});
-} else{ window.setSizeBounds(kWindowSize,{1000,700});
-} },
+        .onResize = [](Window& window) {
+            if (Rules::editorSession(window).expanded())
+            {
+                window.setSizeBounds({ std::min<int>(560, Ui::width()), std::min<int>(268, Ui::height() - 28) }, { std::min<int>(1000, Ui::width()), std::min<int>(700, Ui::height() - 28) });
+            }
+            else
+            {
+                window.setSizeBounds(kWindowSize, { 1000, 700 });
+            } },
         .onMouseDown = onMouseDown,
         .onDropdown = onDropdown,
         .onUpdate = onUpdate,

@@ -1,3 +1,4 @@
+#include "Rules/EditorSession.h"
 #include "Entities/EntityManager.h"
 #include "Graphics/Colour.h"
 #include "Graphics/Gfx.h"
@@ -10,7 +11,6 @@
 #include "Localisation/StringManager.h"
 #include "Objects/CargoObject.h"
 #include "Objects/ObjectManager.h"
-#include "Rules/EditorSession.h"
 #include "Rules/Platforms.h"
 #include "Ui.h"
 #include "Ui/Dropdown.h"
@@ -128,6 +128,46 @@ namespace OpenLoco::Rules
         uint32_t dragRevision = 0;
         Owner dragOwner{};
         WidgetId menuField = WidgetId::none;
+        std::string orderLabel(size_t rowIndex) const
+        {
+            const auto& row = program.rows[rowIndex];
+            const auto* order = reinterpret_cast<const Vehicles::Order*>(&row.raw);
+            std::string label;
+            int ordinal = 0;
+            for (size_t i = 0; i <= rowIndex; ++i)
+            {
+                ordinal += isRoutable(program.rows[i].raw);
+            }
+            if (isRoutable(row.raw))
+            {
+                label = std::to_string(ordinal) + ". ";
+            }
+            char buffer[256]{};
+            if (const auto* station = order->as<Vehicles::OrderStation>())
+            {
+                const auto* object = StationManager::get(station->getStation());
+                if (object && !object->empty())
+                {
+                    FormatArguments args;
+                    station->setFormatArguments(args);
+                    StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::StopAt ? StringIds::orders_stop_at : StringIds::orders_route_through, args);
+                }
+                label += buffer[0] ? buffer : "Missing station";
+            }
+            else if (order->getType() == Vehicles::OrderType::RouteWaypoint)
+            {
+                label += "Route through waypoint " + std::to_string(ordinal);
+            }
+            else
+            {
+                const auto cargoType = static_cast<const Vehicles::OrderCargo*>(order)->getCargo();
+                const auto* object = ObjectManager::get<CargoObject>(cargoType);
+                auto args = FormatArguments::common(object ? object->name : StringIds::empty);
+                StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::UnloadAll ? StringIds::orders_unload_all2 : StringIds::orders_wait_for_full_load_of2, args);
+                label = buffer;
+            }
+            return label;
+        }
         const Block* selected() const
         {
             auto it = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == selectedBlock; });
@@ -145,6 +185,23 @@ namespace OpenLoco::Rules
             {
                 selectedBlock = 0;
             }
+        }
+        void replaceProgram(const Program& next, bool preserveSelection)
+        {
+            const auto first = firstSelected >= 0 && firstSelected < static_cast<int>(program.rows.size()) ? program.rows[firstSelected].key : 0;
+            const auto last = lastSelected >= 0 && lastSelected < static_cast<int>(program.rows.size()) ? program.rows[lastSelected].key : 0;
+            program = next;
+            firstSelected = lastSelected = -1;
+            if (preserveSelection && first && last)
+            {
+                const auto a = indexOf(program, first), b = indexOf(program, last);
+                if (a < program.rows.size() && b < program.rows.size())
+                {
+                    firstSelected = static_cast<int>(std::min(a, b));
+                    lastSelected = static_cast<int>(std::max(a, b));
+                }
+            }
+            refresh();
         }
         void cancel()
         {
@@ -180,9 +237,8 @@ namespace OpenLoco::Rules
             const auto result = submit(selectedOwner, command);
             status = result ? "Rules updated" : result.message;
             messageFrames = 80;
-            program = snapshot(selectedOwner);
+            replaceProgram(snapshot(selectedOwner), true);
             cancel();
-            refresh();
             window.updateScrollWidgets();
             auto& scroll = window.scrollAreas[canvasScroll];
             scroll.contentOffsetY = static_cast<int16_t>(std::clamp<int>(offset, 0, std::max<int>(0, canvasLayout.height + 14 - window.widgets[canvas].height())));
@@ -712,8 +768,7 @@ namespace OpenLoco::Rules
                 s.status.clear();
             }
             s.selectedOwner = owner;
-            s.program = p;
-            s.refresh();
+            s.replaceProgram(p, !ownerChanged);
         }
         s.selectedVehicle = vehicle;
         s.writable = writable;
@@ -755,7 +810,13 @@ namespace OpenLoco::Rules
     {
         auto& s = *state;
         s.geometry = inlineLayout(left, top, right, bottom, s.expanded, s.showDetails);
-        auto rect = [&](WidgetIndex_t index, EditorRect r) {auto& w=window.widgets[index];w.left=r.x;w.top=r.y;w.right=r.x+r.width-1;w.bottom=r.y+r.height-1; };
+        auto rect = [&](WidgetIndex_t index, EditorRect r) {
+            auto& w = window.widgets[index];
+            w.left = r.x;
+            w.top = r.y;
+            w.right = r.x + r.width - 1;
+            w.bottom = r.y + r.height - 1;
+        };
         rect(s.canvas, s.geometry.canvas);
         rect(s.palette, s.geometry.palette);
         window.widgets[s.palette].hidden = !s.expanded;
@@ -837,6 +898,7 @@ namespace OpenLoco::Rules
         {
             window.disabledWidgets |= uint64_t{ 1 } << s.actions;
         }
+        window.disabledWidgets &= ~(uint64_t{ 1 } << s.palette);
         if (!s.writable)
         {
             window.disabledWidgets |= (uint64_t{ 1 } << s.bin) | (uint64_t{ 1 } << s.palette);
@@ -951,7 +1013,6 @@ namespace OpenLoco::Rules
         ctx.clear(Colours::getShade(window.getColour(WindowColour::secondary).c(), 4));
         const auto width = static_cast<int16_t>(s.layoutWidth);
         drawProgramBlocks(ctx, s.program, runtimeForVehicle(s.selectedVehicle), s.canvasLayout, width, 0, s.selectedBlock);
-        int ordinal = 0;
         for (const auto& v : s.visuals)
         {
             const auto x = static_cast<int16_t>(4 + visualIndent(v, width));
@@ -971,37 +1032,7 @@ namespace OpenLoco::Rules
             {
                 drawOrderBlock(ctx, x, v.top, width - x, v.height, true);
             }
-            const auto& row = s.program.rows[v.row];
-            const auto* order = reinterpret_cast<const Vehicles::Order*>(&row.raw);
-            std::string label;
-            if (isRoutable(row.raw))
-            {
-                label = std::to_string(++ordinal) + ". ";
-            }
-            char buffer[256]{};
-            if (const auto* station = order->as<Vehicles::OrderStation>())
-            {
-                const auto* object = StationManager::get(station->getStation());
-                if (object && !object->empty())
-                {
-                    FormatArguments args;
-                    station->setFormatArguments(args);
-                    StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::StopAt ? StringIds::orders_stop_at : StringIds::orders_route_through, args);
-                }
-                label += buffer[0] ? buffer : "Missing station";
-            }
-            else if (order->getType() == Vehicles::OrderType::RouteWaypoint)
-            {
-                label += "Route through waypoint " + std::to_string(ordinal);
-            }
-            else
-            {
-                const auto cargo = static_cast<const Vehicles::OrderCargo*>(order)->getCargo();
-                const auto* object = ObjectManager::get<CargoObject>(cargo);
-                auto args = FormatArguments::common(object ? object->name : StringIds::empty);
-                StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::UnloadAll ? StringIds::orders_unload_all2 : StringIds::orders_wait_for_full_load_of2, args);
-                label = buffer;
-            }
+            const auto label = s.orderLabel(v.row);
             text(ctx, x + 4, v.top + 2, 12, "=");
             text(ctx, x + 20, v.top + 2, width - x - 23, label);
             if (s.dragged && s.dropRow == int(v.row))
@@ -1031,6 +1062,14 @@ namespace OpenLoco::Rules
                 status = "Vehicle " + std::to_string(head->ordinalNumber) + ": " + status;
             }
         }
+        if (window.type == WindowType::lineManager)
+        {
+            const auto preview = Lines::routePreviewStatus(s.selectedOwner.id);
+            if (!preview.empty())
+            {
+                status = preview + " | " + status;
+            }
+        }
         if (!s.status.empty())
         {
             status = s.status + " | " + status;
@@ -1052,7 +1091,7 @@ namespace OpenLoco::Rules
             const auto x = static_cast<int16_t>(std::clamp<int>(mouse.x - window.x + 12, 4, window.width - width - 4));
             const auto y = static_cast<int16_t>(std::clamp<int>(mouse.y - window.y + 16, 16, window.height - 25));
             std::string label = s.drag == EditorDrag::palette ? s.names[static_cast<unsigned>(s.draggedKind)] : s.draggedBlock && s.selected() ? blockSentence(s.program, *s.selected())
-                                                                                                                                               : "Move " + std::to_string(s.dragLast - s.dragFirst + 1) + " order row(s)";
+                                                                                                                                               : (s.dragFirst == s.dragLast && s.dragFirst >= 0 && s.dragFirst < static_cast<int>(s.program.rows.size()) ? s.orderLabel(s.dragFirst) : "Move " + std::to_string(s.dragLast - s.dragFirst + 1) + " order rows");
             drawStackBlock(ctx, x, y, width, 20, s.drag == EditorDrag::palette ? s.draggedKind : Kind::group, Feedback::idle, true);
             text(ctx, x + 5, y + 4, width - 10, label, true);
         }
@@ -1096,13 +1135,17 @@ namespace OpenLoco::Rules
             {
                 selectRows(indexOf(s.program, selected->first), indexOf(s.program, selected->last));
             }
-            if (v->closing)
+            if (v->closing && x >= s.layoutWidth - 16)
             {
                 const auto* b = s.selected();
                 if (b)
                 {
                     startDrag(EditorDrag::resize, indexOf(s.program, b->first), indexOf(s.program, b->last), b->id);
                 }
+            }
+            else if (v->closing)
+            {
+                // The thin strip selects the section; its right-hand grip resizes it.
             }
             else if (const auto* field = blockFieldHit(s.canvasLayout, x, y, static_cast<int16_t>(s.layoutWidth)))
             {
