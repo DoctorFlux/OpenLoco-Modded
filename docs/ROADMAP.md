@@ -81,6 +81,8 @@ D50 (`4f5faaae`) fixes yellow waiting sprites when the planner is beyond the app
 
 D52 (`049ef968`) on `codex/waypoint-signal-aspects` adds red during approach before a refused waypoint reservation, with independent approaching/waiting display owners and bounded 16-tick probes. This branch also includes the placement fix. Debug/Release full suites each passed 398/398; 58 focused signal/placement checks passed. Next task is the user's red-during-approach-and-wait screenshot-layout recheck, then required-route resumption after clearing the blocker. Signals remain TESTING.
 
+D53 (`d4ed06d1`), same waypoint-aspect branch, corrects the previous override's actual sprite index: frame 3 was yellow on SIGC3; native danger is frame 0. It also probes unplanned signalled junction arms so a free wrong exit cannot clear a blocked required waypoint. Original art was inspected read-only, with no game control or bundled assets. Full Debug/Release suites each passed 401/401; 61 focused signal/placement checks passed. Next task is the user's actual-red-lamp check for all three kinds. Signals remain TESTING.
+
 ## Phase 8 — Shunting
 
 1. Job records and state machine.

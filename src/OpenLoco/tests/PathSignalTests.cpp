@@ -481,7 +481,7 @@ TEST_F(WaypointSignalFixture, blockedUnsignalledExtensionKeepsApproachPostRedAcr
         }
     }
     ASSERT_NE(post, nullptr);
-    post->getLeft().setFrame(6); // Native yellow from the planner passing a later signal.
+    post->getLeft().setFrame(6); // Native proceed frame after the planner passes a later signal.
     post->getLeft().setUnk4(2);
     post->getLeft().setAllLights(0xF);
     const auto begin = head->routingHandle;

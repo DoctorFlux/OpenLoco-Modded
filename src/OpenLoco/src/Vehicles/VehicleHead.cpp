@@ -4559,8 +4559,9 @@ namespace OpenLoco::Vehicles
         setSignalState(targetPos, tad, targetTrackType, lightStateFlags);
     }
 
-    // Same colours as a block signal: red on the signal the head passes, yellow then
-    // the following state on the signals behind it.
+    // Keep native block-signal progression: state 1 on the routed post, then
+    // states 2 and 3 behind it. Colours depend on the object's aspect count;
+    // native state 0 is danger, while SIGC3 state 1 is yellow, not red.
     static void applyPassedSignalColours(const World::Pos3& signalPos, uint16_t connection, const World::Pos3& trainPos, VehicleHead& head)
     {
         if ((connection & World::Track::AdditionalTaDFlags::hasSignal) == 0)
