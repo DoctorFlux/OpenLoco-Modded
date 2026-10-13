@@ -72,3 +72,5 @@ D46's current-condition line diagram starts with fresh transient interpreter sta
 The D47 geometry-pending/view-dirty flags are transient and are not serialized. Clearing Rules or Lines immediately clears the view/cache/publications, including before loading a different save; topology refreshes within the current game retain completed snapshots only until replacement. Existing `.orules`, `.olines`, `.osignals` and packed Order/S5 formats remain unchanged.
 
 D48's required-waypoint search policy, waiting-owner sets and red display override are transient. Current native order bytes supply the waypoint identity after loading. Packed Order/S5, `.orules` v1/PHASES 1, `.olines` v5 and `.osignals` v3 remain unchanged. No new signal or order save record is introduced.
+
+D49's edge incoming direction, search ancestry and junction-start decision are transient. No fields are added to Order, S5 or signal companions; existing versions remain. This fix changes how new reservations are selected and does not create a new save format.

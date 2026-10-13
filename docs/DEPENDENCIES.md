@@ -82,3 +82,5 @@ D46 separates whole-line current-condition diagrams from vehicle-progress projec
 D47 adds only transient view-versus-geometry invalidation and a per-plan rebuild flag. Existing topology commands still invalidate searches, while native line metadata edits reuse cached geometry. Retaining publications requires no extra snapshot store, worker, new cap or simulation dependency. Explicit Rules/Lines resets clear these buffers immediately.
 
 D48 waypoint reachability reuses native current orders, track connections, the bounded PathSearch graph, physical vehicle-tile scanning and atomic reservation holds. The red waiting display reuses native signal-object frames and viewport invalidation. Waiting-owner sets and required-target request flags are transient; no library, mod loader, save-layout or external service dependency is added.
+
+D49 reuses native track entry directions, existing reservation checks and VehicleHead passing-colour functions. The ancestry prefilter uses the standard library; no new library, thread or UI dependency is added. Ordinary unsignalled junctions retain their current pathing policy unless the vehicle already uses path mode.
