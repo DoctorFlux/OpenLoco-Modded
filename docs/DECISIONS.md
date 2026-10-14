@@ -69,6 +69,8 @@
 
 | D63 | 2026-10-14 | CargoDist runs in native cargo transitions, with aggregated identity-checked packets and a matching `.ocargodist` v1 companion. | Complete player-facing CargoDist must coexist with packed saves, actual motion, independent rules, cargo loss/age and existing revenue. | Use bounded abstract order connectivity and atomic route publication; fair deterministic allocation avoids PRNG changes. Preserve native cash payments and separately report virtual feeder credit, including unsettled save state. Provide independent native views and read-only cached overlays; keep TESTING for user acceptance. |
 
+| D64 | 2026-10-14 | Convert road-centre preview samples into native lane positions and share checked road reversal between placement and reversal. | Truck placement can submit a valid preview index that overruns a shorter physical lane span; lane-change reverse spans can differ too. | Preserve native geometry/flags and straight-road positions, use nearest physical samples for the cursor, reject invalid commands before mutation, and validate destination spans. No packed/save/cargo-routing or signal change. |
+
 ## Script language tradeoffs
 
 Not selected.

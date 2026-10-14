@@ -24,4 +24,11 @@ namespace OpenLoco::World::TrackData
     std::optional<uint16_t> getReversedTrackSubPosition(uint16_t trackAndDirection, uint16_t subPosition);
     std::span<const MoveInfo> getRoadSubPositon(const uint16_t trackAndDirection);
     std::span<const MoveInfo> getRoadPlacementSubPositon(const uint16_t trackAndDirection);
+    struct ReversedRoadPosition
+    {
+        uint16_t trackAndDirection;
+        uint16_t subPosition;
+    };
+    std::optional<ReversedRoadPosition> getReversedRoadSubPosition(uint16_t trackAndDirection, uint16_t subPosition);
+    std::optional<uint16_t> getRoadPlacementMovementPosition(uint16_t trackAndDirection, uint16_t placementPosition);
 }

@@ -5048,7 +5048,13 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
             // Get the best progress along the road relative to the cursor
             auto* roadElement = static_cast<World::TileElementEntry*>(interaction.object)->as<World::RoadElement>();
-            if (roadElement == nullptr)
+            if (roadElement == nullptr || viewport == nullptr || roadElement->roadId() >= 10)
+            {
+                return {};
+            }
+
+            const auto roadPieces = World::TrackData::getRoadPiece(roadElement->roadId());
+            if (roadElement->sequenceIndex() >= roadPieces.size())
             {
                 return {};
             }
@@ -5081,6 +5087,10 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
             placementArgs->head = head.id;
             const auto moveInfoArr = World::TrackData::getRoadPlacementSubPositon(placementArgs->trackAndDirection);
+            if (placementArgs->trackProgress >= moveInfoArr.size())
+            {
+                return {};
+            }
             const auto& moveInfo = moveInfoArr[placementArgs->trackProgress];
 
             uint8_t unkYaw = moveInfo.yaw + (WindowManager::getCurrentRotation() << 4);
@@ -5094,18 +5104,25 @@ namespace OpenLoco::Ui::Windows::Vehicle
             if (unkYaw <= 0x20)
             {
                 const auto& unkItem = TrackData::getUnkRoad(placementArgs->trackAndDirection);
+                const auto reversedMovement = TrackData::getRoadPlacementSubPositon(placementArgs->trackAndDirection ^ (1 << 2));
+                if (reversedMovement.empty())
+                {
+                    return {};
+                }
                 placementArgs->pos += unkItem.pos;
                 if (unkItem.rotationEnd < 12)
                 {
                     placementArgs->pos -= World::Pos3{ World::kRotationOffset[unkItem.rotationEnd], 0 };
                 }
-                placementArgs->trackProgress = std::max<uint16_t>(static_cast<uint16_t>(moveInfoArr.size()) - placementArgs->trackProgress, 0);
-                if (placementArgs->trackProgress >= moveInfoArr.size())
-                {
-                    placementArgs->trackProgress = static_cast<uint16_t>(moveInfoArr.size()) - 1;
-                }
+                placementArgs->trackProgress = static_cast<uint16_t>(std::min(moveInfoArr.size() - 1 - placementArgs->trackProgress, reversedMovement.size() - 1));
                 placementArgs->trackAndDirection ^= (1 << 2);
             }
+            const auto movementPosition = TrackData::getRoadPlacementMovementPosition(placementArgs->trackAndDirection, placementArgs->trackProgress);
+            if (!movementPosition)
+            {
+                return {};
+            }
+            placementArgs->trackProgress = *movementPosition;
             return placementArgs;
         }
 

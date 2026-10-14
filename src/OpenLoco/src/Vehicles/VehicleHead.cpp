@@ -6865,8 +6865,14 @@ namespace OpenLoco::Vehicles
         // Very similar to code in VehicleManager::placeDownVehicle
         if (mode == TransportMode::road)
         {
-            const auto subPositionLength = static_cast<uint32_t>(World::TrackData::getRoadSubPositon(newTad.road._data).size());
-            newSubPos = subPositionLength - 1 - train.veh2->subPosition;
+            const auto reversed = World::TrackData::getReversedRoadSubPosition(newTad.road._data, train.veh2->subPosition);
+            if (!reversed)
+            {
+                vehicleFlags |= VehicleFlags::commandStop;
+                liftUpVehicle();
+                return;
+            }
+            newSubPos = reversed->subPosition;
 
             const auto& roadSize = World::TrackData::getUnkRoad(newTad.road.basicRad());
             newPos += roadSize.pos;
@@ -6874,16 +6880,7 @@ namespace OpenLoco::Vehicles
             {
                 newPos -= World::Pos3{ World::kRotationOffset[roadSize.rotationEnd], 0 };
             }
-            newTad.road.setReversed(!newTad.road.isReversed());
-            newTad.road._data ^= World::Track::AdditionalTaDFlags::isOvertaking;
-            if (newTad.road.isChangingLane())
-            {
-                newTad.road._data ^= World::Track::AdditionalTaDFlags::isOvertaking;
-                if (!newTad.road.isOvertaking())
-                {
-                    newTad.road._data ^= World::Track::AdditionalTaDFlags::isChangingLane;
-                }
-            }
+            newTad.road._data = reversed->trackAndDirection;
         }
         else
         {

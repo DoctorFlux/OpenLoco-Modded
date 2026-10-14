@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <vector>
 
 namespace OpenLoco::World::TrackData
@@ -18928,6 +18929,10 @@ namespace OpenLoco::World::TrackData
         // TODO: rework after 0x0047D9F2 is implemented and hooked
         // 0x005253B0
         const auto& data = getGameState().trafficHandedness ? _rightHand4D9DE4 : _4D9DE4;
+        if (trackAndDirection > 0x1FF || (trackAndDirection & 0x7F) >= data[0][0].size())
+        {
+            return {};
+        }
         return data[trackAndDirection & (1 << 8) ? 1 : 0][trackAndDirection & (1 << 7) ? 1 : 0][trackAndDirection & 0x7F];
     }
 
@@ -18960,6 +18965,61 @@ namespace OpenLoco::World::TrackData
     std::span<const MoveInfo> getRoadPlacementSubPositon(const uint16_t trackAndDirection)
     {
         // TODO: investigate if this mirrors one side of getRoadSubPositon
+        if (trackAndDirection >= kRoadPlacementSubPositions.size())
+        {
+            return {};
+        }
         return kRoadPlacementSubPositions[trackAndDirection];
+    }
+
+    std::optional<ReversedRoadPosition> getReversedRoadSubPosition(uint16_t trackAndDirection, uint16_t subPosition)
+    {
+        const auto movement = getRoadSubPositon(trackAndDirection);
+        if (subPosition >= movement.size())
+        {
+            return std::nullopt;
+        }
+        auto reversedDirection = static_cast<uint16_t>(trackAndDirection ^ (1 << 2) ^ (1 << 7));
+        if (reversedDirection & (1 << 8))
+        {
+            reversedDirection ^= (1 << 7);
+            if (!(reversedDirection & (1 << 7)))
+            {
+                reversedDirection ^= (1 << 8);
+            }
+        }
+        const auto reverse = getRoadSubPositon(reversedDirection);
+        if (reverse.empty())
+        {
+            return std::nullopt;
+        }
+        return ReversedRoadPosition{ reversedDirection, static_cast<uint16_t>(std::min(movement.size() - 1 - subPosition, reverse.size() - 1)) };
+    }
+
+    std::optional<uint16_t> getRoadPlacementMovementPosition(uint16_t trackAndDirection, uint16_t placementPosition)
+    {
+        const auto placement = getRoadPlacementSubPositon(trackAndDirection & 0x7F);
+        const auto movement = getRoadSubPositon(trackAndDirection);
+        if (placementPosition >= placement.size() || movement.empty())
+        {
+            return std::nullopt;
+        }
+        // The cursor uses the road centre line. Lane curves have different
+        // sample counts, so choose the nearest actual lane position rather
+        // than treating a centre-line index as a lane index.
+        const auto& point = placement[placementPosition].loc;
+        size_t best = 0;
+        int32_t bestDistance = INT32_MAX;
+        for (size_t index = 0; index < movement.size(); ++index)
+        {
+            const auto& candidate = movement[index].loc;
+            const auto distance = std::abs(int32_t(point.x) - candidate.x) + std::abs(int32_t(point.y) - candidate.y) + std::abs(int32_t(point.z) - candidate.z);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = index;
+            }
+        }
+        return static_cast<uint16_t>(best);
     }
 }

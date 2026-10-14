@@ -237,7 +237,9 @@ namespace OpenLoco::GameCommands
                 }
             }
 
-            if (!args.convertGhost && train.head->mode == TransportMode::rail && !World::TrackData::getReversedTrackSubPosition(args.trackAndDirection, args.trackProgress))
+            if (!args.convertGhost
+                && ((train.head->mode == TransportMode::rail && !World::TrackData::getReversedTrackSubPosition(args.trackAndDirection, args.trackProgress))
+                    || (train.head->mode == TransportMode::road && !World::TrackData::getReversedRoadSubPosition(args.trackAndDirection, args.trackProgress))))
             {
                 setErrorText(StringIds::not_enough_space_or_vehicle_in_the_way);
                 return kFailure;
