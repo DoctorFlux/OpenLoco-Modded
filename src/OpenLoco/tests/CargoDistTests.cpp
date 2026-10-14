@@ -6,8 +6,10 @@
 #include <OpenLoco/GameCommands/GameCommands.h>
 #include <OpenLoco/Lines/Line.h>
 #include <OpenLoco/Localisation/StringIds.h>
+#include <OpenLoco/Localisation/StringManager.h>
 #include <OpenLoco/Random.h>
 #include <OpenLoco/Rules/Rules.h>
+#include <OpenLoco/Ui/Window.h>
 #include <OpenLoco/Vehicles/OrderManager.h>
 #include <OpenLoco/Vehicles/Orders.h>
 #include <OpenLoco/Vehicles/VehicleBody.h>
@@ -458,67 +460,55 @@ TEST(CargoDistTests, possibleServiceHasAnExplicitWorkBound)
     auto p = OpenLoco::Rules::makeProgram({ stop(1), stop(2), stop(3) }, true);
     EXPECT_TRUE(OpenLoco::Rules::possibleService(p, 1).limited);
 }
-TEST(CargoDistTests, compactAndExpandedGeometryHasNoOverlap)
+TEST(CargoDistTests, inlineGeometryUsesTheSameBoundariesForDrawingAndHitTesting)
 {
-    for (int16_t width : { 440, 560, 620, 1000 })
-    {
-        for (int16_t height : { 240, 320, 340, 700 })
-        {
-            const auto layout = viewLayout(width, height);
-            EXPECT_GT(layout.list.height, 0);
-            EXPECT_LE(layout.filters.y + layout.filters.height, layout.list.y);
-            EXPECT_LT(layout.list.y + layout.list.height, layout.controls.y);
-            EXPECT_LT(layout.controls.y + layout.controls.height, layout.footer.y);
-            EXPECT_LE(layout.footer.y + layout.footer.height, height);
-            EXPECT_LT(layout.list.x + layout.list.width, width);
-        }
-    }
+    const auto rows = layoutCargoRows({ { 0, 0, 12, 0, 10, 1, { "summary" } }, { 1, 0, 22, 0, 30, 1, { "summary", "destination 1", "destination 2" } }, { 2, 0, 12, 0, 2, 1, {} } });
+    ASSERT_EQ(rows.rows.size(), 3);
+    EXPECT_EQ(rows.height, 86);
+    EXPECT_EQ(rows.rows[1].top, 22);
+    EXPECT_EQ(rows.rows[2].top, 74);
+    EXPECT_EQ(rows.at(-1), nullptr);
+    EXPECT_EQ(rows.at(21)->key, 0);
+    EXPECT_EQ(rows.at(22)->key, 1);
+    EXPECT_EQ(rows.at(73)->key, 1);
+    EXPECT_EQ(rows.at(74)->key, 2);
+    EXPECT_EQ(rows.at(86), nullptr);
 }
-TEST(CargoDistTests, expandedGroupsConserveTotalsInEveryGroupingOrder)
+TEST(CargoDistTests, inlineSummariesAreReadOnlyGroupedAndBounded)
 {
-    const std::vector<ViewEntry> entries = { { 0, 1, 2, 3, 10, 30 }, { 0, 1, 2, 4, 20, 60 } };
-    for (uint8_t order = 0; order < 6; ++order)
-    {
-        auto rows = groupedRows(entries, order, {}, true);
-        uint32_t roots = 0;
-        for (const auto& row : rows)
-        {
-            roots += row.quantity;
-        }
-        EXPECT_EQ(roots, 30);
-        std::set<std::string> expanded;
-        for (const auto& row : rows)
-        {
-            expanded.insert(row.key);
-        }
-        rows = groupedRows(entries, order, expanded, true);
-        for (const auto& row : rows)
-        {
-            expanded.insert(row.key);
-        }
-        rows = groupedRows(entries, order, expanded, true);
-        uint32_t leaves = 0;
-        int64_t credit = 0;
-        for (const auto& row : rows)
-        {
-            if (row.depth == 2)
-            {
-                leaves += row.quantity;
-                credit += row.credit;
-            }
-        }
-        EXPECT_EQ(leaves, 30);
-        EXPECT_EQ(credit, 90);
-    }
+    auto s = network();
+    calculate(s);
+    s.reconcile(source, 1, 30, 1, 0);
+    s.assign(source);
+    auto& packets = s.holdings.at(source).packets;
+    packets.push_back(packets.front());
+    packets.front().quantity = 10;
+    packets.back().quantity = 20;
+    ++s.totalPackets;
+    const auto before = encode(s);
+    size_t budget = 10;
+    const auto summary = summarize(s, { source }, 0, 1, budget);
+    ASSERT_EQ(summary.destinations.size(), 1);
+    EXPECT_EQ(summary.destinations.front().quantity, 30);
+    EXPECT_EQ(summary.destinations.front().next, 2);
+    EXPECT_EQ(budget, 8);
+    EXPECT_EQ(encode(s), before);
+    budget = 1;
+    const auto limited = summarize(s, { source }, 0, 1, budget);
+    EXPECT_TRUE(limited.limited);
+    EXPECT_EQ(limited.destinations.front().quantity, 10);
 }
-TEST(CargoDistTests, independentViewSelectionsDoNotChangeAnotherView)
+TEST(CargoDistTests, classicEntriesHaveTheirOriginalGeometry)
 {
-    const std::vector<ViewEntry> entries = { { 0, 1, 2, 3, 10, 0 }, { 0, 4, 2, 3, 20, 0 } };
-    const auto first = groupedRows(entries, 0, {}, true);
-    std::set<std::string> expanded{ first.front().key };
-    const auto second = groupedRows(entries, 0, expanded, true);
-    EXPECT_GT(second.size(), first.size());
-    EXPECT_EQ(groupedRows(entries, 0, {}, true).size(), first.size());
+    auto s = network();
+    s.settings.modes.fill(Mode::manual);
+    s.reconcile(source, 1, 12, 1, 0);
+    size_t budget = 0;
+    const auto summary = summarize(s, { source }, 0, 1, budget);
+    EXPECT_FALSE(summary.automatic);
+    EXPECT_FALSE(summary.limited);
+    EXPECT_TRUE(summary.destinations.empty());
+    EXPECT_EQ(layoutCargoRows({ { 0, 0, 22, 0, 12, 1, {} }, { 1, 0, 22, 0, 0, 1, {} } }).height, 44);
 }
 TEST(CargoDistTests, saveKeepsUnsettledVehicleProfitSeparateFromCargoCash)
 {
@@ -876,7 +866,7 @@ TEST(CargoDistTests, metadataLimitRejectsFragmentationWithoutLosingNativeQuantit
 TEST(CargoDistTests, anAvailableAlternativeServiceCanBoardEvenWhenAnotherIsFaster)
 {
     auto s = network();
-    s.setService(30, { { 0, 0, 1, 3, 30, 1, 0 } });
+    s.setService(30, { { 0, 0, 1, 3, 30, 10, 0 } });
     calculate(s);
     ASSERT_EQ(s.nextHop(0, 0, 1, 3), 3);
     s.reconcile(source, 1, 20, 1, 0);
@@ -1088,4 +1078,521 @@ TEST(CargoDistTests, serviceObservationLimitRejectsAtomically)
     EXPECT_EQ(s.services, before);
     EXPECT_EQ(s.revision, revision);
     EXPECT_TRUE(s.limited);
+}
+
+TEST(CargoDistTests, transferredCargoCannotBoardAFeederGoingBackwards)
+{
+    auto s = network();
+    calculate(s);
+    s.reconcile(source, 1, 12, 1, 0);
+    s.assign(source);
+    ASSERT_EQ(s.load(source, compartment, 12, { 2 }), 12);
+    ASSERT_EQ(s.unload(compartment, 2, {}, UINT16_MAX, [](const auto&) { return 100; }).transferred, 12);
+    const Holder hub{ false, 2, 0, 0 };
+    EXPECT_EQ(s.available(hub, { 1 }), 0);
+    EXPECT_EQ(s.load(hub, compartment, 12, { 1 }), 0);
+    EXPECT_EQ(s.available(hub, { 3 }), 12);
+    EXPECT_EQ(s.quantity(hub), 12);
+}
+TEST(CargoDistTests, publishedRouteRemovalReassignsWaitingDestinationsAtCargoBoundary)
+{
+    auto s = network();
+    calculate(s);
+    s.reconcile(source, 1, 12, 1, 4);
+    s.assign(source);
+    s.removeService(20);
+    auto replacement = s.stations.at(3);
+    replacement.id = 4;
+    s.setStation(replacement);
+    s.setService(30, { { 0, 0, 2, 4, 12, 5, 0 } });
+    s.assign(source); // The previous complete plan remains in use.
+    EXPECT_EQ(s.destined(source, 3), 12);
+    calculate(s, 1);
+    ASSERT_TRUE(s.assign(source));
+    EXPECT_EQ(s.destined(source, 4), 12);
+    EXPECT_EQ(s.destined(source, 3), 0);
+    EXPECT_EQ(s.holdings.at(source).packets.front().origin, 1);
+    EXPECT_EQ(s.holdings.at(source).packets.front().age, 4);
+}
+namespace
+{
+    struct AutomaticTransferFixture : CargoDistGameFixture
+    {
+        OpenLoco::Vehicles::VehicleHead* carrier = nullptr;
+        OpenLoco::Vehicles::VehicleBody* carrierBody = nullptr;
+        OpenLoco::Vehicles::VehicleBogie* carrierBogie = nullptr;
+        void SetUp() override
+        {
+            CargoDistGameFixture::SetUp();
+            using namespace OpenLoco;
+            using namespace OpenLoco::Vehicles;
+            head->mode = bogie->mode = TransportMode::road;
+            head->vehicleType = VehicleType::truck;
+            auto* hub = StationManager::get(StationId(2));
+            hub->cargoStats[0].isAccepted(false);
+            auto* end = StationManager::get(StationId(3));
+            *end = OpenLoco::Station{};
+            end->flags = StationFlags::allModes;
+            end->name = StringIds::empty;
+            end->owner = CompanyId(0);
+            end->x = 96;
+            end->cargoStats[0].origin = StationId(3);
+            end->cargoStats[0].isAccepted(true);
+            VehicleBase* pieces[7];
+            const VehicleEntityType types[] = { VehicleEntityType::head, VehicleEntityType::vehicle_1, VehicleEntityType::vehicle_2, VehicleEntityType::bogie, VehicleEntityType::bogie, VehicleEntityType::body_start, VehicleEntityType::tail };
+            for (size_t i = 0; i < 7; ++i)
+            {
+                pieces[i] = reinterpret_cast<VehicleBase*>(EntityManager::createEntityVehicle());
+                pieces[i]->baseType = EntityBaseType::vehicle;
+                pieces[i]->subType = types[i];
+                pieces[i]->mode = TransportMode::rail;
+                pieces[i]->owner = CompanyId(0);
+                pieces[i]->head = pieces[0]->id;
+                pieces[i]->tileX = 64;
+                pieces[i]->nextCarId = EntityId::null;
+                if (i)
+                {
+                    pieces[i - 1]->nextCarId = pieces[i]->id;
+                }
+            }
+            carrier = reinterpret_cast<VehicleHead*>(pieces[0]);
+            carrierBogie = reinterpret_cast<VehicleBogie*>(pieces[3]);
+            carrierBody = reinterpret_cast<VehicleBody*>(pieces[5]);
+            carrier->vehicleType = VehicleType::train;
+            carrier->stationId = StationId(2);
+            carrier->status = Status::loading;
+            EntityManager::moveEntityToList(carrier, EntityManager::EntityListType::vehicleHead);
+            OrderManager::allocateOrders(*carrier);
+            for (uint16_t id : { 2, 3 })
+            {
+                OrderStopAt order{ StationId(id) };
+                OrderManager::insertOrder(carrier, carrier->sizeOfOrderTable - 1, &order);
+            }
+            carrierBody->primaryCargo.type = 0;
+            carrierBody->primaryCargo.acceptedTypes = 1;
+            carrierBody->primaryCargo.maxQty = 20;
+            carrierBody->creationDay = 42;
+            CargoDist::stationChanged(2);
+            CargoDist::stationChanged(3);
+            CargoDist::vehicleChanged(*head);
+            CargoDist::vehicleChanged(*carrier);
+            calculate(gameState());
+        }
+        void reach(OpenLoco::Vehicles::VehicleHead& vehicle, uint16_t station, uint16_t offset)
+        {
+            vehicle.stationId = OpenLoco::StationId(station);
+            vehicle.currentOrder = offset;
+            vehicle.checkIfAtOrderStation();
+            CargoDist::arrived(vehicle);
+        }
+        uint16_t waiting(uint16_t station) { return OpenLoco::StationManager::get(OpenLoco::StationId(station))->cargoStats[0].quantity; }
+    };
+}
+TEST_F(AutomaticTransferFixture, normalTruckAndTrainOrdersTransferPartialLoadsWithoutFeederReloading)
+{
+    reach(*head, 1, 0);
+    body->primaryCargo.maxQty = 5;
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 5);
+    EXPECT_EQ(waiting(1), 7);
+    reach(*head, 2, 2);
+    unsigned deliveries = 0;
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [&](const auto&) { ++deliveries; }));
+    EXPECT_EQ(deliveries, 0);
+    EXPECT_EQ(waiting(2), 5);
+    EXPECT_EQ(body->primaryCargo.qty, 0);
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+    reach(*carrier, 2, 0);
+    carrierBody->primaryCargo.maxQty = 3;
+    ASSERT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 3);
+    EXPECT_EQ(waiting(2), 2);
+    reach(*carrier, 3, 2);
+    ASSERT_TRUE(*CargoDist::unload(*carrier, carrierBody->primaryCargo, *carrierBogie, [&](const auto& p) { deliveries += p.quantity; }));
+    EXPECT_EQ(deliveries, 3);
+    EXPECT_FALSE(*CargoDist::unload(*carrier, carrierBody->primaryCargo, *carrierBogie, [&](const auto& p) { deliveries += p.quantity; }));
+    EXPECT_EQ(deliveries, 3);
+    EXPECT_EQ(waiting(1) + waiting(2) + carrierBody->primaryCargo.qty + body->primaryCargo.qty + deliveries, 12);
+}
+TEST_F(AutomaticTransferFixture, acceptingInterchangeDoesNotDeliverCargoForAnotherDestination)
+{
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    OpenLoco::StationManager::get(OpenLoco::StationId(2))->cargoStats[0].isAccepted(true);
+    CargoDist::stationChanged(2);
+    calculate(gameState());
+    reach(*head, 2, 2);
+    unsigned deliveries = 0;
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [&](const auto&) { ++deliveries; }));
+    EXPECT_EQ(deliveries, 0);
+    EXPECT_EQ(waiting(2), 12);
+}
+TEST_F(AutomaticTransferFixture, sameCarrierKeepsThroughCargoAtIntermediateStop)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    OrderStopAt final{ StationId(3) };
+    OrderManager::insertOrder(head, head->sizeOfOrderTable - 1, &final);
+    CargoDist::vehicleChanged(*head);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    EXPECT_FALSE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    EXPECT_EQ(body->primaryCargo.qty, 12);
+    EXPECT_EQ(waiting(2), 0);
+}
+TEST_F(AutomaticTransferFixture, saveReloadHandoffRebuildsReachedStopWithoutReloadingBackwards)
+{
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    const auto path = std::filesystem::temp_directory_path() / "openloco_automatic_transfer.sv5";
+    {
+        std::ofstream file(path);
+        file << "Disposable transfer save";
+    }
+    ASSERT_TRUE(saveCompanion(path));
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+    reach(*carrier, 2, 0);
+    ASSERT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 12);
+    EXPECT_EQ(vehicleDestined(OpenLoco::enumValue(carrier->id), 0, 3), 12);
+    EXPECT_EQ(waiting(2), 0);
+    std::filesystem::remove(companionPath(path));
+    std::filesystem::remove(path);
+}
+TEST_F(CargoDistGameFixture, inlineExpansionUsesSeparateWindowSessionsAndResetEpochs)
+{
+    using namespace OpenLoco;
+    // Plain strings make this geometry test independent of installed game assets/languages.
+    std::vector<std::pair<StringId, const char*>> old;
+    for (const auto id : { StringIds::cargo_transfer_to, StringIds::cargo_transfer_many, StringIds::cargo_transfer_connection, StringIds::cargo_transfer_finding })
+    {
+        old.emplace_back(id, StringManager::swapString(id, "Destination"));
+    }
+    Ui::Window first({ 0, 0 }, { 223, 136 }), second({ 250, 0 }, { 223, 136 });
+    first.type = second.type = Ui::WindowType::station;
+    first.number = 1;
+    second.number = 2;
+    first.rowHeight = second.rowHeight = 12;
+    const auto height = cargoRows(first).height;
+    ASSERT_GT(height, 12);
+    toggleCargoRow(first, 0);
+    EXPECT_GT(cargoRows(first).height, height);
+    EXPECT_EQ(cargoRows(second).height, 0);
+    toggleCargoRow(first, 0);
+    EXPECT_EQ(cargoRows(first).height, height);
+    toggleCargoRow(first, 0);
+    closeCargoRows(first);
+    EXPECT_EQ(cargoRows(first).height, height);
+    auto settings = state().settings;
+    settings.modes.fill(Mode::manual);
+    ASSERT_TRUE(submitSettings(settings));
+    EXPECT_EQ(cargoRows(first).height, 12);
+    closeCargoRows(first);
+    closeCargoRows(second);
+    for (auto [id, value] : old)
+    {
+        StringManager::swapString(id, value);
+    }
+}
+TEST_F(CargoDistGameFixture, compactModePresetsPreserveSavedAdvancedSettingsAndMixedModes)
+{
+    auto settings = state().settings;
+    settings.distanceEffect = 77;
+    settings.returning = 50;
+    settings.accuracy = 9;
+    settings.modes[0] = Mode::manual;
+    ASSERT_TRUE(submitSettings(settings));
+    EXPECT_EQ(transferMode(), TransferMode::custom);
+    const auto automatic = automaticSettings();
+    EXPECT_EQ(automatic.distanceEffect, 77);
+    EXPECT_EQ(automatic.returning, 50);
+    EXPECT_EQ(automatic.accuracy, 9);
+    ASSERT_TRUE(submitSettings(automatic));
+    EXPECT_EQ(transferMode(), TransferMode::automatic);
+    settings = automatic;
+    settings.modes.fill(Mode::manual);
+    ASSERT_TRUE(submitSettings(settings));
+    EXPECT_EQ(transferMode(), TransferMode::classic);
+    std::istringstream input(encode(state()));
+    State restored;
+    ASSERT_TRUE(readState(input, restored, 42, quantities(state())));
+    EXPECT_EQ(restored.settings, settings);
+}
+
+TEST_F(AutomaticTransferFixture, passengerAndMailModesTransferAcrossTheOtherNativeModes)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    auto settings = state().settings;
+    settings.modes[0] = Mode::symmetric;
+    ASSERT_TRUE(submitSettings(settings));
+    // Both passenger and mail use the symmetric packet/transfer path. No modal special cases.
+    for (auto [mode, type] : { std::pair{ TransportMode::road, VehicleType::bus }, std::pair{ TransportMode::road, VehicleType::tram }, std::pair{ TransportMode::water, VehicleType::ship }, std::pair{ TransportMode::air, VehicleType::aircraft } })
+    {
+        for (auto* part = static_cast<VehicleBase*>(carrier); part; part = part->nextVehicleComponent())
+        {
+            part->mode = mode;
+        }
+        carrier->vehicleType = type;
+        CargoDist::vehicleChanged(*carrier);
+        calculate(gameState());
+        reach(*head, 1, 0);
+        ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+        reach(*head, 2, 2);
+        ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+        reach(*carrier, 2, 0);
+        ASSERT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 12);
+        reach(*carrier, 3, 2);
+        uint32_t delivered = 0;
+        ASSERT_TRUE(*CargoDist::unload(*carrier, carrierBody->primaryCargo, *carrierBogie, [&](const auto& p) { delivered += p.quantity; }));
+        EXPECT_EQ(delivered, 12);
+        StationManager::get(StationId(1))->cargoStats[0].quantity = 12;
+        CargoDist::stationChanged(1);
+        calculate(gameState());
+    }
+}
+TEST_F(AutomaticTransferFixture, sharedRepeatedStopsUseReachedOccurrenceFiltersAndSingleCapacity)
+{
+    using namespace OpenLoco;
+    const auto created = Lines::createLine("Repeated transfer", TransportMode::rail, 2);
+    ASSERT_TRUE(created.ok);
+    for (uint16_t station : { 2, 3, 2, 3 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        if (station == 2 && Lines::findLine(created.id)->orders.empty())
+        {
+            order.filters.push_back({ 0, 0, false, true });
+        }
+        ASSERT_TRUE(Lines::addOrder(created.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(created.id, enumValue(carrier->id), TransportMode::rail).ok);
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    reach(*carrier, 2, 0);
+    EXPECT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 0);
+    reach(*carrier, 2, 4);
+    ASSERT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 12);
+    const auto& links = state().services.at(enumValue(carrier->id));
+    unsigned matching = 0;
+    for (const auto& link : links)
+    {
+        if (link.from == 2 && link.to == 3 && link.cargo == 0)
+        {
+            ++matching;
+            EXPECT_EQ(link.capacity, 20);
+        }
+    }
+    EXPECT_EQ(matching, 1);
+}
+TEST_F(AutomaticTransferFixture, noUnloadIntermediateRestrictionKeepsCargoForALaterStop)
+{
+    using namespace OpenLoco;
+    const auto created = Lines::createLine("Through transfer", TransportMode::road, 2);
+    ASSERT_TRUE(created.ok);
+    for (uint16_t station : { 1, 2, 3 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        if (station == 2)
+        {
+            order.filters.push_back({ 0, 0, false, false });
+        }
+        ASSERT_TRUE(Lines::addOrder(created.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(created.id, enumValue(head->id), TransportMode::road).ok);
+    CargoDist::vehicleChanged(*head);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    EXPECT_FALSE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    EXPECT_EQ(body->primaryCargo.qty, 12);
+    reach(*head, 3, 4);
+    uint32_t delivered = 0;
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [&](const auto& p) { delivered += p.quantity; }));
+    EXPECT_EQ(delivered, 12);
+}
+TEST_F(AutomaticTransferFixture, explicitFullLoadDoesNotPreventInitialServiceDiscovery)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    OrderWaitFor wait(0);
+    OrderManager::insertOrder(head, 2, &wait);
+    CargoDist::vehicleChanged(*head);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    EXPECT_EQ(vehicleDestined(enumValue(head->id), 0, 3), 12);
+}
+TEST_F(AutomaticTransferFixture, explicitUnloadForcesAHandoffDespiteAThroughService)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    OrderUnloadAll unload(0);
+    OrderManager::insertOrder(head, 4, &unload);
+    OrderStopAt final{ StationId(3) };
+    OrderManager::insertOrder(head, 5, &final);
+    CargoDist::vehicleChanged(*head);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    EXPECT_EQ(waiting(2), 12);
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+}
+TEST_F(CargoDistGameFixture, unresolvedRepeatedStopContextPreservesOnboardCargo)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    OrderStopAt repeat{ StationId(1) };
+    OrderManager::insertOrder(head, head->sizeOfOrderTable - 1, &repeat);
+    head->currentOrder = 1; // Not an order boundary; cannot identify a repeated occurrence safely.
+    EXPECT_FALSE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    EXPECT_EQ(body->primaryCargo.qty, 12);
+}
+
+TEST_F(AutomaticTransferFixture, foreverLoopRemovesMentionedButUnservedDestination)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    auto* alternate = StationManager::get(StationId(4));
+    *alternate = OpenLoco::Station{};
+    alternate->name = StringIds::empty;
+    alternate->flags = StationFlags::allModes;
+    alternate->owner = CompanyId(0);
+    alternate->x = 128;
+    CargoDist::stationChanged(4);
+    OrderStopAt extra{ StationId(4) };
+    OrderManager::insertOrder(carrier, carrier->sizeOfOrderTable - 1, &extra);
+    const auto owner = Rules::ownerForVehicle(enumValue(carrier->id));
+    const auto p = Rules::snapshot(owner);
+    Rules::Edit edit;
+    edit.block.kind = Rules::Kind::repeat;
+    edit.block.first = edit.block.last = p.rows[0].key;
+    edit.block.number = 0;
+    ASSERT_TRUE(Rules::submit(owner, edit));
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+    EXPECT_EQ(waiting(1), 12);
+    for (const auto& link : state().services.at(enumValue(carrier->id)))
+    {
+        EXPECT_NE(link.to, 3);
+    }
+}
+TEST_F(AutomaticTransferFixture, repeatedAcceptingStopHonoursItsOwnUnloadRestriction)
+{
+    using namespace OpenLoco;
+    const auto created = Lines::createLine("Repeated delivery", TransportMode::rail, 2);
+    ASSERT_TRUE(created.ok);
+    for (uint16_t station : { 2, 3, 2, 3 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        if (station == 3 && Lines::findLine(created.id)->orders.size() == 1)
+        {
+            order.filters.push_back({ 0, 0, true, false });
+        }
+        ASSERT_TRUE(Lines::addOrder(created.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(created.id, enumValue(carrier->id), TransportMode::rail).ok);
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    reach(*carrier, 2, 0);
+    ASSERT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 12);
+    unsigned deliveries = 0;
+    reach(*carrier, 3, 2);
+    EXPECT_FALSE(*CargoDist::unload(*carrier, carrierBody->primaryCargo, *carrierBogie, [&](const auto&) { ++deliveries; }));
+    EXPECT_EQ(carrierBody->primaryCargo.qty, 12);
+    reach(*carrier, 3, 6);
+    ASSERT_TRUE(*CargoDist::unload(*carrier, carrierBody->primaryCargo, *carrierBogie, [&](const auto&) { ++deliveries; }));
+    EXPECT_EQ(deliveries, 1);
+}
+TEST_F(AutomaticTransferFixture, inlineVehicleRowsKeepNativeModeHeightsAndOwnerChangesCollapseDetails)
+{
+    using namespace OpenLoco;
+    Ui::Window window({ 0, 0 }, { 265, 177 });
+    window.type = Ui::WindowType::vehicle;
+    window.number = enumValue(head->id);
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    for (uint16_t height : { 22, 45, 82 })
+    {
+        window.rowHeight = height;
+        closeCargoRows(window);
+        ASSERT_EQ(cargoRows(window).rows.size(), 1);
+        EXPECT_EQ(cargoRows(window).rows.front().baseHeight, height);
+        EXPECT_EQ(cargoRows(window).height, height + 10);
+        toggleCargoRow(window, height + 1);
+        EXPECT_GT(cargoRows(window).height, height + 10);
+        EXPECT_EQ(cargoRows(window).at(cargoRows(window).height - 1)->key, enumValue(bogie->id));
+    }
+    head->owner = CompanyId(1);
+    EXPECT_EQ(cargoRows(window).height, 92);
+    closeCargoRows(window);
+}
+
+TEST_F(AutomaticTransferFixture, possibleBranchesDoNotForceConditionExecutionDuringBoarding)
+{
+    using namespace OpenLoco;
+    const auto owner = Rules::ownerForVehicle(enumValue(carrier->id));
+    const auto p = Rules::snapshot(owner);
+    Rules::Edit edit;
+    edit.block.kind = Rules::Kind::ifBlock;
+    edit.block.first = edit.block.last = p.rows[0].key;
+    edit.block.condition.check = Rules::Check::cargoWaiting;
+    edit.block.condition.stop = p.rows[0].key;
+    edit.block.condition.cargo = 0;
+    edit.block.condition.compare = Rules::Compare::greater;
+    edit.block.condition.value = 0;
+    ASSERT_TRUE(Rules::submit(owner, edit));
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    carrier->stationId = StationId(2);
+    carrier->currentOrder = 0;
+    CargoDist::stopReached(*carrier);
+    const auto before = Rules::snapshot(owner);
+    const auto* runtime = Rules::runtimeForVehicle(enumValue(carrier->id));
+    ASSERT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 12);
+    EXPECT_EQ(carrier->currentOrder, 0);
+    EXPECT_EQ(Rules::snapshot(owner), before);
+    EXPECT_EQ(Rules::runtimeForVehicle(enumValue(carrier->id)), runtime);
+}
+
+TEST_F(AutomaticTransferFixture, adjacentPrivateStopsWaitForSafeContextAfterReload)
+{
+    using namespace OpenLoco;
+    Vehicles::OrderStopAt repeat{ StationId(2) };
+    Vehicles::OrderManager::insertOrder(carrier, 2, &repeat);
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    reach(*carrier, 2, 0);
+    EXPECT_EQ(carrier->currentOrder, 2);
+    EXPECT_EQ(availableFor(*carrier, 0), 12);
+    replaceState(gameState()); // As on load, only transient context is discarded.
+    EXPECT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 0);
+    reach(*carrier, 2, 2);
+    EXPECT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 12);
 }

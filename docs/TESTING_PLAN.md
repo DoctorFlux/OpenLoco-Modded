@@ -182,11 +182,11 @@ D59 (2026-10-14) records user acceptance of the delivered step and explicit appr
 
 D60 release verification (2026-10-14): Windows x64 Release freshly configured/built at tag `v26.09-modded.2`, master `c1660c34`; complete suite passed 447/447 in 16.66 seconds. Five test executable paths verified. ZIP checked for CRC integrity, x64 PE/stamp, executable hash, and source-matched project/OpenGraphics data; public GitHub asset independently downloaded and SHA-256 matched. No new simulation source or automated game input. Previous Debug/Release implementation checks remain applicable. See development status for asset size, checksum and release/branch inventory.
 
-## CargoDist verification (D62/D63)
+## CargoDist verification (D62/D63, superseded UI workflow)
 
 Starting baseline is 447 full tests. Final reconfigured Debug/Release builds succeeded and both complete suites passed 514/514 (57.14/20.92 seconds), including 67 CargoDist checks. Prior focused Debug passed 65/65. Discovery verified all five executable paths per configuration; source stamp is `0427b1ab`. Release test-only LNK4020 symbols warnings and configure CMP0135 are recorded in development status. Focused command: `ctest --test-dir build/windows -C Debug -R CargoDist --output-on-failure`. Coverage includes model demand/routing, alternatives, transfer conservation/credits, loss/age, identity reuse, pending/save recovery, native compartments/every vehicle type/shared filters, destination rule execution, grouped views and responsive geometry. Use disposable fixtures; never original assets or player saves for automated tests.
 
-User-only short acceptance: use the isolated profile from local setup, create a source-to-interchange-to-consumer journey, watch automatic transfer and final company income, inspect station/vehicle destinations and line capacity, toggle/filter Cargo map in both map views, resize and edit a setting, then save/reload during travel or transfer. Check an older disposable save starts automatic, and an explicitly saved Manual choice stays Manual. No automated launch, mouse actions or claim that these native checks passed. Keep TESTING until feedback is recorded.
+Historical D62/D63 manual matrix (superseded by D65 below): use the isolated profile from local setup, create a source-to-interchange-to-consumer journey, watch automatic transfer and final company income, inspect station/vehicle destinations and line capacity, toggle/filter Cargo map in both map views, resize and edit a setting, then save/reload during travel or transfer. Check an older disposable save starts automatic, and an explicitly saved Manual choice stays Manual. No automated launch, mouse actions or claim that these native checks passed. Keep TESTING until feedback is recorded.
 
 
 ## D64 road/tram placement regression
@@ -195,3 +195,11 @@ Run `ctest --test-dir build/windows -C Debug -R VehiclePlacementTests --output-o
 
 
 D64 final evidence: source `22d67d05`, stamp `v26.09-modded.2-6`, both game builds succeeded; full Debug/Release suites each passed 520/520 (51.12/19.96 seconds), five test executable paths verified per configuration. Focused Debug placement passed 10/10. Release retains the documented seven test-PDB LNK4020 warnings; game linking is clean. The user confirmed placement near a bend/junction. Only its after-fix manual recheck remains for this crash report.
+
+## Automatic-transfer follow-up (D65)
+
+Starting full baseline: 520 tests per configuration. Focused command: `ctest --test-dir build/windows -C Debug -R "CargoDist|AutomaticTransfer" --output-on-failure` (and Release). New fixtures use native vehicle components/station quantities and the actual station-order advancement hook, then exercise cargo adapters. Synthetic payment callbacks separate packet/credit conservation from original object assets; manual acceptance remains required for the complete moving vehicle/industry/UI experience. Existing fixed-seed Manual, payment/credit/loss/age, conditional-service and pending companion tests remain part of the full suite.
+
+Cover partial truck→combined station→train handoff using only StopAt, no immediate feeder reload, useful alternatives/strict cost reduction, accepting/through stops, repeated shared load/unload restrictions, unload/full-load instructions, unserved/possible branch destinations, every transport mode, saved handoff reconstruction, route removal, unresolved context, Classic/mixed settings, read-only bounded summaries and native row sizes/hit boundaries/expansion/owner changes. Reconfigure/build Debug and Release and run both complete serial suites; record counts, source stamp and actual logs in development status.
+
+Short user-only acceptance: create the coal mine road stop → truck → combined road/rail station → train → power-plant station chain with normal routes. Observe automatic handoff and final delivery, click the native summaries, repeat a passenger transfer, then save/reload once during the handoff. Keep original saves separate. No automated launch/input; no congestion-overlay check remains. CargoDist stays TESTING until this feedback is recorded.

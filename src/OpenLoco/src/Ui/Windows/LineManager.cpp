@@ -1,5 +1,4 @@
 #include "Audio/Audio.h"
-#include "CargoDist/View.h"
 #include "Economy/Currency.h"
 #include "Entities/EntityManager.h"
 #include "Graphics/Colour.h"
@@ -193,8 +192,7 @@ namespace OpenLoco::Ui::Windows::LineManager
         Widgets::Button(Widx::kPaintVehicles, { 126, 196 }, { 60, 14 }, WindowColour::secondary, StringIds::line_paint_vehicles),
         Widgets::Button(Widx::kSchemes, { 4, 214 }, { 70, 14 }, WindowColour::secondary, StringIds::line_colour_schemes),
         Widgets::Button(Widx::kRules, { 338, 34 }, { 48, 12 }, WindowColour::secondary, StringIds::rules_title, StringIds::rules_title),
-        Rules::inlineEditorWidgets(),
-        Widgets::Button(WidgetId{ "lineDistribution" }, { 78, 214 }, { 108, 14 }, WindowColour::secondary, StringIds::cargo_dist_cargo, StringIds::cargo_dist_title)
+        Rules::inlineEditorWidgets()
 
     );
 
@@ -917,14 +915,6 @@ namespace OpenLoco::Ui::Windows::LineManager
             window.invalidate();
             return;
         }
-        if (id == WidgetId{ "lineDistribution" })
-        {
-            if (selectedLine())
-            {
-                CargoDist::openView(CargoDist::ViewKind::line, _selectedLine, &window);
-            }
-            return;
-        }
         if (id == Widx::kSchemes)
         {
             if (const auto* line = selectedLine())
@@ -1178,8 +1168,6 @@ namespace OpenLoco::Ui::Windows::LineManager
             window.widgets[index].top = window.height - 72;
             window.widgets[index].bottom = window.height - 59;
         }
-        window.widgets[window.widgets.size() - 1].top = window.height - 54;
-        window.widgets[window.widgets.size() - 1].bottom = window.height - 41;
         window.widgets[widx::schemes].top = window.height - 54;
         window.widgets[widx::schemes].bottom = window.height - 41;
         for (int index : { widx::create, widx::remove, widx::loop, widx::addVehicle, widx::buyVehicle, widx::addSlot, widx::autoUnbunch })

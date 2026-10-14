@@ -50,7 +50,7 @@ D47 follow-up prevents completed Path/All routes disappearing during constructio
 
 ## Current priority - CargoDist (D62)
 
-Before deferred Phases 5/6/8, the implemented TESTING milestone is the approved combined passenger/mail/freight CargoDist milestone: bounded demand/flow routing, native cargo lifecycle and transfer accounting, matching companion persistence, native settings/destination views/map overlays and Rules checks. All cargo types default to automatic, including older saves. Implement on `codex/cargo-distribution`; starting full-suite baseline 447. No physical coupling, yard jobs or new save container. Spec: `mods/CARGO_DISTRIBUTION.md`.
+Before deferred Phases 5/6/8, the implemented TESTING milestone is the approved combined passenger/mail/freight CargoDist milestone: bounded demand/flow routing, native cargo lifecycle and transfer accounting, matching companion persistence, compact native Cargo summaries, Automatic/Classic preset and Rules checks. All cargo types default to automatic, including older saves. Implement on `codex/cargo-distribution`; starting full-suite baseline 447. No physical coupling, yard jobs or new save container. Spec: `mods/CARGO_DISTRIBUTION.md`.
 
 ## Phase 5 — Save container
 
@@ -147,3 +147,7 @@ D64 follows the user's truck-placement assertion on CargoDist. Correct centre-li
 
 
 D64 final builds and complete suites pass 520/520 in Debug/Release on `22d67d05` (10 placement, 67 CargoDist). The user confirmed the crashing placement was near a bend/junction; the remaining task is the same placement with the new executable. Keep TESTING; no merge or release/tag change.
+
+### D65 automatic normal-route transfers
+
+Supersede the standalone-window/overlay milestone with automatic truck/combined-station/train handoffs through private/shared/possible-rule routes. Native Cargo tabs expand destination quantities inline; Options Misc offers Automatic/Classic while preserving mixed and advanced saved settings. Reached-stop occurrence guards, useful-hop boarding, through retention, restrictions, routing replacement and transient reload context are covered by focused regressions. Packed/companion versions remain unchanged. Build both configurations, run complete suites against 520 and record evidence in development status; next is the user's short coal/passenger/reload check. Keep TESTING, preserve master/releases, defer consists/shunting/save-container work.

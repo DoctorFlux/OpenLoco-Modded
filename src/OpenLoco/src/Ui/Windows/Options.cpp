@@ -1,7 +1,9 @@
 #include "Audio/Audio.h"
+#include "CargoDist/Game.h"
 #include "Config.h"
 #include "Date.h"
 #include "Environment.h"
+#include "GameCommands/GameCommands.h"
 #include "Graphics/Colour.h"
 #include "Graphics/Gfx.h"
 #include "Graphics/ImageIds.h"
@@ -39,6 +41,7 @@
 #include "Ui/Widgets/StepperWidget.h"
 #include "Ui/Widgets/TabWidget.h"
 #include "Ui/WindowManager.h"
+#include "World/CompanyManager.h"
 
 #include <cassert>
 
@@ -2467,6 +2470,9 @@ namespace OpenLoco::Ui::Windows::Options
             autosave_amount_up_btn,
             export_plugin_objects,
             openLines,
+            cargoTransfersLabel,
+            cargoTransfers,
+            cargoTransfersBtn,
         };
 
         namespace Widx
@@ -2489,6 +2495,8 @@ namespace OpenLoco::Ui::Windows::Options
             constexpr WidgetId kAutosaveAmountUpBtn{ "autosave_amount_up_btn" };
             constexpr WidgetId kExportPluginObjects{ "export_plugin_objects" };
             constexpr WidgetId kOpenLines{ "open_lines" };
+            constexpr WidgetId kCargoTransfers{ "cargo_transfers" };
+            constexpr WidgetId kCargoTransfersBtn{ "cargo_transfers_btn" };
         }
 
         static constexpr auto _widgets = makeWidgets(
@@ -2521,9 +2529,15 @@ namespace OpenLoco::Ui::Windows::Options
             Widgets::stepperWidgets(Widx::kAutosaveAmount, Widx::kAutosaveAmountDownBtn, Widx::kAutosaveAmountUpBtn, { 250, 272 }, { 156, 12 }, WindowColour::secondary, StringIds::empty),
 
             Widgets::Checkbox(Widx::kExportPluginObjects, { 10, 287 }, { 400, 12 }, WindowColour::secondary, StringIds::export_plugin_objects, StringIds::export_plugin_objects_tip),
-            Widgets::Button(Widx::kOpenLines, { 10, 324 }, { 120, 15 }, WindowColour::secondary, StringIds::line_manager_button)
+            Widgets::Button(Widx::kOpenLines, { 10, 324 }, { 120, 15 }, WindowColour::secondary, StringIds::line_manager_button),
+            Widgets::Label({ 136, 324 }, { 109, 12 }, WindowColour::secondary, ContentAlign::left, StringIds::cargo_transfer_label),
+            Widgets::dropdownWidgets(Widx::kCargoTransfers, Widx::kCargoTransfersBtn, { 250, 324 }, { 156, 12 }, WindowColour::secondary, StringIds::empty, StringIds::cargo_transfer_tip)
 
         );
+
+        static std::optional<CargoDist::Settings> cargoSettingsAtOpen;
+        static uint64_t cargoGenerationAtOpen = 0;
+        static CompanyId cargoCompanyAtOpen = CompanyId::null;
 
         static void enableCheatsToolbarButtonMouseUp(Window& self);
         static void disableVehicleBreakdownsMouseUp(Window& self);
@@ -2589,6 +2603,9 @@ namespace OpenLoco::Ui::Windows::Options
                 self.activatedWidgets |= (1ULL << widx::infiniteMoney);
             }
 
+            self.widgets[widx::cargoTransfersLabel].hidden = !SceneManager::isPlayMode();
+            self.widgets[widx::cargoTransfers].hidden = !SceneManager::isPlayMode();
+            self.widgets[widx::cargoTransfersBtn].hidden = !SceneManager::isPlayMode();
             self.widgets[widx::export_plugin_objects].hidden = !ObjectManager::getCustomObjectsInIndexStatus();
         }
 
@@ -2645,6 +2662,13 @@ namespace OpenLoco::Ui::Windows::Options
                     break;
             }
             drawDropdownContent(self, drawingCtx, widx::calendarSpeed, calendarText, 0);
+            if (SceneManager::isPlayMode())
+            {
+                const auto mode = CargoDist::transferMode();
+                drawDropdownContent(self, drawingCtx, widx::cargoTransfers, mode == CargoDist::TransferMode::automatic ? StringIds::cargo_transfer_automatic : mode == CargoDist::TransferMode::classic ? StringIds::cargo_transfer_classic
+                                                                                                                                                                                                        : StringIds::cargo_transfer_custom,
+                                    0);
+            }
         }
 
         static void changeAutosaveAmount(Window& self, int32_t delta)
@@ -2797,6 +2821,29 @@ namespace OpenLoco::Ui::Windows::Options
         {
             switch (id)
             {
+                case Widx::kCargoTransfersBtn:
+                {
+                    if (!SceneManager::isPlayMode())
+                    {
+                        break;
+                    }
+                    cargoSettingsAtOpen = CargoDist::state().settings;
+                    cargoGenerationAtOpen = CargoDist::generation();
+                    cargoCompanyAtOpen = CompanyManager::getControllingId();
+                    const auto mode = CargoDist::transferMode();
+                    const auto dropdown = self.widgets[widx::cargoTransfers];
+                    Dropdown::show(self.x + dropdown.left, self.y + dropdown.top, dropdown.width() - 4, dropdown.height(), self.getColour(WindowColour::secondary), mode == CargoDist::TransferMode::custom ? 3 : 2, 0x80);
+                    Dropdown::add(0, StringIds::dropdown_stringid, { StringIds::cargo_transfer_automatic });
+                    Dropdown::add(1, StringIds::dropdown_stringid, { StringIds::cargo_transfer_classic });
+                    if (mode == CargoDist::TransferMode::custom)
+                    {
+                        Dropdown::add(2, StringIds::dropdown_stringid, { StringIds::cargo_transfer_custom });
+                        Dropdown::setItemDisabled(2);
+                    }
+                    Dropdown::setItemSelected(mode == CargoDist::TransferMode::automatic ? 0 : mode == CargoDist::TransferMode::classic ? 1
+                                                                                                                                        : 2);
+                    break;
+                }
                 case Widx::kAutosaveFrequencyBtn:
                     showAutosaveFrequencyDropdown(self, widx::autosave_frequency);
                     break;
@@ -2823,6 +2870,25 @@ namespace OpenLoco::Ui::Windows::Options
         {
             switch (id)
             {
+                case Widx::kCargoTransfersBtn:
+                {
+                    if (!SceneManager::isPlayMode() || item_index < 0 || item_index > 1 || !cargoSettingsAtOpen || cargoGenerationAtOpen != CargoDist::generation() || cargoCompanyAtOpen != CompanyManager::getControllingId() || *cargoSettingsAtOpen != CargoDist::state().settings)
+                    {
+                        break;
+                    }
+                    auto settings = item_index == 0 ? CargoDist::automaticSettings() : *cargoSettingsAtOpen;
+                    if (item_index == 1)
+                    {
+                        settings.modes.fill(CargoDist::Mode::manual);
+                    }
+                    const auto company = GameCommands::getUpdatingCompanyId();
+                    GameCommands::setUpdatingCompanyId(cargoCompanyAtOpen);
+                    CargoDist::submitSettings(settings);
+                    GameCommands::setUpdatingCompanyId(company);
+                    cargoSettingsAtOpen.reset();
+                    self.invalidate();
+                    break;
+                }
                 case Widx::kAutosaveFrequencyBtn:
                     handleAutosaveFrequencyDropdown(self, item_index);
                     break;

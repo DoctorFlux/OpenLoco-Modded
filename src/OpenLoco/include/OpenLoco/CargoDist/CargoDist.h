@@ -141,6 +141,8 @@ namespace OpenLoco::CargoDist
         void calculate(size_t budget = 4096);
         bool assign(Holder source);
         uint16_t nextHop(uint8_t company, uint8_t cargo, uint16_t from, uint16_t destination) const;
+        uint32_t remainingCost(uint8_t company, uint8_t cargo, uint16_t from, uint16_t destination) const;
+        bool usefulHop(uint8_t company, uint8_t cargo, uint16_t from, uint16_t next, uint16_t destination) const;
         std::vector<PlannedFlow> pendingFlows(uint8_t cargo = 32, uint8_t company = 255, uint16_t source = kUnknownStation, size_t budget = 8192) const;
         uint32_t available(Holder source, const std::set<uint16_t>& nextStops) const;
         uint32_t load(Holder source, Holder target, uint32_t capacity, const std::set<uint16_t>& nextStops);

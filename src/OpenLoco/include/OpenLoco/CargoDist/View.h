@@ -1,46 +1,38 @@
 #pragma once
 #include "CargoDist.h"
-#include <OpenLoco/Graphics/DrawingContext.h>
 #include <OpenLoco/Ui/Window.h>
 namespace OpenLoco::CargoDist
 {
-    enum class ViewKind : uint8_t
+    struct DestinationSummary
     {
-        settings,
-        station,
-        vehicle,
-        line
+        uint8_t cargo;
+        uint16_t destination, next;
+        uint32_t quantity;
+        bool operator==(const DestinationSummary&) const = default;
     };
-    struct ViewRect
+    struct CargoSummary
     {
-        int16_t x, y, width, height;
-        bool operator==(const ViewRect&) const = default;
+        std::vector<DestinationSummary> destinations;
+        uint32_t unknown = 0;
+        bool automatic = false, pending = false, limited = false;
     };
-    struct ViewLayout
+    CargoSummary summarize(const State& state, const std::vector<Holder>& holders, uint8_t company, uint16_t station, size_t& budget);
+    struct CargoRow
     {
-        ViewRect list, filters, controls, footer;
-    };
-    ViewLayout viewLayout(int16_t width, int16_t height);
-    struct ViewEntry
-    {
-        uint8_t cargo = 0;
-        uint16_t origin = kUnknownStation, next = kUnknownStation, destination = kUnknownStation;
+        uint16_t key;
+        int32_t top, baseHeight, height;
         uint32_t quantity = 0;
-        int64_t credit = 0;
+        uint16_t origin = kUnknownStation;
+        std::vector<std::string> information;
     };
-    struct ViewRow
+    struct CargoRows
     {
-        std::string key;
-        uint8_t cargo = 0, depth = 0, field = 0;
-        uint16_t station = kUnknownStation;
-        uint32_t quantity = 0;
-        int64_t credit = 0;
-        bool expanded = false;
+        std::vector<CargoRow> rows;
+        int32_t height = 0;
+        const CargoRow* at(int32_t y) const;
     };
-    std::vector<ViewRow> groupedRows(const std::vector<ViewEntry>& entries, uint8_t grouping, const std::set<std::string>& expanded, bool largestFirst);
-    Ui::Window* openView(ViewKind kind = ViewKind::settings, uint16_t id = 0, const Ui::Window* origin = nullptr);
-    void drawWorldLinks(Gfx::DrawingContext& context, ZoomLevel zoom, uint8_t rotation);
-    void drawMapLinks(Gfx::DrawingContext& context, const std::function<Ui::Point(int16_t, int16_t)>& project);
-    bool overlayEnabled();
-    uint64_t generation();
+    CargoRows layoutCargoRows(const std::vector<CargoRow>& rows);
+    const CargoRows& cargoRows(Ui::Window& window);
+    void toggleCargoRow(Ui::Window& window, int16_t y);
+    void closeCargoRows(Ui::Window& window);
 }

@@ -47,6 +47,10 @@ namespace OpenLoco::Ui::Windows::Station
     static StationId _lastSelectedStation; // 0x0112C786
 
     using Vehicles::VehicleHead;
+    namespace Cargo
+    {
+        static void onClose(Window& self);
+    }
 
     namespace Common
     {
@@ -299,6 +303,7 @@ namespace OpenLoco::Ui::Windows::Station
         }
 
         static constexpr WindowEventList kEvents = {
+            .onClose = Cargo::onClose,
             .onMouseUp = onMouseUp,
             .onResize = onResize,
             .onUpdate = Common::update,
@@ -381,7 +386,6 @@ namespace OpenLoco::Ui::Windows::Station
             scrollview = Common::widx::content_begin,
             status_bar,
             station_catchment,
-            distribution,
         };
 
         namespace Widx
@@ -395,8 +399,7 @@ namespace OpenLoco::Ui::Windows::Station
             Common::makeCommonWidgets(223, 136),
             Widgets::ScrollView(Widx::kScrollview, { 3, 44 }, { 217, 80 }, WindowColour::secondary, 2),
             Widgets::Label(Widx::kStatusBar, { 3, 125 }, { 195, 10 }, WindowColour::secondary, ContentAlign::left, StringIds::accepted_cargo_separator, StringIds::small_black_string),
-            Widgets::ImageButton(Widx::kStationCatchment, { 198, 44 }, { 24, 24 }, WindowColour::secondary, ImageIds::show_station_catchment, StringIds::station_catchment),
-            Widgets::Button(WidgetId{ "stationDistribution" }, { 3, 44 }, { 88, 16 }, WindowColour::secondary, StringIds::cargo_dist_destinations)
+            Widgets::ImageButton(Widx::kStationCatchment, { 198, 44 }, { 24, 24 }, WindowColour::secondary, ImageIds::show_station_catchment, StringIds::station_catchment)
 
         );
 
@@ -405,7 +408,7 @@ namespace OpenLoco::Ui::Windows::Station
         {
             Common::prepareDraw(self);
 
-            self.widgets[widx::scrollview].top = 62;
+            self.widgets[widx::scrollview].top = 44;
             self.widgets[widx::scrollview].right = self.width - 26;
             self.widgets[widx::scrollview].bottom = self.height - 14;
 
@@ -466,11 +469,6 @@ namespace OpenLoco::Ui::Windows::Station
         // 0x0048EB0B
         static void onMouseUp(Window& self, WidgetIndex_t widgetIndex, const WidgetId id)
         {
-            if (id == WidgetId{ "stationDistribution" })
-            {
-                CargoDist::openView(CargoDist::ViewKind::station, self.number, &self);
-                return;
-            }
             switch (id)
             {
                 case Widx::kStationCatchment:
@@ -500,19 +498,7 @@ namespace OpenLoco::Ui::Windows::Station
         // 0x0048EB64
         static void getScrollSize(Window& self, [[maybe_unused]] uint32_t scrollIndex, [[maybe_unused]] int32_t& scrollWidth, int32_t& scrollHeight)
         {
-            auto station = StationManager::get(StationId(self.number));
-            scrollHeight = 0;
-            for (const auto& cargoStats : station->cargoStats)
-            {
-                if (cargoStats.quantity != 0)
-                {
-                    scrollHeight += 12;
-                    if (cargoStats.origin != StationId(self.number))
-                    {
-                        scrollHeight += 10;
-                    }
-                }
-            }
+            scrollHeight = CargoDist::cargoRows(self).height;
         }
 
         // 0x0048EB4F
@@ -573,18 +559,14 @@ namespace OpenLoco::Ui::Windows::Station
             drawingCtx.clear(Colours::getShade(self.getColour(WindowColour::secondary).c(), 4));
 
             const auto station = StationManager::get(StationId(self.number));
-            int16_t y = 1;
-            auto cargoId = 0;
-            for (const auto& cargoStats : station->cargoStats)
+            const auto& rows = CargoDist::cargoRows(self);
+            for (const auto& row : rows.rows)
             {
-                // auto& cargo = station->cargo_stats[i];
-                auto& cargo = cargoStats;
-                auto quantity = cargo.quantity;
-                if (quantity == 0)
-                {
-                    cargoId++;
-                    continue;
-                }
+                tr.setCurrentFont(Gfx::Font::medium_bold);
+                const auto cargoId = row.key;
+                const auto& cargo = station->cargoStats[cargoId];
+                auto quantity = row.quantity;
+                int16_t y = static_cast<int16_t>(row.top + 1);
 
                 quantity = std::min(int(quantity), 400);
 
@@ -632,16 +614,24 @@ namespace OpenLoco::Ui::Windows::Station
                 {
                     auto originStation = StationManager::get(cargo.origin);
                     FormatArguments args{};
-                    args.push(originStation->name);
-                    args.push(originStation->town);
+                    args.push(originStation && !originStation->empty() ? originStation->name : StringIds::empty);
+                    args.push(originStation && !originStation->empty() ? originStation->town : TownId::null);
 
                     auto point = Point(xPos, y);
                     tr.drawStringRight(point, AdvancedColour(Colour::black).outline(), StringIds::station_cargo_en_route_end, args);
                     y += 10;
                 }
 
-                y += 2;
-                cargoId++;
+                y = static_cast<int16_t>(row.top + row.baseHeight);
+                for (const auto& line : row.information)
+                {
+                    auto buffer = std::vector<char>(line.begin(), line.end());
+                    buffer.push_back(0);
+                    tr.setCurrentFont(Gfx::Font::medium_normal);
+                    tr.clipString(self.widgets[widx::scrollview].width() - 14, buffer.data());
+                    tr.drawString({ 2, y }, Colour::black, buffer.data());
+                    y += 10;
+                }
             }
 
             uint16_t totalUnits = 0;
@@ -663,11 +653,14 @@ namespace OpenLoco::Ui::Windows::Station
         // 0x0048EC21
         static void onClose(Window& self)
         {
+            CargoDist::closeCargoRows(self);
             if (StationId(self.number) == _lastSelectedStation)
             {
                 showStationCatchment(StationId::null);
             }
         }
+
+        static void scrollMouseDown(Window& self, int16_t, int16_t y, uint8_t) { CargoDist::toggleCargoRow(self, y); }
 
         static constexpr WindowEventList kEvents = {
             .onClose = onClose,
@@ -675,6 +668,7 @@ namespace OpenLoco::Ui::Windows::Station
             .onResize = onResize,
             .onUpdate = Common::update,
             .getScrollSize = getScrollSize,
+            .scrollMouseDown = scrollMouseDown,
             .textInput = Common::textInput,
             .tooltip = tooltip,
             .prepareDraw = prepareDraw,
@@ -836,6 +830,7 @@ namespace OpenLoco::Ui::Windows::Station
         }
 
         static constexpr WindowEventList kEvents = {
+            .onClose = Cargo::onClose,
             .onMouseUp = Common::onMouseUp,
             .onResize = onResize,
             .onUpdate = Common::update,
@@ -1185,6 +1180,7 @@ namespace OpenLoco::Ui::Windows::Station
         }
 
         static constexpr WindowEventList kEvents = {
+            .onClose = Cargo::onClose,
             .onMouseUp = Common::onMouseUp,
             .onResize = onResize,
             .onUpdate = onUpdate,

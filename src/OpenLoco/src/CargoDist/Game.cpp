@@ -20,6 +20,7 @@
 #include <OpenLoco/Diagnostics/Logging.h>
 #include <OpenLoco/Math/Vector.hpp>
 #include <algorithm>
+#include <tuple>
 
 namespace OpenLoco::CargoDist
 {
@@ -33,7 +34,44 @@ namespace OpenLoco::CargoDist
         uint16_t _pollStation = 0;
         EntityId _pollVehicle = EntityId::null;
         std::map<uint16_t, uint64_t> _componentEpochs, _stationEpochs;
-        std::map<uint16_t, std::set<uint16_t>> _stops;
+        struct ServiceContext
+        {
+            Rules::Program program;
+            std::map<Rules::Key, std::map<uint8_t, std::set<Rules::Key>>> rides;
+        };
+        struct ReachedStop
+        {
+            Rules::Owner owner;
+            Rules::Key key = 0;
+            uint32_t revision = 0;
+            uint64_t signature = 0;
+            uint16_t station = kUnknownStation;
+        };
+        std::map<uint16_t, ServiceContext> _services;
+        std::map<uint16_t, ReachedStop> _reached;
+        constexpr uint8_t orderSizes[] = { 1, 2, 2, 6, 1, 1 };
+        size_t rowAtOffset(const Rules::Program& p, uint16_t offset)
+        {
+            uint16_t position = 0;
+            for (size_t i = 0; i < p.rows.size(); ++i)
+            {
+                if (position == offset)
+                {
+                    return i;
+                }
+                position += orderSizes[p.rows[i].raw & 7];
+            }
+            return p.rows.size();
+        }
+        uint16_t stationOf(const Rules::Program& p, Rules::Key key)
+        {
+            const auto index = Rules::indexOf(p, key);
+            if (index >= p.rows.size() || (p.rows[index].raw & 7) != 1)
+            {
+                return kUnknownStation;
+            }
+            return enumValue(reinterpret_cast<const Vehicles::OrderStation*>(&p.rows[index].raw)->getStation());
+        }
         std::map<uint16_t, uint64_t> _signatures;
         uint64_t identity(const OpenLoco::Station& station)
         {
@@ -123,25 +161,140 @@ namespace OpenLoco::CargoDist
                 syncVehicle(*head);
             }
         }
-        bool filterAllows(const Vehicles::VehicleHead& head, uint16_t station, uint8_t cargo, bool loading)
+        bool filterAllows(const Vehicles::VehicleHead& head, const Rules::Program& p, Rules::Key key, uint8_t cargo, bool loading)
         {
-            if (const auto* line = Lines::lineForVehicle(enumValue(head.id)))
+            const auto index = Rules::indexOf(p, key);
+            if (index >= p.rows.size())
             {
-                for (const auto& stop : line->orders)
+                return false;
+            }
+            if (const auto* line = Lines::lineForVehicle(enumValue(head.id)); line && index < line->orders.size())
+            {
+                for (const auto& filter : line->orders[index].filters)
                 {
-                    if (stop.type == Vehicles::OrderType::StopAt && stop.station == station)
+                    if (filter.cargoType == cargo && !(loading ? filter.load : filter.unload))
                     {
-                        for (const auto& filter : stop.filters)
-                        {
-                            if (filter.cargoType == cargo && !(loading ? filter.load : filter.unload))
-                            {
-                                return false;
-                            }
-                        }
+                        return false;
+                    }
+                }
+            }
+            if (loading)
+            {
+                for (size_t row = index + 1; row < p.rows.size() && ((p.rows[row].raw & 7) == 4 || (p.rows[row].raw & 7) == 5); ++row)
+                {
+                    const auto* order = reinterpret_cast<const Vehicles::Order*>(&p.rows[row].raw);
+                    const auto* unload = order->as<Vehicles::OrderUnloadAll>();
+                    // Conditional cargo instructions are enforced by the actual cargo phase.
+                    const bool conditional = std::any_of(p.blocks.begin(), p.blocks.end(), [&](const auto& block) {
+                        return block.enabled && Rules::indexOf(p, block.first) <= row && row <= Rules::indexOf(p, block.last);
+                    });
+                    if (unload && unload->getCargo() == cargo && !conditional)
+                    {
+                        return false;
                     }
                 }
             }
             return true;
+        }
+        Rules::Key reachedKey(const Vehicles::VehicleHead& head, const Rules::Program& p)
+        {
+            const auto id = enumValue(head.id), station = enumValue(head.stationId);
+            const auto owner = Rules::ownerForVehicle(id);
+            if (auto it = _reached.find(id); it != _reached.end() && it->second.owner == owner && it->second.revision == p.revision && _signatures.contains(id) && it->second.signature == _signatures.at(id) && it->second.station == station && stationOf(p, it->second.key) == station)
+            {
+                return it->second.key;
+            }
+            // Restore saved/native cargo phases without guessing between repeated stops.
+            const auto committed = Rules::routeOrderForVehicle(id, &p);
+            if (Rules::runtimeForVehicle(id) && stationOf(p, committed) == station)
+            {
+                return committed;
+            }
+            auto row = rowAtOffset(p, head.currentOrder);
+            if (row < p.rows.size() && stationOf(p, p.rows[row].key) == station)
+            {
+                auto previous = row;
+                for (size_t count = 0; count < p.rows.size(); ++count)
+                {
+                    previous = (previous + p.rows.size() - 1) % p.rows.size();
+                    if ((p.rows[previous].raw & 7) == 4 || (p.rows[previous].raw & 7) == 5)
+                    {
+                        continue;
+                    }
+                    if (previous != row && stationOf(p, p.rows[previous].key) == station)
+                    {
+                        return 0;
+                    }
+                    break;
+                }
+                return p.rows[row].key;
+            }
+            if ((row < p.rows.size() || head.currentOrder == head.sizeOfOrderTable - 1) && !p.rows.empty())
+            {
+                for (size_t count = 0; count < p.rows.size(); ++count)
+                {
+                    row = (row + p.rows.size() - 1) % p.rows.size();
+                    if ((p.rows[row].raw & 7) == 4 || (p.rows[row].raw & 7) == 5)
+                    {
+                        continue;
+                    }
+                    if (stationOf(p, p.rows[row].key) == station)
+                    {
+                        return p.rows[row].key;
+                    }
+                    break;
+                }
+            }
+            Rules::Key only = 0;
+            for (const auto& stop : p.rows)
+            {
+                if (stationOf(p, stop.key) != station)
+                {
+                    continue;
+                }
+                if (only)
+                {
+                    return 0;
+                }
+                only = stop.key;
+            }
+            return only;
+        }
+        std::set<uint16_t> rideStops(const Vehicles::VehicleHead& head, uint8_t cargo, bool loading)
+        {
+            const auto id = enumValue(head.id);
+            if (!_services.contains(id))
+            {
+                return {};
+            }
+            const auto& service = _services.at(id);
+            const auto key = reachedKey(head, service.program);
+            if (!key || (loading && !filterAllows(head, service.program, key, cargo, true)))
+            {
+                return {};
+            }
+            const auto start = service.rides.find(key);
+            if (start == service.rides.end() || !start->second.contains(cargo))
+            {
+                return {};
+            }
+            std::set<uint16_t> result;
+            for (auto target : start->second.at(cargo))
+            {
+                result.insert(stationOf(service.program, target));
+            }
+            return result;
+        }
+        bool currentFilterAllows(const Vehicles::VehicleHead& head, uint8_t cargo, bool loading)
+        {
+            const auto id = enumValue(head.id);
+            if (!_services.contains(id))
+            {
+                return false;
+            }
+            const auto& p = _services.at(id).program;
+            const auto key = reachedKey(head, p);
+            return key && filterAllows(head, p, key, cargo, loading);
         }
         bool forceUnload(const Vehicles::VehicleHead& head, uint8_t cargo)
         {
@@ -182,7 +335,8 @@ namespace OpenLoco::CargoDist
         _state = std::move(next);
         _booted = true;
         _signatures.clear();
-        _stops.clear();
+        _services.clear();
+        _reached.clear();
     }
     void reset()
     {
@@ -196,7 +350,8 @@ namespace OpenLoco::CargoDist
         _componentEpochs.clear();
         _stationEpochs.clear();
         _deliveryOrigin.reset();
-        _stops.clear();
+        _services.clear();
+        _reached.clear();
         _signatures.clear();
         _state.lastVisits.clear();
         _state.incomeAdjustments.clear();
@@ -249,7 +404,8 @@ namespace OpenLoco::CargoDist
         ++_componentEpochs[component];
         _state.forgetComponent(component);
         _state.removeService(component);
-        _stops.erase(component);
+        _services.erase(component);
+        _reached.erase(component);
         _signatures.erase(component);
         _state.lastVisits.erase(component);
         _state.incomeAdjustments.erase(component);
@@ -297,7 +453,8 @@ namespace OpenLoco::CargoDist
         if (!head.isPlaced() || head.status == Vehicles::Status::crashed)
         {
             _state.removeService(id);
-            _stops.erase(id);
+            _services.erase(id);
+            _signatures.erase(id);
             return;
         }
         const auto program = Rules::snapshot(Rules::ownerForVehicle(id));
@@ -320,63 +477,163 @@ namespace OpenLoco::CargoDist
         {
             signature = (signature ^ amount) * 1099511628211ULL;
         }
+        if (const auto* line = Lines::lineForVehicle(id))
+        {
+            signature = (signature ^ line->id) * 1099511628211ULL;
+            for (const auto& order : line->orders)
+            {
+                for (const auto& filter : order.filters)
+                {
+                    signature = (signature ^ (uint64_t(filter.cargoType) | uint64_t(filter.load) << 8 | uint64_t(filter.unload) << 9)) * 1099511628211ULL;
+                }
+            }
+        }
         if (_signatures.contains(id) && _signatures.at(id) == signature)
         {
             return;
         }
         _signatures[id] = signature;
         const auto possible = Rules::possibleService(program);
-        _stops[id].clear();
-        auto stationOf = [&](Rules::Key key) -> uint16_t {
-            const auto index = Rules::indexOf(program, key);
-            if (index >= program.rows.size())
-            {
-                return kUnknownStation;
-            }
-            const auto raw = program.rows[index].raw;
-            const auto* order = reinterpret_cast<const Vehicles::Order*>(&raw)->as<Vehicles::OrderStation>();
-            return order ? enumValue(order->getStation()) : kUnknownStation;
-        };
-        for (auto key : possible.stops)
+        ServiceContext context;
+        context.program = program;
+        std::map<Rules::Key, std::set<Rules::Key>> onward;
+        for (auto [from, to] : possible.links)
         {
-            _stops[id].insert(stationOf(key));
+            onward[from].insert(to);
         }
         std::vector<Link> links;
-        for (auto [fromKey, toKey] : possible.links)
+        size_t budget = 4096;
+        for (auto from : possible.stops)
         {
-            const auto from = stationOf(fromKey), to = stationOf(toKey);
-            if (!_state.stations.contains(from) || !_state.stations.contains(to) || from == to)
+            const auto fromStation = stationOf(program, from);
+            if (!_state.stations.contains(fromStation))
             {
                 continue;
             }
-            const auto& a = _state.stations.at(from);
-            const auto& b = _state.stations.at(to);
-            const auto travel = static_cast<uint32_t>(std::max(1, (std::abs(int(a.x) - b.x) + std::abs(int(a.y) - b.y)) / 32));
-            for (uint8_t cargo = 0; cargo < 32; ++cargo)
+            for (uint8_t cargo = 0; cargo < 32 && budget; ++cargo)
             {
-                if (capacity[cargo] && filterAllows(head, from, cargo, true) && filterAllows(head, to, cargo, false))
+                if (!capacity[cargo])
                 {
-                    Link link{ enumValue(head.owner), cargo, from, to, capacity[cargo], travel, 0 };
-                    if (_state.services.contains(id))
+                    continue;
+                }
+                std::set<std::pair<uint32_t, Rules::Key>> pending{ { 0, from } };
+                std::map<Rules::Key, uint32_t> best{ { from, 0 } };
+                while (!pending.empty() && budget)
+                {
+                    auto [distance, at] = *pending.begin();
+                    pending.erase(pending.begin());
+                    if (best.at(at) != distance)
                     {
-                        for (const auto& previous : _state.services.at(id))
+                        continue;
+                    }
+                    for (auto next : onward[at])
+                    {
+                        if (!budget)
                         {
-                            if (previous.company == link.company && previous.cargo == cargo && previous.from == from && previous.to == to)
+                            break;
+                        }
+                        --budget;
+                        const auto targetStation = stationOf(program, next), previousStation = stationOf(program, at);
+                        if (!_state.stations.contains(targetStation) || !_state.stations.contains(previousStation))
+                        {
+                            continue;
+                        }
+                        const auto& a = _state.stations.at(previousStation);
+                        const auto& b = _state.stations.at(targetStation);
+                        const auto travel = distance + static_cast<uint32_t>(std::max(1, (std::abs(int(a.x) - b.x) + std::abs(int(a.y) - b.y)) / 32));
+                        if (best.contains(next) && best.at(next) <= travel)
+                        {
+                            continue;
+                        }
+                        best[next] = travel;
+                        if (filterAllows(head, program, next, cargo, false) && targetStation != fromStation)
+                        {
+                            context.rides[from][cargo].insert(next);
+                            if (filterAllows(head, program, from, cargo, true))
                             {
-                                link.travel = previous.travel;
-                                link.usage = std::min(link.capacity, previous.usage);
-                                break;
+                                Link link{ enumValue(head.owner), cargo, fromStation, targetStation, capacity[cargo], travel, 0 };
+                                if (_state.services.contains(id))
+                                {
+                                    for (const auto& previous : _state.services.at(id))
+                                    {
+                                        if (previous.company == link.company && previous.cargo == cargo && previous.from == fromStation && previous.to == targetStation)
+                                        {
+                                            link.travel = previous.travel;
+                                            link.usage = std::min(link.capacity, previous.usage);
+                                            break;
+                                        }
+                                    }
+                                }
+                                links.push_back(link);
                             }
                         }
+                        // Unconditional Unload orders terminate this ride, but no-load filters do not.
+                        bool forced = false;
+                        const auto index = Rules::indexOf(program, next);
+                        for (size_t row = index + 1; row < program.rows.size() && ((program.rows[row].raw & 7) == 4 || (program.rows[row].raw & 7) == 5); ++row)
+                        {
+                            const auto* unload = reinterpret_cast<const Vehicles::Order*>(&program.rows[row].raw)->as<Vehicles::OrderUnloadAll>();
+                            const bool conditional = std::any_of(program.blocks.begin(), program.blocks.end(), [&](const auto& block) {
+                                return block.enabled && Rules::indexOf(program, block.first) <= row && row <= Rules::indexOf(program, block.last);
+                            });
+                            forced |= unload && unload->getCargo() == cargo && !conditional;
+                        }
+                        if (!forced)
+                        {
+                            pending.emplace(travel, next);
+                        }
                     }
-                    links.push_back(link);
                 }
             }
         }
-        std::sort(links.begin(), links.end());
-        links.erase(std::unique(links.begin(), links.end()), links.end());
+        _services[id] = std::move(context);
+        // Repeated visits describe alternatives, not additional physical capacity.
+        std::map<std::tuple<uint8_t, uint8_t, uint16_t, uint16_t>, Link> unique;
+        for (const auto& link : links)
+        {
+            auto [it, inserted] = unique.emplace(std::tuple{ link.company, link.cargo, link.from, link.to }, link);
+            if (!inserted)
+            {
+                it->second.travel = std::min(it->second.travel, link.travel);
+                it->second.capacity = std::max(it->second.capacity, link.capacity);
+            }
+        }
+        links.clear();
+        for (const auto& [key, link] : unique)
+        {
+            links.push_back(link);
+        }
         _state.setService(id, links);
-        _state.limited |= possible.limited;
+        _state.limited |= possible.limited || !budget;
+    }
+    void stopReached(const Vehicles::VehicleHead& head)
+    {
+        const auto id = enumValue(head.id);
+        vehicleChanged(head);
+        const auto p = Rules::snapshot(Rules::ownerForVehicle(id));
+        const auto row = rowAtOffset(p, head.currentOrder);
+        if (row < p.rows.size() && stationOf(p, p.rows[row].key) == enumValue(head.stationId))
+        {
+            _reached[id] = { Rules::ownerForVehicle(id), p.rows[row].key, p.revision, _signatures.contains(id) ? _signatures.at(id) : 0, enumValue(head.stationId) };
+        }
+    }
+    Settings automaticSettings()
+    {
+        auto settings = _state.settings;
+        for (uint8_t type = 0; type < 32; ++type)
+        {
+            const auto* object = ObjectManager::get<CargoObject>(type);
+            settings.modes[type] = object && (object->cargoCategory == CargoCategory::passengers || object->cargoCategory == CargoCategory::mail) ? Mode::symmetric : Mode::asymmetric;
+        }
+        return settings;
+    }
+    TransferMode transferMode()
+    {
+        if (std::all_of(_state.settings.modes.begin(), _state.settings.modes.end(), [](auto mode) { return mode == Mode::manual; }))
+        {
+            return TransferMode::classic;
+        }
+        return _state.settings.modes == automaticSettings().modes ? TransferMode::automatic : TransferMode::custom;
     }
     void arrived(const Vehicles::VehicleHead& head)
     {
@@ -471,7 +728,8 @@ namespace OpenLoco::CargoDist
             return 0;
         }
         bootstrap();
-        if (!filterAllows(head, enumValue(head.stationId), cargo, true))
+        vehicleChanged(head);
+        if (!currentFilterAllows(head, cargo, true))
         {
             return 0;
         }
@@ -481,18 +739,19 @@ namespace OpenLoco::CargoDist
         }
         stationChanged(enumValue(head.stationId));
         vehicleChanged(head);
-        if (!filterAllows(head, enumValue(head.stationId), cargo, true))
+        if (!currentFilterAllows(head, cargo, true))
         {
             return 0;
         }
         const Holder source{ false, enumValue(head.stationId), cargo, 0 };
         _state.assign(source);
-        return _state.available(source, _stops[enumValue(head.id)]);
+        return _state.available(source, rideStops(head, cargo, true));
     }
     std::optional<uint32_t> load(Vehicles::VehicleHead& head, Vehicles::VehicleCargo& cargo, Vehicles::VehicleBogie&)
     {
         bootstrap();
-        if (cargo.type < 32 && !filterAllows(head, enumValue(head.stationId), cargo.type, true))
+        vehicleChanged(head);
+        if (cargo.type < 32 && (!currentFilterAllows(head, cargo.type, true) || forceUnload(head, cargo.type)))
         {
             return 0;
         }
@@ -513,11 +772,11 @@ namespace OpenLoco::CargoDist
         stationChanged(enumValue(head.stationId));
         syncVehicle(head);
         vehicleChanged(head);
-        if (!filterAllows(head, enumValue(head.stationId), cargo.type, true))
+        if (!currentFilterAllows(head, cargo.type, true))
         {
             return 0;
         }
-        const auto moved = _state.load({ false, enumValue(head.stationId), cargo.type, 0 }, *holder, cargo.maxQty - cargo.qty, _stops[enumValue(head.id)]);
+        const auto moved = _state.load({ false, enumValue(head.stationId), cargo.type, 0 }, *holder, cargo.maxQty - cargo.qty, rideStops(head, cargo.type, true));
         cargo.qty += static_cast<uint8_t>(moved);
         station->cargoStats[cargo.type].quantity -= static_cast<uint16_t>(moved);
         const auto& packets = _state.holdings.at(*holder).packets;
@@ -565,7 +824,8 @@ namespace OpenLoco::CargoDist
         {
             hasCredit |= packet.credit != 0;
         }
-        if (!filterAllows(head, enumValue(head.stationId), cargo.type, false))
+        vehicleChanged(head);
+        if (!currentFilterAllows(head, cargo.type, false))
         {
             return false;
         }
@@ -580,20 +840,50 @@ namespace OpenLoco::CargoDist
         }
         stationChanged(enumValue(head.stationId));
         vehicleChanged(head);
-        if (!filterAllows(head, enumValue(head.stationId), cargo.type, false))
+        if (!currentFilterAllows(head, cargo.type, false))
         {
             return false;
         }
-        auto future = _stops[enumValue(head.id)];
+        std::set<uint16_t> future;
+        const auto onward = rideStops(head, cargo.type, false);
+        for (const auto& packet : _state.holdings.at(*holder).packets)
+        {
+            if (onward.contains(packet.destination) || std::any_of(onward.begin(), onward.end(), [&](auto next) {
+                    return _state.usefulHop(enumValue(head.owner), cargo.type, enumValue(head.stationId), next, packet.destination);
+                }))
+            {
+                future.insert(packet.destination);
+            }
+        }
         if (forceUnload(head, cargo.type))
         {
             future.clear();
         }
         auto result = _state.unload(*holder, enumValue(head.stationId), future, UINT16_MAX - station->cargoStats[cargo.type].quantity, [&](const Packet& packet) {
+            if (!ObjectManager::get<CargoObject>(cargo.type))
+            {
+                return int64_t(0);
+            }
             const auto distance = Math::Vector::distance2D(World::Pos2{ station->x, station->y }, World::Pos2{ packet.originX, packet.originY }) / 32;
             return int64_t(CompanyManager::calculateDeliveredCargoPayment(cargo.type, static_cast<uint16_t>(packet.quantity), static_cast<uint16_t>(distance), packet.age));
         });
-        station->cargoStats[cargo.type].quantity += static_cast<uint16_t>(result.transferred);
+        auto& waitingNative = station->cargoStats[cargo.type];
+        const bool previouslyEmpty = waitingNative.quantity == 0;
+        waitingNative.quantity += static_cast<uint16_t>(result.transferred);
+        if (result.transferred)
+        {
+            const auto& waiting = _state.holdings.at({ false, enumValue(head.stationId), cargo.type, 0 }).packets;
+            uint64_t days = 0;
+            for (const auto& packet : waiting)
+            {
+                days += uint64_t(packet.quantity) * packet.age;
+            }
+            waitingNative.enrouteAge = static_cast<uint8_t>(days / waitingNative.quantity);
+            if (previouslyEmpty && !waiting.empty())
+            {
+                waitingNative.origin = static_cast<StationId>(waiting.front().origin);
+            }
+        }
         for (const auto& packet : result.delivered)
         {
             struct DeliveryScope

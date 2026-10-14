@@ -2276,6 +2276,17 @@ namespace OpenLoco::StringIds
     constexpr StringId cargo_dist_returning = 2563;
     constexpr StringId cargo_dist_accuracy = 2564;
     constexpr StringId cargo_dist_destinations = 2565;
+    constexpr StringId cargo_transfer_label = 2566;
+    constexpr StringId cargo_transfer_automatic = 2567;
+    constexpr StringId cargo_transfer_classic = 2568;
+    constexpr StringId cargo_transfer_custom = 2569;
+    constexpr StringId cargo_transfer_finding = 2570;
+    constexpr StringId cargo_transfer_connection = 2571;
+    constexpr StringId cargo_transfer_to = 2572;
+    constexpr StringId cargo_transfer_via = 2573;
+    constexpr StringId cargo_transfer_many = 2574;
+    constexpr StringId cargo_transfer_limited = 2575;
+    constexpr StringId cargo_transfer_tip = 2576;
 
     constexpr StringId temporary_object_load_str_0 = 8192;
     constexpr StringId temporary_object_load_str_1 = 8193;

@@ -2777,6 +2777,10 @@ namespace OpenLoco::Vehicles
             return;
         }
 
+        if (orderStation->getType() == OrderType::StopAt)
+        {
+            CargoDist::stopReached(*this);
+        }
         Rules::reached(enumValue(id));
         curOrder++;
         currentOrder = curOrder->getOffset() - orderTableOffset;

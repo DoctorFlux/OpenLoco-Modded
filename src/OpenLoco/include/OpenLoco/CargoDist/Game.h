@@ -25,6 +25,15 @@ namespace OpenLoco::CargoDist
     void movedCargo(uint16_t oldComponent, uint16_t newComponent, uint8_t slot);
     void vehicleChanged(const Vehicles::VehicleHead& head);
     void arrived(const Vehicles::VehicleHead& head);
+    void stopReached(const Vehicles::VehicleHead& head);
+    Settings automaticSettings();
+    enum class TransferMode : uint8_t
+    {
+        automatic,
+        classic,
+        custom
+    };
+    TransferMode transferMode();
     void ageVehicle(const Vehicles::VehicleHead& head);
     void ageStation(uint16_t station);
     uint32_t availableFor(const Vehicles::VehicleHead& head, uint8_t cargo);

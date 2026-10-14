@@ -305,7 +305,6 @@ namespace OpenLoco::Ui::Windows::Vehicle
         {
             refit = 10,
             cargoList = 11,
-            distribution,
         };
 
         namespace Widx
@@ -319,8 +318,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         static constexpr auto widgets = makeWidgets(
             Common::makeCommonWidgets(265, 177, StringIds::title_vehicle_cargo),
             Widgets::ImageButton(Widx::kRefit, { 240, 44 }, { 24, 24 }, WindowColour::secondary, ImageIds::refit_cargo_button, StringIds::refit_vehicle_tip),
-            Widgets::ScrollView(Widx::kCargoList, { 3, 44 }, { 259, 120 }, WindowColour::secondary, Scrollbars::vertical),
-            Widgets::Button(WidgetId{ "vehicleDistribution" }, { 3, 44 }, { 88, 16 }, WindowColour::secondary, StringIds::cargo_dist_destinations)
+            Widgets::ScrollView(Widx::kCargoList, { 3, 44 }, { 259, 120 }, WindowColour::secondary, Scrollbars::vertical)
 
         );
     }
@@ -2370,7 +2368,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B3DDE
         static void prepareDraw(Window& self)
         {
-            self.widgets[widx::cargoList].top = 62;
+            self.widgets[widx::cargoList].top = 44;
             Common::setActiveTabs(self);
             Common::setCaptionEnableState(self);
 
@@ -2466,8 +2464,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             args.push(StringIds::cargo_from);
             args.push(unitNameFormat);
             args.push<uint32_t>(cargoQty);
-            args.push(station->name);
-            args.push(station->town);
+            args.push(station && !station->empty() ? station->name : StringIds::empty);
+            args.push(station && !station->empty() ? station->town : TownId::null);
 
             auto point = Point(x, y);
             tr.drawStringLeft(point, Colour::black, strFormat, args);
@@ -2486,9 +2484,16 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 return;
             }
             Vehicles::Vehicle train{ *head };
-            int16_t y = 0;
+            const auto& rows = CargoDist::cargoRows(self);
+            size_t rowIndex = 0;
             for (auto& car : train.cars)
             {
+                if (rowIndex >= rows.rows.size())
+                {
+                    break;
+                }
+                const auto& row = rows.rows[rowIndex++];
+                const auto y = static_cast<int16_t>(row.top);
                 StringId strFormat = StringIds::black_stringid;
                 auto front = car.front;
                 auto body = car.body;
@@ -2496,7 +2501,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
                 // Draw hover background if applicable
                 if (front->id == EntityId(self.rowHover))
                 {
-                    drawingCtx.fillRect(0, y, self.width, y + self.rowHeight - 1, enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
+                    drawingCtx.fillRect(0, y, self.width, y + row.height - 1, enumValue(ExtColour::unk30), Gfx::RectFlags::transparent);
                     strFormat = StringIds::wcolour2_stringid;
                 }
 
@@ -2530,18 +2535,22 @@ namespace OpenLoco::Ui::Windows::Vehicle
                     }
                 }
 
-                y += self.rowHeight;
+                auto summaryY = static_cast<int16_t>(row.top + row.baseHeight);
+                for (const auto& line : row.information)
+                {
+                    auto buffer = std::vector<char>(line.begin(), line.end());
+                    buffer.push_back(0);
+                    tr.setCurrentFont(Gfx::Font::medium_normal);
+                    tr.clipString(self.widgets[widx::cargoList].width() - kCargoXPos - 12, buffer.data());
+                    tr.drawString({ kCargoXPos, summaryY }, Colour::black, buffer.data());
+                    summaryY += 10;
+                }
             }
         }
 
         // 0x004B41BD
         static void onMouseUp(Window& self, const WidgetIndex_t i, const WidgetId id)
         {
-            if (id == WidgetId{ "vehicleDistribution" })
-            {
-                CargoDist::openView(CargoDist::ViewKind::vehicle, self.number, &self);
-                return;
-            }
             switch (id)
             {
                 case Common::Widx::kCloseButton:
@@ -2671,7 +2680,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B4360
         static void getScrollSize(Ui::Window& self, [[maybe_unused]] const uint32_t scrollIndex, [[maybe_unused]] int32_t& scrollWidth, int32_t& scrollHeight)
         {
-            scrollHeight = static_cast<int32_t>(Common::getNumCars(self) * self.rowHeight);
+            scrollHeight = CargoDist::cargoRows(self).height;
         }
 
         static char* generateCargoTooltipDetails(char* buffer, const StringId cargoFormat, const uint8_t cargoType, const uint8_t maxCargo, const uint32_t acceptedCargoTypes)
@@ -2718,7 +2727,16 @@ namespace OpenLoco::Ui::Windows::Vehicle
         {
             Ui::ToolTip::setTooltipTimeout(2000);
             self.flags &= ~WindowFlags::notScrollView;
-            auto car = Common::getCarFromScrollView(self, y);
+            std::optional<Vehicles::Car> car;
+            const auto* row = CargoDist::cargoRows(self).at(y);
+            if (row)
+            {
+                if (auto* front = EntityManager::get<Vehicles::VehicleBogie>(static_cast<EntityId>(row->key)); front && front->isVehicleBogie() && front->head == EntityId(self.number))
+                {
+                    Vehicles::VehicleBase* component = front;
+                    car.emplace(component);
+                }
+            }
             StringId tooltipFormat = StringIds::null;
             EntityId tooltipContent = EntityId::null;
             if (car)
@@ -2773,6 +2791,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
             WindowManager::invalidateWidget(self.type, self.number, 6);
         }
 
+        static void cargoClick(Window& self, int16_t, int16_t y, uint8_t) { CargoDist::toggleCargoRow(self, y); }
+
         static constexpr WindowEventList kEvents = {
             .onClose = Common::onClose,
             .onMouseUp = onMouseUp,
@@ -2782,6 +2802,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
             .onHandleInputBegin = listWindowOnHandleInputBegin,
             .onHandleInputEnd = listWindowOnHandleInputEnd,
             .getScrollSize = getScrollSize,
+            .scrollMouseDown = cargoClick,
             .scrollMouseOver = scrollMouseOver,
             .textInput = Common::textInput,
             .tooltip = tooltip,
@@ -4693,6 +4714,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         static void onClose(Window& self)
         {
             Rules::closeEditorSession(self);
+            CargoDist::closeCargoRows(self);
             if (ToolManager::isToolActive(WindowType::vehicle, self.number))
             {
                 ToolManager::toolCancel();

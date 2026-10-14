@@ -423,6 +423,23 @@ namespace OpenLoco::CargoDist
             job.reset();
         }
     }
+    uint32_t State::remainingCost(uint8_t company, uint8_t cargo, uint16_t from, uint16_t destination) const
+    {
+        if (from == destination)
+        {
+            return 0;
+        }
+        const auto it = routes.find({ company, cargo, from, destination });
+        if (it == routes.end() || it->second.empty())
+        {
+            return UINT32_MAX;
+        }
+        return std::min_element(it->second.begin(), it->second.end(), [](const Route& a, const Route& b) { return a.distance < b.distance; })->distance;
+    }
+    bool State::usefulHop(uint8_t company, uint8_t cargo, uint16_t from, uint16_t next, uint16_t destination) const
+    {
+        return stations.contains(next) && remainingCost(company, cargo, next, destination) < remainingCost(company, cargo, from, destination);
+    }
     uint16_t State::nextHop(uint8_t company, uint8_t cargo, uint16_t from, uint16_t destination) const
     {
         auto it = routes.find({ company, cargo, from, destination });
@@ -430,7 +447,15 @@ namespace OpenLoco::CargoDist
         {
             return kUnknownStation;
         }
-        return std::min_element(it->second.begin(), it->second.end(), [](const Route& a, const Route& b) { return std::tuple(rank(a), a.next) < std::tuple(rank(b), b.next); })->next;
+        const Route* selected = nullptr;
+        for (const auto& route : it->second)
+        {
+            if (usefulHop(company, cargo, from, route.next, destination) && (!selected || std::tuple(rank(route), route.next) < std::tuple(rank(*selected), selected->next)))
+            {
+                selected = &route;
+            }
+        }
+        return selected ? selected->next : kUnknownStation;
     }
     bool State::assign(Holder source)
     {
@@ -483,7 +508,8 @@ namespace OpenLoco::CargoDist
         for (auto& packet : originals)
         {
             if (packet.destination != kUnknownStation && stations.contains(packet.destination)
-                && (stations.at(packet.destination).accepts & (1U << source.cargo)))
+                && (stations.at(packet.destination).accepts & (1U << source.cargo))
+                && (job || dirty || nextHop(station.company, source.cargo, source.id, packet.destination) != kUnknownStation))
             {
                 merge(assigned, packet);
                 continue;
@@ -542,7 +568,7 @@ namespace OpenLoco::CargoDist
                 continue;
             }
             const auto route = routes.find({ stations.at(source.id).company, source.cargo, source.id, packet.destination });
-            if (route != routes.end() && std::any_of(route->second.begin(), route->second.end(), [&](const Route& candidate) { return stops.contains(candidate.next); }))
+            if (route != routes.end() && std::any_of(route->second.begin(), route->second.end(), [&](const Route& candidate) { return stops.contains(candidate.next) && usefulHop(stations.at(source.id).company, source.cargo, source.id, candidate.next, packet.destination); }))
             {
                 count += packet.quantity;
             }
@@ -580,7 +606,8 @@ namespace OpenLoco::CargoDist
             Route* selected = nullptr;
             for (auto& candidate : found->second)
             {
-                if (stops.contains(candidate.next) && (!selected || std::tuple(rank(candidate), candidate.next) < std::tuple(rank(*selected), selected->next)))
+                if (stops.contains(candidate.next) && usefulHop(key.company, key.cargo, key.from, candidate.next, key.to)
+                    && (!selected || std::tuple(rank(candidate), candidate.next) < std::tuple(rank(*selected), selected->next)))
                 {
                     selected = &candidate;
                 }

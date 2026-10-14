@@ -32,3 +32,5 @@ A rules check can read cargo waiting. Freight destination becomes a check in tha
 ## Tests
 
 Classic mode matches current delivery for a fixed seed. Destination mode delivers to the demanded industry rather than the first accepting station. A request with no shunting mod still lets the train depart.
+
+D65 automatic-transfer follow-up supersedes standalone CargoDist windows and congestion overlays. Use normal StopAt/private/shared/optional-rule routes and base-game combined StationIds. Inline Cargo-tab summaries and the per-game Options Misc Automatic/Classic preset replace the large UI; mixed modes and hidden settings persist. Reached-stop ownership/key/revision/signature context and UI caches are transient and reconstruct after load, preserving cargo when unresolved. Packed saves and companion versions remain unchanged. CargoDist remains TESTING pending a short user coal/passenger/save check; no consist/shunting or new save-container dependency is introduced.
