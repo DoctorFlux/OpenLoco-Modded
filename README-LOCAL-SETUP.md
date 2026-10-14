@@ -169,3 +169,6 @@ Current published release: [26.09-modded.2](https://github.com/DoctorFlux/OpenLo
 ## CargoDist branch and isolated acceptance
 
 CargoDist is on `codex/cargo-distribution`; master and `v26.09-modded.1` / `v26.09-modded.2` remain rollback checkpoints. Build the branch with the existing presets. The user controls the game. For disposable manual checking, launch the freshly built Debug/Release executable with `--user_path D:\Users\GitHub\OpenLoco-Modded\build\cargodist-user` and the existing `--locomotion_path D:\SteamLibrary\steamapps\common\Locomotion`. Do not point test automation at AppData saves. Keep SV5 and all four companions together; preserve checkpoint saves separately. Entry controls and acceptance steps are in `docs/mods/CARGO_DISTRIBUTION.md` and `docs/TESTING_PLAN.md`.
+
+
+Verified CargoDist executables are `build/windows/Debug/OpenLoco.exe` and `build/windows/Release/OpenLoco.exe`, stamped `v26.09-modded.2-4`, `codex/cargo-distribution`, `0427b1ab`. Both complete suites passed 514/514. Open Map > Cargo, Station/Vehicle Cargo > Destinations, or the line browser Cargo button. Automatic passenger/mail/freight defaults also apply to old saves; choose Manual explicitly when comparing classic behaviour. The public modded.2 download is unchanged and does not include CargoDist. Native acceptance remains TESTING.

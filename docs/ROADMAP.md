@@ -140,4 +140,4 @@ D60 prepares accepted Phase 4 for release `v26.09-modded.2` and removes merged l
 
 D60 completed: `v26.09-modded.2` / `26.09-modded.2` published from tagged master `c1660c34` with verified Windows x64 ZIP and checksum. Fresh Release suite passed 447/447. Only master remains locally/on origin; merged history and modded.1 rollback tag remain. Phase 5 is not started.
 
-D62/D63 CargoDist implementation includes native settings and grouped station/vehicle views, line capacity, cargo overlays, destination checks and companion persistence. Focused Debug checks passed 65/65. Final full Debug/Release results and native acceptance belong in development status. Consists/shunting and the new save container remain deferred; no master merge or new release is implied.
+D62/D63 CargoDist implementation includes native settings and grouped station/vehicle views, line capacity, cargo overlays, destination checks and companion persistence. Final Debug/Release suites each passed 514/514 with 67 CargoDist checks. Native acceptance and build caveats are in development status. Consists/shunting and the new save container remain deferred; no master merge or new release is implied.
