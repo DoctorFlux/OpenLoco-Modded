@@ -78,3 +78,6 @@ D49 adds no controls: Else/Next waypoint 3 feedback retains its existing meaning
 D57 regression verification also covers native scroll-index lookup for adjacent browser/order panes: the previous pre-incremented widget index selected the preceding pane. The corrected lookup includes widget zero, preserves the scrollbar-to-content mapping and is required for the three-pane editor.
 
 Inline geometry changes force thumb recalculation for both editing panes, including the third shared-line palette, and clamp expanded content offsets. Changing the window size or showing/hiding Details therefore keeps scrolling consistent with the drawn viewport.
+
+
+D58 (2026-10-14) refines the inline editor: only logic uses shaped blocks. Stops and waypoints sit on the ordinary list background with native medium-bold captions and white circle numbers, rather than rounded puzzle bodies or text numbering. Selection uses the native flat black highlight/white text. Drag grips stay in the margin, nesting and both progress markers remain, and shared orders display native timetable slot notes. Larger condition text is unchanged. User visual acceptance remains pending.

@@ -155,3 +155,5 @@ Restart the rebuilt executable when convenient; this task never launches or cont
 Only a short user visual check is requested: compact native appearance and readable fields, direct editing and dragging in both window types, and Rules-off/tab-change restoration without overlapping controls. Preserve disposable saves and matching companions if you choose an isolated profile. Phase 4 stays TESTING until you report visual acceptance; earlier outstanding gameplay/signal acceptance remains recorded separately.
 
 The rebuilt startup stamp is `v26.09-modded.1-46`, branch `codex/native-inline-rules`, source `91037492`. Debug/Release complete suites each passed 447/447; full details and remaining acceptance are in `docs/DEVELOPMENT_STATUS.md`.
+
+D58 (`be510fcb`, startup `v26.09-modded.1-48`) restores native plain stop/waypoint rows, bold captions and white number circles inside logic. Rebuilt Debug/Release suites passed 447/447 each. Restart the updated executable when convenient for your visual check; game control stays with you.
