@@ -159,3 +159,5 @@ The rebuilt startup stamp is `v26.09-modded.1-46`, branch `codex/native-inline-r
 D58 (`be510fcb`, startup `v26.09-modded.1-48`) restores native plain stop/waypoint rows, bold captions and white number circles inside logic. Rebuilt Debug/Release suites passed 447/447 each. Restart the updated executable when convenient for your visual check; game control stays with you.
 
 D59 (2026-10-14): the user accepted Phase 4 delivery and requested normal integration of the complete logic branch into master. Source is unchanged from the verified `be510fcb` build; the rollback tag remains `v26.09-modded.1`. Existing executables keep their verified source stamp until a later rebuild. Future gameplay development uses a fresh feature branch.
+
+Complete logic integration is now on local/remote `master` via merge `28e64e62`, with accepted feature head `1371ff4d` retained on `codex/block-logic-programming`. This integration changes history/documentation only compared with the tested source; no executable rebuild or game launch was needed. Future code work branches from master.
