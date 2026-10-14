@@ -1706,7 +1706,7 @@ TEST(RulesTests, cShapeRasterLeavesAnOpenMouthAndIncludesFullClosingArm)
     const auto body = layout.orderTops[1] + 7;
     EXPECT_NE(at(5, body), 255);  // Compact C spine.
     EXPECT_EQ(at(9, body), 255);  // Open cavity before the inserted statement.
-    EXPECT_NE(at(30, body), 255); // The order's puzzle body.
+    EXPECT_EQ(at(30, body), 255); // Native orders leave the cavity/list background unchanged.
     const auto end = std::find_if(layout.items.begin(), layout.items.end(), [](const ProgramVisual& v) { return v.closing; });
     ASSERT_NE(end, layout.items.end());
     EXPECT_NE(at(150, end->top + end->height / 2), 255); // Full-width closing arm.

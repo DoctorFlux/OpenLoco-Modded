@@ -15,6 +15,7 @@
 #include "Ui.h"
 #include "Ui/Dropdown.h"
 #include "Ui/ScrollView.h"
+#include "Ui/ToolManager.h"
 #include "Ui/Widget.h"
 #include "Ui/Widgets/ButtonWidget.h"
 #include "Ui/Widgets/CaptionWidget.h"
@@ -132,16 +133,6 @@ namespace OpenLoco::Rules
         {
             const auto& row = program.rows[rowIndex];
             const auto* order = reinterpret_cast<const Vehicles::Order*>(&row.raw);
-            std::string label;
-            int ordinal = 0;
-            for (size_t i = 0; i <= rowIndex; ++i)
-            {
-                ordinal += isRoutable(program.rows[i].raw);
-            }
-            if (isRoutable(row.raw))
-            {
-                label = std::to_string(ordinal) + ". ";
-            }
             char buffer[256]{};
             if (const auto* station = order->as<Vehicles::OrderStation>())
             {
@@ -152,21 +143,25 @@ namespace OpenLoco::Rules
                     station->setFormatArguments(args);
                     StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::StopAt ? StringIds::orders_stop_at : StringIds::orders_route_through, args);
                 }
-                label += buffer[0] ? buffer : "Missing station";
+                return buffer[0] ? std::string(buffer, StringManager::locoStrlen(buffer)) : "Missing station";
             }
             else if (order->getType() == Vehicles::OrderType::RouteWaypoint)
             {
-                label += "Route through waypoint " + std::to_string(ordinal);
+                StringManager::formatString(buffer, sizeof(buffer), StringIds::orders_route_thought_waypoint, {});
             }
             else
             {
                 const auto cargoType = static_cast<const Vehicles::OrderCargo*>(order)->getCargo();
                 const auto* object = ObjectManager::get<CargoObject>(cargoType);
-                auto args = FormatArguments::common(object ? object->name : StringIds::empty);
-                StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::UnloadAll ? StringIds::orders_unload_all2 : StringIds::orders_wait_for_full_load_of2, args);
-                label = buffer;
+                if (!object)
+                {
+                    return "Missing cargo";
+                }
+                FormatArguments args;
+                static_cast<const Vehicles::OrderCargo*>(order)->setFormatArguments(args);
+                StringManager::formatString(buffer, sizeof(buffer), order->getType() == Vehicles::OrderType::UnloadAll ? StringIds::orders_unload_all : StringIds::orders_wait_for_full_load_of, args);
             }
-            return label;
+            return std::string(buffer, StringManager::locoStrlen(buffer));
         }
         const Block* selected() const
         {
@@ -1035,6 +1030,9 @@ namespace OpenLoco::Rules
         ctx.clear(Colours::getShade(window.getColour(WindowColour::secondary).c(), 4));
         const auto width = static_cast<int16_t>(s.layoutWidth);
         drawProgramBlocks(ctx, s.program, runtimeForVehicle(s.selectedVehicle), s.canvasLayout, width, 0, s.selectedBlock);
+        int ordinal = 0;
+        auto renderer = Gfx::TextRenderer(ctx);
+        renderer.setCurrentFont(Gfx::Font::medium_bold);
         for (const auto& v : s.visuals)
         {
             const auto x = static_cast<int16_t>(4 + visualIndent(v, width));
@@ -1050,13 +1048,36 @@ namespace OpenLoco::Rules
                 }
                 continue;
             }
-            if (s.firstSelected >= 0 && int(v.row) >= s.firstSelected && int(v.row) <= s.lastSelected)
+            const bool selectedRow = s.firstSelected >= 0 && int(v.row) >= s.firstSelected && int(v.row) <= s.lastSelected;
+            if (selectedRow)
             {
-                drawOrderBlock(ctx, x, v.top, width - x, v.height, true);
+                ctx.fillRect(x, v.top, width, v.top + v.height - 1, PaletteIndex::black0, Gfx::RectFlags::none);
             }
-            const auto label = s.orderLabel(v.row);
-            text(ctx, x + 4, v.top + 2, 12, "=");
-            text(ctx, x + 20, v.top + 2, width - x - 23, label);
+            text(ctx, x + 4, v.top + 2, 12, "=", selectedRow);
+            auto label = s.orderLabel(v.row);
+            label.insert(label.begin(), static_cast<char>(selectedRow ? ControlCodes::Colour::white : ControlCodes::Colour::black));
+            renderer.setCurrentFont(Gfx::Font::medium_bold);
+            renderer.clipString(std::max<int>(1, width - x - 44), label.data());
+            renderer.drawString({ static_cast<int16_t>(x + 20), static_cast<int16_t>(v.top + 2) }, Colour::black, label.c_str());
+            const auto labelRight = static_cast<int16_t>(x + 20 + renderer.getStringWidth(label.c_str()));
+            if (isRoutable(s.program.rows[v.row].raw))
+            {
+                ++ordinal;
+                if (ordinal <= 63 && (window.type == WindowType::lineManager || ToolManager::isToolActive(window.type, window.number)))
+                {
+                    ctx.drawImage(ZoomLevel::full, labelRight + 3, v.top + 3, Gfx::recolour(ImageIds::number_circle_01 + static_cast<uint32_t>(ordinal - 1), Colour::white));
+                }
+            }
+            if (s.selectedOwner.kind == OwnerKind::line)
+            {
+                const auto* line = Lines::findLine(s.selectedOwner.id);
+                if (line && v.row < line->orders.size() && !line->orders[v.row].slots.empty())
+                {
+                    const auto departure = line->orders[v.row].slots.back().departureMinute;
+                    auto args = FormatArguments::common(static_cast<uint16_t>(departure / 60), static_cast<uint16_t>(departure % 60));
+                    renderer.drawStringLeft({ static_cast<int16_t>(labelRight + 16), static_cast<int16_t>(v.top + 2) }, Colour::black, StringIds::line_slot_note, args);
+                }
+            }
             if (s.dragged && s.dropRow == int(v.row))
             {
                 ctx.fillRect(x, v.top, width, v.top + 1, Colours::getShade(Colour::yellow, 9), Gfx::RectFlags::none);

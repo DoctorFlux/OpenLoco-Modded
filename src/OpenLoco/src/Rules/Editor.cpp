@@ -707,7 +707,7 @@ namespace OpenLoco::Rules
             const auto right = origin + width - 2;
             if (!visual.block)
             {
-                drawOrderBlock(context, x, visual.top, static_cast<int16_t>(right - x), visual.height);
+                // Native order rows keep the list background; only logic gets a block silhouette.
                 continue;
             }
             const auto b = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == visual.block; });
