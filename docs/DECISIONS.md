@@ -63,6 +63,8 @@
 | D59 | 2026-10-14 | Accept Phase 4 delivery and integrate the complete logic branch into master. | User explicitly said the step looks completely done and asked to upload everything and merge master. | Supersedes the earlier master-preservation/UI-acceptance gate for this delivery. Use a normal merge/push; keep the rollback tag and feature history. Existing 447/447 Debug/Release evidence applies to unchanged source. Record delivery acceptance without inventing individual historical QA results. Normal merge `28e64e62` pushed to origin/master; no conflicts or source changes from the tested tree. |
 | D60 | 2026-10-14 | Publish modded-2 from tagged master and retain only master as a local/origin branch. | User explicitly requested this release and branch cleanup after the completed merge. | Use `v26.09-modded.2` / `26.09-modded.2`, matching modded.1 naming; ship a freshly tagged Windows x64 Release ZIP with project data/OpenGraphics only. Verify merged ancestry before branch deletion; preserve rollback tags/history, test the release and record asset/checksum/publication evidence. Upstream is not modified. |
 
+| D61 | 2026-10-14 | Accept shared lines/timetables/path-chain signals; defer Phase 5 and implement Phase 6.1 consist foundation on a fresh branch. | User accepted existing gameplay and chose persistent identity, lifecycle integration and a native overview before physical coupling. | Preserve master and release tags. Keep packed SV5/SC5 unchanged and use validated subsystem companions as needed. On-track coupling and automated shunting follow separately; no new save container or NSF/NOF implementation. |
+
 ## Script language tradeoffs
 
 Not selected.
