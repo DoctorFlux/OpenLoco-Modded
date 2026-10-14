@@ -1,5 +1,7 @@
 # Testing plan
 
+D67 UI verification: source `2d3bb93c`, stamp `v26.09-modded.2-13`. Reconfigured Debug/Release games and test targets build; both full suites pass **566/566**, including 113 existing CargoDist checks (104.68/15.21 seconds). No new model tests are added for this presentation-only change. Paths/stamps/data/protected refs are checked in `build/windows/destinations-report.json`; logs use `destinations-*`. Automatic station rows omit the origin line and use the same 12-pixel base geometry for drawing/scrolling/hit tests; vehicle captions omit their origin suffix. Destination expansion, quantities and Classic layout remain. Native appearance is part of the user's existing short CargoDist acceptance; no automated game input is scheduled.
+
 ## Current CargoDist journey verification — 2026-10-14
 
 D66 source `fa6d60cc` adds 24 tests to the 542 baseline (113 CargoDist total). Both reconfigured game builds succeed; complete Debug/Release suites pass **566/566 each** (82.24/15.75 seconds). Focused Debug passes 113/113 (5.28 seconds). Stamp: `v26.09-modded.2-11`. Reconfigure with `cmake --preset windows -DOPENLOCO_BUILD_TESTS=ON`, build both presets, then run complete serial Debug/Release suites. Paths, stamps, data and protected refs are verified in `journeys-report.json`; build caveats and logs are in development status.
