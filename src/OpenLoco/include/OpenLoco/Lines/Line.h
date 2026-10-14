@@ -216,6 +216,7 @@ namespace OpenLoco::Lines
     LineError removeOrder(uint16_t lineId, size_t index);
     LineError moveOrder(uint16_t lineId, size_t index, int delta);
     LineError reverseOrders(uint16_t lineId);
+    LineError replaceOrders(uint16_t lineId, std::vector<LineOrder> orders);
     LineOrder fromVehicleOrder(const Vehicles::Order& order);
     LineError assignVehicle(uint16_t lineId, uint16_t vehicleId, TransportMode mode);
     // Switches the line when it has no placed vehicles of another mode and its stops do not disagree.
@@ -317,7 +318,25 @@ namespace OpenLoco::Lines
     uint8_t chosenOverlayColour(const OverlayClaim* claims, size_t count, uint16_t selectedLine);
 
     void invalidateRouteCache();
-    void setRouteView(uint16_t selectedLine, bool showSelected, bool showAll);
+    // Line metadata/visibility changed without changing the world graph.
+    void invalidateRouteView();
+    void setRouteView(uint16_t selectedLine, bool showSelected, bool showAll, uint16_t vehicle = UINT16_MAX);
+    void updateRouteView(); // One bounded path search per UI update; live rules sampled on a runtime copy.
+    void invalidateRuleRouteCache(uint16_t line);
+    struct RouteViewStats
+    {
+        uint32_t rulePolls = 0;
+        uint32_t pathSearches = 0;
+        uint32_t routePublishes = 0;
+        size_t cachedLegs = 0;
+        size_t cachedUnits = 0;
+        size_t pendingLegs = 0;
+        size_t publishedLegs = 0;
+        size_t publishedUnits = 0;
+    };
+    RouteViewStats routeViewStats();
+    std::string routePreviewStatus(uint16_t line);
+    int32_t routeLaneOffset(uint16_t line); // Stable while visibility is unchanged, including pending/empty rule paths.
     void clearRouteView();
     std::optional<uint8_t> routeOverlayColour(int32_t x, int32_t y, uint8_t baseZ, uint8_t pieceId, uint8_t rotation, uint8_t kind);
     std::optional<uint8_t> surfaceOverlayColour(int32_t x, int32_t y);

@@ -1,15 +1,15 @@
 # Master plan
 
-OpenLoco Advanced Modding Framework turns this fork into an extensible transport simulation while the unmodified game remains playable. Major features ship as separately installable mods on a shared engine and mod API.
+OpenLoco Advanced Modding Framework turns this fork into an extensible transport simulation while the unmodified game remains playable. Current gameplay features are native, opt-in systems using shared engine code (D23); no mod loader is shipped.
 
 This file is the authority for goals and sequencing. Detailed behaviour lives in the linked documents. Those documents must not contradict this plan.
 
 ## Goals
 
 - Keep Chris Sawyer's Locomotion graphics, camera, UI style, and default rules.
-- Make new systems opt-in so a player who installs nothing gets the current OpenLoco game.
-- Share one implementation of orders, reservations, cargo routing, and programmable logic across mods.
-- Let players install a mod without compiling C++.
+- Make new systems opt-in so a player who adds no blocks or other feature settings keeps the current OpenLoco behavior.
+- Share one implementation of orders, reservations, cargo routing, and programmable logic across gameplay systems.
+- Let players configure the delivered gameplay systems in native windows without compiling C++.
 - Stay compatible with upstream OpenLoco where that does not block the framework. Track that in `UPSTREAM_TRACKING.md`.
 
 ## Non-goals for the current milestone
@@ -39,9 +39,9 @@ Vanilla code stays the implementation of today's game. New services are added be
 
 The mod loader and Hello World sample were removed. Shared lines, timetables, and path and chain signals are in the game. A normal launch does not read a mods directory.
 
-### C. Gameplay mods
+### C. Gameplay systems
 
-Independent packages, not compile-time features of the executable:
+Native opt-in features and later subsystem milestones:
 
 1. Programmable logic
 2. Train shunting
@@ -53,7 +53,7 @@ Independent packages, not compile-time features of the executable:
 8. Expanded object limits
 9. Larger worlds
 
-Object limits and world size are engine work exposed as capabilities. They are still packaged and versioned so a save can record that it needs them. A normal data mod cannot replace `S5::Limits` or the map pitch by itself.
+Object limits and world size are engine work exposed as capabilities. Their eventual persistence design must record the required capabilities; no package activation API is implemented. A normal data mod cannot replace `S5::Limits` or the map pitch by itself.
 
 ## Principles
 
@@ -73,7 +73,7 @@ Audited at `e71abfb3`. Source map: `DEVELOPMENT-ROADMAP.md`.
 | Area | State |
 | --- | --- |
 | C++ reimplementation, SDL3, OpenAL, SV5/SC5 | Present |
-| Orders: End, StopAt, RouteThrough, RouteWaypoint, UnloadAll, WaitFor | Present. Three-bit type field. Block rules are specified and are not stored in that byte. |
+| Orders: End, StopAt, RouteThrough, RouteWaypoint, UnloadAll, WaitFor | Present. Three-bit type field. Block rules are implemented in TESTING and are not stored in that byte. |
 | Block signals and a 64-entry routing ring | Present. Path and chain are extra flags on a normal signal. |
 | Depot coupling, rearrange, reverse | Present. No on-track split or run-around. |
 | Cargo as quantities with an origin station | Present. No passenger destination. |
@@ -118,3 +118,29 @@ The packaging decision is in `DECISIONS.md`: hybrid monorepo until a mod needs i
 - `UI_UX_PLAN.md`, `TESTING_PLAN.md`, `ROADMAP.md`, `DEVELOPMENT_STATUS.md`
 - `DECISIONS.md`, `UPSTREAM_TRACKING.md`
 - `docs/mods/` for each gameplay spec
+
+## Current milestone
+
+Phase 4 is implemented on `codex/block-logic-programming` and remains TESTING until its required in-game checks are recorded. Native opt-in features supersede the original package-loader goal (D23). Preserve master and `v26.09-modded.1` while testing; no release or merge is implied. Consists, shunting, destinations, NSF/NOF and multiplayer remain later work.
+
+Phase 4 includes actual multi-row blocks in the vehicle Route, shared-line Orders and Rules windows; simultaneous current-program/next-destination feedback; Else/Else if; Forever repeats and Break. Native acceptance remains user-run before completing this milestone.
+
+Rules uses MakeCode-style shapes inside native windows (D34), with explicit inside slots that grow route sections. Classic order lists without blocks keep their existing presentation. Latest Phase 4 fixes remain in TESTING for user manual recheck.
+
+Phase 4 also distinguishes Before travelling decisions from physical On arrival decisions. Waits use normal movement/braking to reach their boundary before the clock starts; arrival choices stay fixed through cargo handling, and next-trip checks observe the vehicle after loading. Current future-stop facts support look-ahead choices without adding predictions. User acceptance now includes the Wait-only When control, waypoint braking and save/reload during approach (D36/D37).
+
+Phase 4 also provides direct block-field editing through native selectors/value dialogs, palette clicks, branch Actions and optional Details in a compact 560x320 Rules window. Vehicle/shared-line field clicks focus the exact editor field. All changes use validated commands; menu/dialog state is transient and existing persistence versions remain unchanged (D39–D41). The latest automated suites pass, with native acceptance still user-run.
+
+Phase 4 also keeps manual-Skip white markers visible and projects shared-line rule-selected paths live on the map. Fresh first-row rule evaluation and current facts supplied by the progress vehicle drive bounded, incrementally cached whole-line diagrams; actual simulation and save versions are unchanged (D46). Arrow/map appearance and responsiveness remain user-run acceptance items (D43/D44).
+
+Phase 4 live map paths publish complete replacements atomically and keep stable lane membership and bounded All-view admission (D45). Separate vehicle-progress projections preserve the selected departure during loading; whole-line map diagrams use current conditions (D46). Actual vehicle execution is unchanged. The reported display issue has regression coverage and awaits user visual acceptance.
+
+D46 corrects whole-line map semantics: only the currently selected branch contributes stops/waypoints and legs, including multi-row If/Else sections. Vehicle execution progress stays separate. Physical movement and advancing the order cursor no longer cause route rebuilds when facts are unchanged. Phase 4 remains TESTING for user manual visual acceptance.
+
+D47 fixes intermittent disappearance during cache refreshes: topology invalidation retains published Path/All snapshots while rebuilding, and unrelated line metadata/rule changes avoid flushing world geometry. Explicit save/game resets still clear the display immediately. Current-condition route selection, actual vehicle execution and bounded work remain unchanged; Phase 4 remains TESTING for user acceptance.
+
+Signal follow-up D48 is implemented in TESTING on `codex/directional-waypoint-signals`, based on the preserved Phase 4 branch. Path/chain/combined reservations require connectivity to the encoded waypoint and retain the order while blocked; unrelated free exits cannot substitute. Waiting posts display red read-only, with existing occupancy, bounded work, retries and save formats retained. Full Debug/Release suites each passed 377/377; final native acceptance remains user-run.
+
+D49 closes the screenshot's free-circle workaround and native junction signal bypass on the same signal-fix branch. Required waypoint proofs cannot revisit the same directed junction before the waypoint, while distinct valid alternatives remain. Special signals on outgoing arms are checked before path mode starts. Both full suites passed 385/385; native acceptance remains user-run and TESTING.
+
+D57 supersedes the separate-window UI workflow: the Rules button expands native Vehicle Route or shared-line Orders in place, retaining the line browser and existing controls. Compact C blocks use readable native medium-font fields and per-window edit sessions. This UI-only follow-up is on `codex/native-inline-rules`; Phase 4 remains TESTING pending the user's short appearance/edit/drag acceptance. No later gameplay milestone starts here.

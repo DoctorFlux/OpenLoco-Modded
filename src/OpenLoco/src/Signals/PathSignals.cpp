@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <fstream>
 #include <map>
+#include <set>
 #include <string>
 #include <system_error>
 
@@ -53,7 +54,9 @@ namespace OpenLoco::Signals
         uint16_t _viewedOwner = kNoReservationView;
         std::map<PieceKey, uint8_t> _viewedSides;
         std::map<PieceKey, ReservationArrow> _allReserved;
-        std::map<SideKey, uint16_t> _waitingSignals;
+        std::map<SideKey, std::set<uint16_t>> _waitingSignals;
+        std::map<SideKey, std::set<uint16_t>> _approachingSignals;
+        std::map<uint16_t, uint32_t> _approachProbeTicks;
         bool _lightRepairPending = false;
         ReservationViewDirty _viewDirty = nullptr;
 
@@ -388,13 +391,28 @@ namespace OpenLoco::Signals
         return DisplayState::green;
     }
 
-    DisplayState postStateFor(DisplayState state, uint8_t stateCount)
+    uint8_t postStateFor(DisplayState state, uint8_t stateCount)
     {
-        if (state == DisplayState::yellow && stateCount < 3)
+        if (stateCount < 2 || state == DisplayState::red)
         {
-            return DisplayState::green;
+            return 0;
         }
-        return state;
+        if (state == DisplayState::yellow)
+        {
+            return 1; // Two-state posts use their proceed state for caution.
+        }
+        return std::min<uint8_t>(3, stateCount - 1);
+    }
+
+    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount)
+    {
+        if (kind == SignalKind::none || !waiting || frameCount == 0)
+        {
+            return vanillaFrame;
+        }
+        // Native posts start at danger. In particular SIGC3 frame 3 is yellow;
+        // its red frame is 0, as for the other native signal families.
+        return 0;
     }
 
     std::map<SideKey, SignalClaim> buildSignalClaims(const std::vector<std::pair<uint16_t, std::vector<SideKey>>>& routes)
@@ -613,6 +631,7 @@ namespace OpenLoco::Signals
         releaseAllHolds(owner);
         _trains.erase(owner);
         clearWaitingSignals(owner);
+        clearApproachingSignals(owner);
         refreshViewedReservation();
     }
 
@@ -649,13 +668,26 @@ namespace OpenLoco::Signals
         return false;
     }
 
-    void setWaitingSignals(uint16_t owner, const std::vector<SideKey>& sides)
+    static void setSignalOwners(std::map<SideKey, std::set<uint16_t>>& signals, uint16_t owner, const std::vector<SideKey>& sides)
     {
-        for (auto it = _waitingSignals.begin(); it != _waitingSignals.end();)
+        std::map<SideKey, bool> previous;
+        for (const auto& [side, owners] : signals)
         {
-            if (it->second == owner)
+            if (owners.contains(owner))
             {
-                it = _waitingSignals.erase(it);
+                previous.emplace(side, isSignalBlockedForDisplay(side));
+            }
+        }
+        for (const auto& side : sides)
+        {
+            previous.try_emplace(side, isSignalBlockedForDisplay(side));
+        }
+        for (auto it = signals.begin(); it != signals.end();)
+        {
+            it->second.erase(owner);
+            if (it->second.empty())
+            {
+                it = signals.erase(it);
             }
             else
             {
@@ -664,8 +696,45 @@ namespace OpenLoco::Signals
         }
         for (const auto& side : sides)
         {
-            _waitingSignals[side] = owner;
+            signals[side].insert(owner);
         }
+        if (_viewDirty != nullptr)
+        {
+            for (const auto& [side, wasWaiting] : previous)
+            {
+                if (wasWaiting != isSignalBlockedForDisplay(side))
+                {
+                    _viewDirty(side.piece);
+                }
+            }
+        }
+    }
+
+    void setWaitingSignals(uint16_t owner, const std::vector<SideKey>& sides)
+    {
+        setSignalOwners(_waitingSignals, owner, sides);
+    }
+
+    void setApproachingSignals(uint16_t owner, const std::vector<SideKey>& sides)
+    {
+        setSignalOwners(_approachingSignals, owner, sides);
+    }
+
+    void clearApproachingSignals(uint16_t owner)
+    {
+        setApproachingSignals(owner, {});
+        _approachProbeTicks.erase(owner);
+    }
+
+    bool beginApproachProbe(uint16_t owner, uint32_t tick)
+    {
+        const auto found = _approachProbeTicks.find(owner);
+        if (found != _approachProbeTicks.end() && static_cast<int32_t>(tick - found->second) < 0)
+        {
+            return false;
+        }
+        _approachProbeTicks[owner] = tick + 16;
+        return true;
     }
 
     void clearWaitingSignals(uint16_t owner)
@@ -678,9 +747,14 @@ namespace OpenLoco::Signals
         return _waitingSignals.find(side) != _waitingSignals.end();
     }
 
+    bool isSignalBlockedForDisplay(const SideKey& side)
+    {
+        return isSignalWaiting(side) || _approachingSignals.contains(side);
+    }
+
     bool isTrainWaiting(uint16_t owner)
     {
-        return std::any_of(_waitingSignals.begin(), _waitingSignals.end(), [owner](const auto& entry) { return entry.second == owner; });
+        return std::any_of(_waitingSignals.begin(), _waitingSignals.end(), [owner](const auto& entry) { return entry.second.contains(owner); });
     }
 
     std::optional<ReservationArrow> reservationArrowAt(const PieceKey& piece)
@@ -831,7 +905,23 @@ namespace OpenLoco::Signals
     void clearAll()
     {
         _viewedOwner = kNoReservationView;
+        if (_viewDirty != nullptr)
+        {
+            for (const auto& [side, owners] : _waitingSignals)
+            {
+                _viewDirty(side.piece);
+            }
+            for (const auto& [side, owners] : _approachingSignals)
+            {
+                if (!_waitingSignals.contains(side))
+                {
+                    _viewDirty(side.piece);
+                }
+            }
+        }
         _waitingSignals.clear();
+        _approachingSignals.clear();
+        _approachProbeTicks.clear();
         _lightRepairPending = false;
         _kinds.clear();
         _chainAspects.clear();

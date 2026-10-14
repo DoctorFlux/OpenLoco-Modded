@@ -1,11 +1,11 @@
 # Feature matrix
 
-`Vanilla` means the behaviour already in OpenLoco at `e71abfb3`. `Framework` means this project will add it. `Default` is what a player gets with no mods enabled.
+`Vanilla` means the behaviour already in OpenLoco at `e71abfb3`. `Framework` describes native opt-in features and later plans. `Default` is what a player gets without enabling those features.
 
-| Feature | Vanilla | Framework plan | Default with no mods |
+| Feature | Vanilla | Framework plan | Default without opt-in features |
 | --- | --- | --- | --- |
 | Orders | Per vehicle, six types | Shared lines can reference one list | Vanilla orders |
-| Conditional orders | No | Block rules on a vehicle order list or a shared-line order list. A list with no blocks runs as it does now. A group can hold several stops and waypoints | Off until a block is added |
+| Conditional orders | No | Implemented, COMPLETED (user accepted): native inline editor in vehicle Route/shared-line Orders, directly editable readable fields, multi-stop/waypoint containers and drag/drop. Rules expands the current window; the line browser stays visible. A list with no blocks runs as it does now | Off until a block is added |
 | Timetable | No | Shared-line timetable | Off |
 | Block signals | Yes | Kept | On |
 | Path signals | No | Path and chain checkboxes on a normal signal, with one-way or two-way placement, and a train-window reservation viewer. Implemented | Off until a player places one |
@@ -18,19 +18,22 @@
 | Map size | 384x384 | Candidates 512, 1024, 2048 after save work | 384 |
 | Object count | Fixed caps, 859 total | Dynamic after NOF-aligned format | Current caps |
 | Saves | SV5/SC5 exact version | Import SV5, write a new container | SV5 |
-| Mods | None (`plugin.dat` is unrelated) | Directory loader and `enabled.json` log actions. `.olmod` zips are not implemented | None, unless `%APPDATA%\OpenLoco\mods` exists |
-| Scripts | None | No script language. Rules are blocks in the Rules window | None |
+| Mods | None (`plugin.dat` is unrelated) | Loader removed (D23); gameplay features use native windows | None |
+| Scripts | None | No script language. Rules are native blocks in vehicle Route/shared-line Orders; Rules toggles the inline palette | None |
 | Multiplayer | Incomplete, UI hidden | Later, command replication | Unchanged |
 | Native mod DLLs | None | Rejected by default | n/a |
 
-## Install surface
+## Native feature surface
 
-| Mod | Player-visible when installed | Still works if absent |
+Block rules are implemented and accepted by the user for master integration (D59, 2026-10-14). Shared lines, timetables and path signals retain their separately recorded TESTING statuses and historical unitemized checks. Latest UI checkpoint `be510fcb` (D58, following D57 `91037492`) on `codex/native-inline-rules` includes D56 safety checkpoint `cf47b6db`, placement fix `3027c2d8`, signal fix `4f5faaae` and block-rules checkpoint `e42b1da8`. Reconfigured Debug/Release builds and complete suites each passed 447/447; focused Rules passed 182/182 (20 new UI regressions), with earlier 87 focused safety/placement checks preserved. D54 and D55 failed the user's native movement recheck; D56 fixes waypoint protection ending before an occupied or reserved continuation. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-14) for the consolidated delivery and manual checks.
+
+| Feature | Player-visible surface | Still works without opting in |
 | --- | --- | --- |
-| Block rules | Rules window from a vehicle or a line | Orders and lines with no blocks |
-| Shared lines | Line window | Per-vehicle orders |
+| Block rules | Native inline C blocks in Vehicle Route/shared-line Orders; Rules expands/restores that host and reveals an independent 88-pixel palette, Actions/Details/bin while retaining the line browser and existing controls. Directly editable medium-font fields work with the palette hidden. Stop/waypoint rows use native bold captions, white circle numbers and the plain list background within shaped logic (D58). Current program/next destination, green/red feedback, white arrow, Else/Else if, Forever/Break, multi-row insertion/resize, validated drag/drop and world-number refresh remain. Wait alone exposes When; saved timing and native braking are preserved (D57) | Orders and lines with no blocks |
+| Shared lines | Line window; Path/All map overlays evaluate complete routes from current conditions using the selected vehicle's facts; inactive multi-row clauses disappear and vehicle movement/cursor changes preserve geometry, with incrementally built, atomically published geometry, stable All-mode lanes, retained paths during construction refreshes, geometry reuse for metadata edits and preview-limit feedback | Per-vehicle orders |
 | Timetables | Timetable window on a line | Lines without schedules |
-| Path signals | Signal tab type dropdown and coloured arrow markers. No reservation view yet | Block signals |
+| Native rail placement | Shared checked reverse-position conversion in placement, pickup preview and train reversal; unequal curve-direction sample counts cannot overrun the destination span. Invalid placement inputs are rejected before vehicle changes (D51, native acceptance TESTING) | Existing placement tool and occupation checks |
+| Path signals | Native path/chain/combined flags and reservation view; directional waypoints require a non-circular route to the target, blocked required-waypoint approaches and waits use the actual native danger frame 0 through independent display owners, including unplanned signalled junction arms and unsignalled planner decisions; pending paths recheck physical occupation before admission, complete conflicting curve/movement footprints recheck at actual physical entry through ordinary-signal handoffs, and pass overrides cannot bypass special-signal reservation checks; junction-arm signals gate early and genuine alternatives remain available; waypoints no longer end protection before occupied/reserved continuations, and advancing them replans later orders (D48/D49/D50/D52/D53/D54/D55/D56, TESTING) | Block signals |
 | Shunting | Yard tools and job list | Depot coupling |
 | Cargo demand | Destination and request UI | Classic freight |
 | Passenger destinations | Demand and transfer UI | Classic passengers |

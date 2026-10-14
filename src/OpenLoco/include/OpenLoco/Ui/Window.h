@@ -85,6 +85,8 @@ namespace OpenLoco::Ui
         void (*scrollMouseDown)(Ui::Window&, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
         void (*scrollMouseDrag)(Ui::Window&, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
         void (*scrollMouseOver)(Ui::Window& window, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
+        // Screen coordinates; dispatched to the pressed scroll owner, including drops outside it.
+        void (*scrollMouseUp)(Ui::Window& window, int16_t x, int16_t y, uint8_t scrollIndex) = nullptr;
         void (*textInput)(Window&, WidgetIndex_t, WidgetId, const char*) = nullptr;
         void (*viewportRotate)(Window&) = nullptr;
         uint32_t event_22{};
@@ -95,6 +97,8 @@ namespace OpenLoco::Ui
         void (*draw)(Window&, Gfx::DrawingContext&) = nullptr;
         void (*drawScroll)(Window&, Gfx::DrawingContext&, const uint32_t scrollIndex) = nullptr;
         bool (*keyUp)(Window&, uint32_t charCode, uint32_t keyCode) = nullptr;
+        // Opt-in captured content dragging between scroll areas, without a map tool.
+        bool scrollMouseDragOutside = false;
     };
 
     struct SavedViewSimple
@@ -163,7 +167,8 @@ namespace OpenLoco::Ui
 
     struct Window
     {
-        static constexpr size_t kMaxScrollAreas = 2;
+        // Line browser, route canvas and the inline Rules palette.
+        static constexpr size_t kMaxScrollAreas = 3;
 
         sfl::small_vector<Widget, 16> widgets;
         const WindowEventList* eventHandlers;

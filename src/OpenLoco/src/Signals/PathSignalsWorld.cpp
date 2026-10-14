@@ -7,6 +7,7 @@
 #include "Map/TileManager.h"
 #include "Map/Track/Track.h"
 #include "Map/Track/TrackData.h"
+#include "Map/Track/SubpositionData.h"
 #include "Map/TrackElement.h"
 #include "Scenario/ScenarioManager.h"
 #include "Signals/PathSearch.h"
@@ -25,6 +26,7 @@
 #include "ZoomLevel.hpp"
 #include <OpenLoco/Math/Vector.hpp>
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <deque>
 #include <map>
@@ -37,7 +39,6 @@ namespace OpenLoco::Signals
         constexpr uint16_t kBasicTaDMask = World::Track::AdditionalTaDFlags::basicTaDMask;
         constexpr uint16_t kHasSignal = World::Track::AdditionalTaDFlags::hasSignal;
         constexpr uint8_t kTrackIdCount = 44;
-        constexpr uint16_t kNoOwner = 0xFFFF;
         constexpr uint8_t kRouteLightHousings = 0xC;
         constexpr uint32_t kRetryTicks = 16;
         constexpr size_t kMaxBlockPieces = 512;
@@ -176,12 +177,66 @@ namespace OpenLoco::Signals
             return findHead(hold.owner) != nullptr;
         }
 
+        const std::vector<World::Pos2>& physicalTiles(const PieceKey& piece)
+        {
+            // Some native movement endpoints sit outside the track element's
+            // tiles. Include both traversal directions, computed once from the
+            // actual movement tables, rather than guessing a neighbourhood.
+            static const auto offsets = [] {
+                std::array<std::vector<World::Pos2>, kTrackIdCount * 4> result;
+                for (uint16_t id = 0; id < kTrackIdCount; ++id)
+                {
+                    for (uint8_t rotation = 0; rotation < 4; ++rotation)
+                    {
+                        auto& tiles = result[id * 4 + rotation];
+                        const auto add = [&](World::Pos2 pos) {
+                            pos.x = static_cast<int16_t>(pos.x & ~31);
+                            pos.y = static_cast<int16_t>(pos.y & ~31);
+                            if (std::find(tiles.begin(), tiles.end(), pos) == tiles.end())
+                            {
+                                tiles.push_back(pos);
+                            }
+                        };
+                        for (const auto& part : World::TrackData::getTrackPiece(id))
+                        {
+                            add(Math::Vector::rotate(World::Pos2{ part.x, part.y }, rotation));
+                        }
+                        for (const uint16_t reversed : { uint16_t{ 0 }, uint16_t{ 4 } })
+                        {
+                            const uint16_t tad = (id << 3) | rotation | reversed;
+                            World::Pos3 entrance{};
+                            if (reversed)
+                            {
+                                const auto& delta = World::TrackData::getUnkTrack(tad);
+                                entrance -= delta.pos;
+                                if (delta.rotationEnd < 12)
+                                {
+                                    entrance += World::Pos3{ World::kRotationOffset[delta.rotationEnd], 0 };
+                                }
+                            }
+                            for (const auto& step : World::TrackData::getTrackSubPositon(tad))
+                            {
+                                const auto pos = entrance + step.loc;
+                                add({ pos.x, pos.y });
+                            }
+                        }
+                    }
+                }
+                return result;
+            }();
+            return offsets[piece.trackId * 4 + piece.rotation];
+        }
+
         bool pieceOccupiedByOther(const PieceKey& piece, uint16_t owner)
         {
             if (piece.trackId >= kTrackIdCount)
             {
                 return false;
             }
+            std::vector<PieceKey> candidates{ piece };
+            // A wagon may be on another tile of a long curve or switch whose
+            // footprint conflicts here. Find those physical pieces locally,
+            // then inspect their complete movement footprints as well.
             for (const auto& part : World::TrackData::getTrackPiece(piece.trackId))
             {
                 const auto offset = Math::Vector::rotate(World::Pos2{ part.x, part.y }, piece.rotation);
@@ -190,25 +245,67 @@ namespace OpenLoco::Signals
                 {
                     continue;
                 }
-                for (auto* entity : EntityManager::EntityTileList(tilePos))
+                for (const auto& element : World::TileManager::get(tilePos))
                 {
-                    auto* vehicle = entity->asBase<Vehicles::VehicleBase>();
-                    if (vehicle == nullptr || vehicle->mode != TransportMode::rail || vehicle->tileX == -1)
+                    const auto* track = element.as<World::TrackElement>();
+                    if (track == nullptr || track->isGhost() || track->isAiAllocated() || track->trackId() >= kTrackIdCount)
                     {
                         continue;
                     }
-                    if (vehicle->has38Flags(Vehicles::Flags38::unk_0 | Vehicles::Flags38::unk_2))
+                    const auto parts = World::TrackData::getTrackPiece(track->trackId());
+                    if (track->sequenceIndex() >= parts.size())
                     {
                         continue;
                     }
-                    if (enumValue(vehicle->head) == owner)
+                    const auto& trackPart = parts[track->sequenceIndex()];
+                    const auto originOffset = Math::Vector::rotate(World::Pos2{ trackPart.x, trackPart.y }, track->rotation());
+                    const PieceKey candidate{
+                        static_cast<int16_t>(tilePos.x - originOffset.x),
+                        static_cast<int16_t>(tilePos.y - originOffset.y),
+                        static_cast<int16_t>(track->baseHeight() - trackPart.z),
+                        track->rotation(),
+                        track->trackId()
+                    };
+                    if (std::find(candidates.begin(), candidates.end(), candidate) == candidates.end() && piecesConflict(candidate, piece))
+                    {
+                        candidates.push_back(candidate);
+                    }
+                }
+            }
+            for (const auto& candidate : candidates)
+            {
+                for (const auto& offset : physicalTiles(candidate))
+                {
+                    const World::Pos2 tilePos{ static_cast<int16_t>(candidate.x + offset.x), static_cast<int16_t>(candidate.y + offset.y) };
+                    if (!World::validCoords(tilePos))
                     {
                         continue;
                     }
-                    const auto vehiclePiece = canonicalPiece(vehicle->getTrackLoc(), vehicle->getTrackAndDirection().track._data);
-                    if (vehiclePiece == piece || piecesConflict(vehiclePiece, piece))
+                    for (auto* entity : EntityManager::EntityTileList(tilePos))
                     {
-                        return true;
+                        auto* vehicle = entity->asBase<Vehicles::VehicleBase>();
+                        if (vehicle == nullptr || vehicle->mode != TransportMode::rail || vehicle->tileX == -1)
+                        {
+                            continue;
+                        }
+                        if (vehicle->has38Flags(Vehicles::Flags38::unk_0 | Vehicles::Flags38::unk_2 | Vehicles::Flags38::isGhost))
+                        {
+                            continue;
+                        }
+                        if (enumValue(vehicle->head) == owner)
+                        {
+                            continue;
+                        }
+                        if (((vehicle->getTrackAndDirection().track._data & kBasicTaDMask) >> 3) >= kTrackIdCount)
+                        {
+                            // Invalid real vehicle track data cannot authorize entry.
+                            return true;
+                        }
+                        const auto vehiclePiece = canonicalPiece(vehicle->getTrackLoc(), vehicle->getTrackAndDirection().track._data);
+                        if (vehiclePiece == piece || piecesConflict(vehiclePiece, piece))
+                        {
+                            return true;
+                        }
                     }
                 }
             }
@@ -218,17 +315,6 @@ namespace OpenLoco::Signals
         bool canHoldInWorld(const PieceKey& piece, uint16_t owner)
         {
             return canHold(piece, owner) && !pieceOccupiedByOther(piece, owner);
-        }
-
-        bool pieceBusy(const PieceKey& piece)
-        {
-            // A reserved path is not a train in the block. Block signals stay green
-            // until a train's route occupies the piece, and special posts follow that.
-            if (const auto hold = holdAt(piece); hold.has_value() && hold->kind == HoldKind::occupied)
-            {
-                return true;
-            }
-            return pieceOccupiedByOther(piece, kNoOwner);
         }
 
         template<typename Function>
@@ -377,11 +463,17 @@ namespace OpenLoco::Signals
                 return _hasTarget;
             }
 
+            bool requiresTarget() const
+            {
+                return _hasTarget && _targetStation == StationId::null;
+            }
+
             StepEdge makeEdge(const World::Pos3& pos, uint16_t connection, StationId tileStation) const
             {
                 StepEdge edge;
                 edge.step = TrackStep{ pos, static_cast<uint16_t>(connection & kBasicTaDMask) };
                 edge.connection = connection;
+                edge.entryDirection = World::TrackData::getUnkTrack(edge.step.tad).rotationBegin;
                 const auto trackId = static_cast<uint8_t>((edge.step.tad >> 3) & 0x3F);
                 edge.cost = std::max<uint32_t>(1, World::TrackData::getTrackMiscData(trackId).unkWeighting);
 
@@ -479,8 +571,8 @@ namespace OpenLoco::Signals
             _vanillaAspectsRestored = false;
         }
 
-        // Older builds painted path and chain posts red, then yellow as a train approached.
-        // Put them back to a clear block signal once, then leave the colour to vanilla.
+        // Repair older special-post colour writes to the native resting danger
+        // state once. Subsequent approach/passing colours remain native.
         void restoreVanillaAspectsOnce()
         {
             if (_vanillaAspectsRestored)
@@ -494,28 +586,9 @@ namespace OpenLoco::Signals
                 {
                     continue;
                 }
-                setSideAspect(side, pieceBusy(side.piece) ? DisplayState::red : DisplayState::green);
+                setSideAspect(side, DisplayState::red);
                 setChainAspect(side, ChainAspect::green);
             }
-        }
-
-        void markWaitingRed(uint16_t owner, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
-        {
-            std::vector<SideKey> sides;
-            for (const auto connection : tc.connections)
-            {
-                if (!(connection & kHasSignal))
-                {
-                    continue;
-                }
-                const auto side = facingSide(nextPos, connection);
-                if (getSignalKind(side) == SignalKind::none)
-                {
-                    continue;
-                }
-                sides.push_back(side);
-            }
-            setWaitingSignals(owner, sides);
         }
     }
 
@@ -575,6 +648,44 @@ namespace OpenLoco::Signals
         return getSignalKind(facingSide(entrance, trackAndDirection)) != SignalKind::none;
     }
 
+    bool validatePendingPath(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
+    {
+        const auto owner = enumValue(head.id);
+        const auto* pending = pendingPath(owner);
+        if (pending != nullptr)
+        {
+            for (const auto& step : *pending)
+            {
+                // Pending holds are a plan, not proof that no wagon has been
+                // placed or moved onto it since the reservation was granted.
+                if (!canHoldInWorld(canonicalPiece(step.pos, step.connection), owner))
+                {
+                    dropPendingPath(owner);
+                    _retryTick[owner] = ScenarioManager::getScenarioTicks() + kRetryTicks;
+                    onPathWait(head, nextPos, tc);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    bool physicalEntryIsClear(Vehicles::VehicleHead& head, const World::Pos3& nextPos, uint16_t connection, const World::Track::TrackConnections& tc)
+    {
+        const auto owner = enumValue(head.id);
+        const auto piece = canonicalPiece(nextPos, connection);
+        const auto hold = holdAt(piece);
+        const bool ownedProtectedPiece = hold && hold->owner == owner && hold->isProtected;
+        const bool physicalClear = !pieceOccupiedByOther(piece, owner);
+        const bool claimsClear = isInPathMode(owner) || ownedProtectedPiece ? canHold(piece, owner) : !isHeldByProtectedOther(piece, owner);
+        if (physicalClear && claimsClear)
+        {
+            return true;
+        }
+        onPathWait(head, nextPos, tc);
+        return false;
+    }
+
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
     {
         const auto owner = enumValue(head.id);
@@ -598,6 +709,171 @@ namespace OpenLoco::Signals
         return std::nullopt;
     }
 
+    std::optional<ReserveStart> reservationStartAtJunction(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
+    {
+        if (isInPathMode(enumValue(head.id)))
+        {
+            return ReserveStart::extend;
+        }
+        for (const auto connection : tc.connections)
+        {
+            const auto entry = classifyEntry(nextPos, connection);
+            if (entry.hasFacingSignal && entry.kind != SignalKind::none)
+            {
+                // The chosen start's signal determines Path versus Chain in
+                // the search; one chain arm must not govern every other arm.
+                return ReserveStart::pathSignal;
+            }
+        }
+        return std::nullopt;
+    }
+
+    void refreshApproachSignals(Vehicles::VehicleHead& head)
+    {
+        const auto owner = enumValue(head.id);
+        if (head.mode != TransportMode::rail || head.tileX == -1 || head.has38Flags(Vehicles::Flags38::isGhost) || specialSignalCount() == 0)
+        {
+            clearApproachingSignals(owner);
+            return;
+        }
+        // The normal reservation retry already proves an actual wait. Keep its
+        // red marker without running a duplicate route search on this tick.
+        if (isTrainWaiting(owner))
+        {
+            return;
+        }
+        if (!beginApproachProbe(owner, ScenarioManager::getScenarioTicks()))
+        {
+            return;
+        }
+        WorldTrackGraph graph(head);
+        if (!graph.requiresTarget())
+        {
+            setApproachingSignals(owner, {});
+            return;
+        }
+        Vehicles::Vehicle train(head);
+        auto pos = train.veh2->getTrackLoc();
+        auto tad = train.veh2->trackAndDirection.track._data;
+        auto handle = train.veh2->routingHandle;
+        // Follow the committed physical approach, then unambiguous track only.
+        // Junction selection remains with the normal reservation path.
+        for (size_t i = 0; i < 8 && ((tad >> 3) & 0x3F) < kTrackIdCount; ++i)
+        {
+            const auto end = World::Track::getTrackConnectionEnd(pos, tad);
+            const auto tc = World::Track::getTrackConnections(end.nextPos, end.nextRotation, head.owner, head.trackType, head.var_53, train.veh1->var_49);
+            handle.setIndex(handle.getIndex() + 1);
+            const auto routing = Vehicles::RoutingManager::getRouting(handle);
+            std::optional<uint16_t> connection;
+            if (routing != Vehicles::RoutingManager::kAllocatedButFreeRouting && routing != Vehicles::RoutingManager::kRoutingNull)
+            {
+                for (const auto next : tc.connections)
+                {
+                    if ((next & kBasicTaDMask) == (routing & kBasicTaDMask))
+                    {
+                        connection = next;
+                        break;
+                    }
+                }
+            }
+            else if (tc.connections.size() == 1)
+            {
+                connection = tc.connections.front();
+            }
+            if (!connection)
+            {
+                // A post can be on a junction arm before any route is committed.
+                // An unrelated free arm must not clear the intended waypoint's
+                // signal. Probe all starts once, with their individual kinds.
+                SearchRequest request;
+                request.hasTarget = request.requireTarget = true;
+                request.mode = SearchMode::pathSignal;
+                std::vector<SideKey> sides;
+                for (const auto next : tc.connections)
+                {
+                    request.starts.push_back(graph.makeEdge(end.nextPos, next, tc.stationId));
+                    const auto entry = classifyEntry(end.nextPos, next);
+                    if (entry.hasFacingSignal && entry.kind != SignalKind::none)
+                    {
+                        sides.push_back(facingSide(end.nextPos, next));
+                    }
+                }
+                if (!sides.empty())
+                {
+                    const auto result = findReservation(graph, request);
+                    setApproachingSignals(owner, result.found ? std::vector<SideKey>{} : sides);
+                    return;
+                }
+                break;
+            }
+            const auto entry = classifyEntry(end.nextPos, *connection);
+            if (entry.hasFacingSignal)
+            {
+                if (entry.kind != SignalKind::none)
+                {
+                    SearchRequest request;
+                    request.hasTarget = request.requireTarget = true;
+                    request.mode = isChainSignal(entry.kind) ? SearchMode::chainSignal : SearchMode::pathSignal;
+                    request.starts.push_back(graph.makeEdge(end.nextPos, *connection, tc.stationId));
+                    const auto result = findReservation(graph, request);
+                    setApproachingSignals(owner, result.found ? std::vector<SideKey>{} : std::vector<SideKey>{ facingSide(end.nextPos, *connection) });
+                    return;
+                }
+                break;
+            }
+            if (entry.blockedFromBehind)
+            {
+                break;
+            }
+            pos = end.nextPos;
+            tad = *connection & kBasicTaDMask;
+        }
+        setApproachingSignals(owner, {});
+    }
+
+    void onPathWait(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc)
+    {
+        std::vector<SideKey> sides;
+        for (const auto connection : tc.connections)
+        {
+            const auto entry = classifyEntry(nextPos, connection);
+            if (entry.hasFacingSignal && entry.kind != SignalKind::none)
+            {
+                sides.push_back(facingSide(nextPos, connection));
+            }
+        }
+
+        // The planner can already be beyond the signal the physical train is
+        // approaching. Keep that governing post red too, even when the failed
+        // decision is an unsignalled junction. Never cross a facing block post.
+        auto pos = World::Pos3{ head.tileX, head.tileY, static_cast<int16_t>(head.tileBaseZ * World::kSmallZStep) };
+        auto handle = head.routingHandle;
+        for (size_t i = 0; i < Limits::kMaxRoutingsPerVehicle; ++i)
+        {
+            const auto routing = Vehicles::RoutingManager::getRouting(handle);
+            const auto tad = routing & kBasicTaDMask;
+            if (routing == Vehicles::RoutingManager::kAllocatedButFreeRouting || routing == Vehicles::RoutingManager::kRoutingNull || ((tad >> 3) & 0x3F) >= kTrackIdCount)
+            {
+                break;
+            }
+            if (i != 0)
+            {
+                pos -= World::TrackData::getUnkTrack(tad).pos;
+            }
+            const auto entry = classifyEntry(pos, routing);
+            if (entry.hasFacingSignal)
+            {
+                if (entry.kind != SignalKind::none)
+                {
+                    sides.push_back(facingSide(pos, routing));
+                }
+                break;
+            }
+            handle.setIndex(static_cast<uint8_t>(handle.getIndex() - 1));
+        }
+        setWaitingSignals(enumValue(head.id), sides);
+    }
+
     std::optional<uint16_t> reserveFrom(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc, ReserveStart start)
     {
         const auto owner = enumValue(head.id);
@@ -612,6 +888,7 @@ namespace OpenLoco::Signals
         SearchRequest request;
         request.mode = start == ReserveStart::chainSignal ? SearchMode::chainSignal : (start == ReserveStart::pathSignal ? SearchMode::pathSignal : SearchMode::extend);
         request.hasTarget = graph.hasTarget();
+        request.requireTarget = graph.requiresTarget();
         for (const auto connection : tc.connections)
         {
             request.starts.push_back(graph.makeEdge(nextPos, connection, tc.stationId));
@@ -621,7 +898,7 @@ namespace OpenLoco::Signals
         if (!result.found)
         {
             _retryTick[owner] = now + kRetryTicks;
-            markWaitingRed(owner, nextPos, tc);
+            onPathWait(head, nextPos, tc);
             return std::nullopt;
         }
 
@@ -636,14 +913,14 @@ namespace OpenLoco::Signals
             if (pieceOccupiedByOther(canonicalPiece(step.pos, step.connection), owner))
             {
                 _retryTick[owner] = now + kRetryTicks;
-                markWaitingRed(owner, nextPos, tc);
+                onPathWait(head, nextPos, tc);
                 return std::nullopt;
             }
         }
         if (!reservePath(owner, steps))
         {
             _retryTick[owner] = now + kRetryTicks;
-            markWaitingRed(owner, nextPos, tc);
+            onPathWait(head, nextPos, tc);
             return std::nullopt;
         }
         _retryTick.erase(owner);
@@ -695,6 +972,11 @@ namespace OpenLoco::Signals
     void onHeadEntersPiece(Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection)
     {
         const auto owner = enumValue(head.id);
+        if (isTrainWaiting(owner))
+        {
+            clearWaitingSignals(owner);
+            _retryTick.erase(owner);
+        }
         const uint16_t tad = connection & kBasicTaDMask;
         consumePendingFront(owner, entrance, connection);
         holdOccupied(owner, canonicalPiece(entrance, tad), isInPathMode(owner));
@@ -758,6 +1040,7 @@ namespace OpenLoco::Signals
         const auto owner = enumValue(head.id);
         dropPendingPath(owner);
         clearWaitingSignals(owner);
+        clearApproachingSignals(owner);
         const bool isProtected = isInPathMode(owner);
         releaseAllHolds(owner);
         if (head.mode != TransportMode::rail || head.tileX == -1)

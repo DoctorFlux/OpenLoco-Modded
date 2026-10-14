@@ -84,6 +84,7 @@
 #include "Logging.h"
 #include "Map/RoadElement.h"
 #include "Map/StationElement.h"
+#include "Lines/Line.h"
 #include "Map/Tile.h"
 #include "Map/TileManager.h"
 #include "Map/TrackElement.h"
@@ -395,6 +396,44 @@ namespace OpenLoco::GameCommands
         if (ebx2 == static_cast<int32_t>(GameCommands::kFailure))
         {
             return loc_4314EA(flags);
+        }
+
+        // Cached route geometry changes only after a real topology edit,
+        // never for a cost query or moving a construction ghost.
+        if (!hasFlags(flags, Flags::ghost) && !hasFlags(flags, Flags::aiAllocated))
+        {
+            switch (static_cast<GameCommand>(esi))
+            {
+                case GameCommand::createTrack:
+                case GameCommand::removeTrack:
+                case GameCommand::createRoad:
+                case GameCommand::removeRoad:
+                case GameCommand::createSignal:
+                case GameCommand::removeSignal:
+                case GameCommand::createSignalsAuto:
+                case GameCommand::removeSignalsAuto:
+                case GameCommand::createTrainStation:
+                case GameCommand::removeTrainStation:
+                case GameCommand::createRoadStation:
+                case GameCommand::removeRoadStation:
+                case GameCommand::createAirport:
+                case GameCommand::removeAirport:
+                case GameCommand::createPort:
+                case GameCommand::removePort:
+                case GameCommand::raiseLand:
+                case GameCommand::lowerLand:
+                case GameCommand::lowerRaiseLandMountain:
+                case GameCommand::raiseWater:
+                case GameCommand::lowerWater:
+                case GameCommand::clearLand:
+                case GameCommand::aiCreateTrackAndStation:
+                case GameCommand::aiTrackReplacement:
+                case GameCommand::aiCreateRoadAndStation:
+                    Lines::invalidateRouteCache();
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (SceneManager::isEditorMode())

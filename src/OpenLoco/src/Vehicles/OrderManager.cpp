@@ -1,3 +1,5 @@
+#include "Lines/Line.h"
+#include "Rules/Rules.h"
 #include "Vehicles/OrderManager.h"
 #include "GameState.h"
 #include "Graphics/ImageIds.h"
@@ -103,6 +105,7 @@ namespace OpenLoco::Vehicles
 namespace OpenLoco::Vehicles::OrderManager
 {
     static sfl::static_vector<NumDisplayFrame, Limits::kMaxOrdersPerVehicle> _displayFrames;
+    static EntityId _displayVehicle = EntityId::null;
 
     std::span<const NumDisplayFrame> displayFrames()
     {
@@ -160,6 +163,14 @@ namespace OpenLoco::Vehicles::OrderManager
     {
         assert(order->getType() != OrderType::End && orderOffset < head->sizeOfOrderTable);
         auto insOrderLength = kOrderSizes[enumValue(order->getType())];
+        if (Rules::ownerForVehicle(enumValue(head->id)).kind == Rules::OwnerKind::vehicle)
+        {
+            size_t index = 0;
+            for (auto& row : OrderRingView(head->orderTableOffset))
+            { if (row.getOffset() - head->orderTableOffset >= orderOffset) break; ++index; }
+            Rules::Edit edit; edit.kind = Rules::EditKind::insertRow; edit.first = index; edit.raw = order->getRaw();
+            Rules::noteOrderEdit({ Rules::OwnerKind::vehicle, enumValue(head->id) }, edit);
+        }
 
         // Shift current order to compensate for the new order.
         // For empty order tables, let current order point to the first order.
@@ -193,6 +204,15 @@ namespace OpenLoco::Vehicles::OrderManager
         auto& selectedOrder = *(orders.begin());
 
         auto removeOrderSize = kOrderSizes[enumValue(selectedOrder.getType())];
+        if (selectedOrder.getType() == OrderType::End) return;
+        if (Rules::ownerForVehicle(enumValue(head->id)).kind == Rules::OwnerKind::vehicle)
+        {
+            size_t index = 0;
+            for (auto& row : OrderRingView(head->orderTableOffset))
+            { if (row.getOffset() - head->orderTableOffset >= orderOffset) break; ++index; }
+            Rules::Edit edit; edit.kind = Rules::EditKind::deleteRow; edit.first = index;
+            Rules::noteOrderEdit({ Rules::OwnerKind::vehicle, enumValue(head->id) }, edit);
+        }
         head->sizeOfOrderTable -= removeOrderSize;
 
         // Are we removing an order that appears before the current order? Move back a bit
@@ -229,6 +249,9 @@ namespace OpenLoco::Vehicles::OrderManager
     {
         // No need to zero order table as it will get cleaned up on save
         orderTableLength() = 0;
+        _displayVehicle = EntityId::null;
+        _displayFrames.clear();
+        Rules::clear();
     }
 
     // 0x00470334
@@ -337,9 +360,28 @@ namespace OpenLoco::Vehicles::OrderManager
         return { pos, ss.str() };
     }
 
+    void refreshNumDisplayFrames()
+    {
+        if (!World::hasMapSelectionFlag(World::MapSelectionFlags::unk_04))
+        {
+            return;
+        }
+        if (auto* head = EntityManager::get<VehicleHead>(_displayVehicle))
+        {
+            generateNumDisplayFrames(head);
+        }
+        else
+        {
+            _displayVehicle = EntityId::null;
+            _displayFrames.clear();
+            Gfx::invalidateScreen();
+        }
+    }
+
     // 0x00470824
     void generateNumDisplayFrames(Vehicles::VehicleHead* head)
     {
+        _displayVehicle = head->id;
         World::setMapSelectionFlags(World::MapSelectionFlags::unk_04);
         Gfx::invalidateScreen();
         _displayFrames.clear();
@@ -502,27 +544,30 @@ namespace OpenLoco::Vehicles::OrderManager
     // 0x0047062B
     void removeOrdersForStation(const StationId stationId)
     {
-        for (auto i = 0U; i < orderTableLength();)
+        // Remove from the authoritative shared lists first, including unassigned lines.
+        for (const auto& line : Lines::allLines())
         {
-            auto& order = orders()[i];
-            auto* stationOrder = order.as<OrderStation>();
-            if (stationOrder != nullptr)
+            for (size_t i = line.orders.size(); i > 0; --i)
             {
-                if (stationOrder->getStation() == stationId)
-                {
-                    // Find the vehicle that has the order
-                    for (auto* head : VehicleManager::VehicleList())
-                    {
-                        if (head->orderTableOffset <= i
-                            && i < head->orderTableOffset + head->sizeOfOrderTable)
-                        {
-                            deleteOrder(head, i - head->orderTableOffset);
-                            break;
-                        }
-                    }
-                }
+                const auto& order = line.orders[i - 1];
+                if ((order.type == OrderType::StopAt || order.type == OrderType::RouteThrough) && order.station == enumValue(stationId))
+                    Lines::removeOrder(line.id, i - 1);
             }
-            i += kOrderSizes[enumValue(order.getType())];
+        }
+        for (auto* head : VehicleManager::VehicleList())
+        {
+            if (Lines::lineForVehicle(enumValue(head->id)) != nullptr) continue;
+            for (uint16_t offset = 0; offset < head->sizeOfOrderTable;)
+            {
+                auto& order = orders()[head->orderTableOffset + offset];
+                const auto* stationOrder = order.as<OrderStation>();
+                if (stationOrder != nullptr && stationOrder->getStation() == stationId)
+                {
+                    deleteOrder(head, offset);
+                    continue;
+                }
+                offset += kOrderSizes[enumValue(order.getType())];
+            }
         }
     }
 }

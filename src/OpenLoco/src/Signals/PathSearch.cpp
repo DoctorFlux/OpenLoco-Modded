@@ -1,6 +1,7 @@
 #include "Signals/PathSearch.h"
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <queue>
 #include <tuple>
@@ -24,6 +25,8 @@ namespace OpenLoco::Signals
             Stage stage = Stage::exitSegment;
             uint32_t cost = 0;
             uint32_t reservedPieces = 0;
+            std::array<uint64_t, 4> visited{};
+            bool reachedTarget = false;
         };
 
         struct StateKey
@@ -42,6 +45,35 @@ namespace OpenLoco::Signals
 
         constexpr uint32_t kBlockedPenalty = 2000;
         constexpr uint32_t kMaxPlatformPieces = 32;
+
+        uint8_t junctionHash(const StepEdge& edge)
+        {
+            uint64_t hash = static_cast<uint16_t>(edge.step.pos.x) | (uint64_t(static_cast<uint16_t>(edge.step.pos.y)) << 16)
+                | (uint64_t(static_cast<uint16_t>(edge.step.pos.z)) << 32) | (uint64_t(edge.entryDirection) << 48);
+            hash ^= hash >> 33;
+            hash *= 0xff51afd7ed558ccdULL;
+            hash ^= hash >> 33;
+            return static_cast<uint8_t>(hash);
+        }
+
+        bool revisitsJunction(const std::vector<Node>& nodes, int32_t parent, const StepEdge& edge)
+        {
+            const auto hash = junctionHash(edge);
+            if ((nodes[parent].visited[hash / 64] & (uint64_t{ 1 } << (hash % 64))) == 0)
+            {
+                return false;
+            }
+            // The bitset only rejects impossible matches cheaply. Hash collisions
+            // are checked against the exact ancestry and never reject a valid route.
+            for (auto i = parent; i >= 0; i = nodes[i].parent)
+            {
+                if (nodes[i].edge.step.pos == edge.step.pos && nodes[i].edge.entryDirection == edge.entryDirection)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         StateKey keyOf(const Node& node)
         {
@@ -100,6 +132,10 @@ namespace OpenLoco::Signals
     SearchResult findReservation(TrackGraph& graph, const SearchRequest& request)
     {
         SearchResult result;
+        if (request.requireTarget && !request.hasTarget)
+        {
+            return result;
+        }
         std::vector<Node> nodes;
         std::map<StateKey, uint32_t> bestCost;
         using QueueItem = std::pair<uint64_t, int32_t>;
@@ -107,6 +143,12 @@ namespace OpenLoco::Signals
 
         const auto initialStage = request.mode == SearchMode::chainSignal ? Stage::chainArea : Stage::exitSegment;
         Candidate best;
+
+        const auto complete = [&](int32_t index) {
+            result.reachedTarget = true;
+            result.reservation = buildReservation(nodes, index);
+            result.found = !result.reservation.empty();
+        };
 
         auto considerCandidate = [&](int32_t index) {
             const auto& node = nodes[index];
@@ -117,14 +159,33 @@ namespace OpenLoco::Signals
             }
         };
 
-        auto push = [&](const Node& node) {
+        auto push = [&](Node node) {
+            node.reachedTarget = node.edge.isTarget || (node.parent >= 0 && nodes[node.parent].reachedTarget);
+            if (request.requireTarget)
+            {
+                if (node.parent >= 0 && revisitsJunction(nodes, node.parent, node.edge))
+                {
+                    return;
+                }
+                if (node.parent >= 0)
+                {
+                    node.visited = nodes[node.parent].visited;
+                }
+                const auto hash = junctionHash(node.edge);
+                node.visited[hash / 64] |= uint64_t{ 1 } << (hash % 64);
+            }
             const auto key = keyOf(node);
             const auto found = bestCost.find(key);
-            if (found != bestCost.end() && found->second <= node.cost)
+            if (!request.requireTarget && found != bestCost.end() && found->second <= node.cost)
             {
                 return;
             }
-            bestCost[key] = node.cost;
+            // Required paths carry different visited junctions. Collapsing them
+            // by endpoint alone can discard a valid non-circular alternative.
+            if (!request.requireTarget)
+            {
+                bestCost[key] = node.cost;
+            }
             nodes.push_back(node);
             const uint64_t priority = static_cast<uint64_t>(node.cost) + (request.hasTarget ? node.edge.distanceToTarget : 0);
             open.push({ priority, static_cast<int32_t>(nodes.size() - 1) });
@@ -132,11 +193,12 @@ namespace OpenLoco::Signals
 
         for (const auto& start : request.starts)
         {
-            if (start.blocked || start.signal == EntrySignal::blockedFromBehind)
+            if (start.blocked || start.signal == EntrySignal::blockedFromBehind || (start.signal == EntrySignal::block && start.exitOccupied))
             {
                 continue;
             }
-            push(Node{ start, -1, initialStage, start.cost, 1 });
+            const auto stage = start.signal == EntrySignal::chain ? Stage::chainArea : initialStage;
+            push(Node{ start, -1, stage, start.cost, 1 });
         }
 
         uint32_t expansions = 0;
@@ -147,13 +209,16 @@ namespace OpenLoco::Signals
             open.pop();
             const Node node = nodes[index];
             const auto stale = bestCost.find(keyOf(node));
-            if (stale != bestCost.end() && stale->second < node.cost)
+            if (!request.requireTarget && stale != bestCost.end() && stale->second < node.cost)
             {
                 continue;
             }
             ++expansions;
 
-            if (node.edge.isTarget)
+            // A route-through waypoint proves the requested direction, but is
+            // not a place to stop safely. Keep checking to the signal boundary
+            // even when another train stands just beyond the waypoint.
+            if (node.edge.isTarget && (!request.requireTarget || node.stage == Stage::released))
             {
                 int32_t end = index;
                 if (node.stage != Stage::released)
@@ -179,19 +244,23 @@ namespace OpenLoco::Signals
                         end = static_cast<int32_t>(nodes.size() - 1);
                     }
                 }
-                result.reachedTarget = true;
-                result.reservation = buildReservation(nodes, end);
-                result.found = !result.reservation.empty();
+                complete(end);
                 return result;
             }
 
             successors.clear();
             graph.successors(node.edge.step, successors);
 
+            const bool reserveLimit = node.stage != Stage::released && node.reservedPieces >= request.maxReservedPieces;
             if (node.stage != Stage::released)
             {
                 const bool deadEnd = std::none_of(successors.begin(), successors.end(), [](const StepEdge& edge) { return edge.signal != EntrySignal::blockedFromBehind; });
-                if (deadEnd || node.reservedPieces >= request.maxReservedPieces)
+                if (node.reachedTarget && request.requireTarget && (deadEnd || reserveLimit))
+                {
+                    complete(index);
+                    return result;
+                }
+                if (deadEnd || (reserveLimit && !request.requireTarget))
                 {
                     considerCandidate(index);
                     continue;
@@ -205,7 +274,9 @@ namespace OpenLoco::Signals
                     continue;
                 }
                 bool allowed = true;
-                const auto stage = nextStage(node.stage, edge, allowed);
+                // A required waypoint can lie beyond the bounded reservation.
+                // Prove connectivity there without adding more occupied pieces.
+                const auto stage = reserveLimit ? Stage::released : nextStage(node.stage, edge, allowed);
                 if (!allowed)
                 {
                     continue;
@@ -225,6 +296,11 @@ namespace OpenLoco::Signals
 
                 if (node.stage != Stage::released && stage == Stage::released)
                 {
+                    if (node.reachedTarget && request.requireTarget)
+                    {
+                        complete(index);
+                        return result;
+                    }
                     considerCandidate(index);
                 }
 
@@ -233,7 +309,7 @@ namespace OpenLoco::Signals
             }
         }
 
-        if (best.node >= 0)
+        if (best.node >= 0 && !request.requireTarget)
         {
             result.reservation = buildReservation(nodes, best.node);
             result.found = !result.reservation.empty();

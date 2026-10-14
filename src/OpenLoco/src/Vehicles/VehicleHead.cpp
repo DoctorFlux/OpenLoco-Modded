@@ -1,3 +1,4 @@
+#include "Rules/Rules.h"
 #include "Vehicles/VehicleHead.h"
 #include "Audio/Audio.h"
 #include "Config.h"
@@ -210,6 +211,29 @@ namespace OpenLoco::Vehicles
             }
             VehicleManager::deleteTrain(*this);
             return false;
+        }
+        if (status != Status::loading && status != Status::unloading && !hasVehicleFlags(VehicleFlags::commandStop) && !Rules::prepareVehicle(enumValue(id)))
+        {
+            // Decisions hold at an existing boundary. Let the normal land
+            // braking/motion pipeline reach it rather than zeroing speed in flight.
+            if ((mode == TransportMode::rail || mode == TransportMode::road) && veh2->currentSpeed != 0.0_mph)
+            {
+                return stoppingUpdate();
+            }
+            if (mode == TransportMode::water && veh2->currentSpeed != 0.0_mph)
+            {
+                updateWaterMotion(WaterMotionFlags::isStopping);
+                return true;
+            }
+            if (veh2->currentSpeed == 0.0_mph)
+            {
+                veh2->motorState = MotorState::stopped;
+            }
+            return false;
+        }
+        if (status == Status::loading || status == Status::unloading)
+        {
+            Rules::processStationArrival(enumValue(id));
         }
         updateBreakdown();
         bool continueUpdating = true;
@@ -1298,6 +1322,24 @@ namespace OpenLoco::Vehicles
         Vehicle train(head);
         Vehicle2* vehType2 = train.veh2;
 
+        if (Rules::isApproaching(enumValue(id)))
+        {
+            if (hasVehicleFlags(VehicleFlags::commandStop))
+            {
+                return stoppingUpdate();
+            }
+            if (!Rules::finishApproach(enumValue(id)))
+            {
+                return true;
+            }
+            stationId = StationId::null;
+            status = Status::travelling;
+        }
+        // Removing a rule while braking must not turn a waypoint into a station.
+        if (status == Status::approaching && stationId == StationId::null)
+        {
+            status = Status::travelling;
+        }
         // If don't have any running issue and is approaching
         if ((!vehType2->has73Flags(Flags73::isBrokenDown) || vehType2->has73Flags(Flags73::isStillPowered)) && status == Status::approaching)
         {
@@ -1331,6 +1373,7 @@ namespace OpenLoco::Vehicles
 
         if (status == Status::unloading)
         {
+            Rules::processStationArrival(enumValue(id));
             updateUnloadCargo();
 
             return true;
@@ -1565,6 +1608,10 @@ namespace OpenLoco::Vehicles
     bool VehicleHead::landNormalMovementUpdate()
     {
         advanceToNextRoutableOrder();
+        if (mode == TransportMode::rail)
+        {
+            Signals::refreshApproachSignals(*this);
+        }
         auto [al, flags, nextStation] = sub_4ACEE7(0xD4CB00, getVehicleUpdateDistances().unkDistance1, false);
 
         if (mode == TransportMode::road)
@@ -1588,6 +1635,12 @@ namespace OpenLoco::Vehicles
         else if (timeoutStatus == SignalTimeoutStatus::turnaroundAtSignalTimeout)
         {
             return tryReverse();
+        }
+        else if (al == 5)
+        {
+            status = Status::approaching;
+            stationId = StationId::null;
+            return true;
         }
         else if (al == 4)
         {
@@ -1614,6 +1667,12 @@ namespace OpenLoco::Vehicles
     bool VehicleHead::trainNormalMovementUpdate(uint8_t al, uint8_t flags, StationId nextStation)
     {
         Vehicle train(head);
+        if (al == 5)
+        {
+            status = Status::approaching;
+            stationId = StationId::null;
+            return true;
+        }
         if (al == 4)
         {
             status = Status::approaching;
@@ -2337,6 +2396,14 @@ namespace OpenLoco::Vehicles
     // 0x004A9649
     bool VehicleHead::updateWater()
     {
+        if (Rules::isApproaching(enumValue(id)))
+        {
+            Vehicle train(*this);
+            if (train.veh2->currentSpeed == 0.0_mph && !Rules::finishApproach(enumValue(id)))
+            {
+                return true;
+            }
+        }
         Vehicle train(head);
         Vehicle2* vehType2 = train.veh2;
         if (vehType2->currentSpeed >= 5.0_mph)
@@ -2708,8 +2775,10 @@ namespace OpenLoco::Vehicles
             return;
         }
 
+        Rules::reached(enumValue(id));
         curOrder++;
         currentOrder = curOrder->getOffset() - orderTableOffset;
+        Rules::processStationArrival(enumValue(id));
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
     }
 
@@ -2875,6 +2944,19 @@ namespace OpenLoco::Vehicles
             }
         }
 
+        if (Rules::isApproaching(enumValue(id)) || Rules::holdingDecision(enumValue(id)))
+        {
+            targetSpeed = 0_mph;
+        }
+        else if (Rules::needsArrivalStop(enumValue(id)))
+        {
+            auto order = getCurrentOrders().begin()->as<OrderRouteWaypoint>();
+            if (order)
+            {
+                const auto distance = Math::Vector::manhattanDistance2D(Pos2{ veh2->position }, Pos2{ order->getWaypoint() });
+                targetSpeed = std::min(targetSpeed, Speed16(static_cast<uint16_t>(std::clamp<int>(distance / 4, 5, 255)) << 8));
+            }
+        }
         if (targetSpeed == veh2->currentSpeed)
         {
             veh2->motorState = MotorState::coasting;
@@ -2929,7 +3011,21 @@ namespace OpenLoco::Vehicles
                 auto point = waypoint->getWaypoint();
                 if (point.x == (position.x & 0xFFE0) && point.y == (position.y & 0xFFE0))
                 {
+                    if (Rules::planArrival(enumValue(id)))
+                    {
+                        if (!Rules::finishApproach(enumValue(id)))
+                        {
+                            return flags;
+                        }
+                        Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
+                        return flags;
+                    }
+                    else
+                    {
+                        Rules::reached(enumValue(id));
+                    }
                     currentOrder = (++curOrder)->getOffset() - orderTableOffset;
+                    Rules::prepareVehicle(enumValue(id));
                     Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
                 }
             }
@@ -3191,6 +3287,7 @@ namespace OpenLoco::Vehicles
                 {
                     return false;
                 }
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
                 auto* unloadOrder = order.as<OrderUnloadAll>();
                 if (unloadOrder == nullptr)
                 {
@@ -3352,6 +3449,7 @@ namespace OpenLoco::Vehicles
             uint32_t cargoToWaitFor = 0;
             for (auto& order : orders)
             {
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
                 auto* waitFor = order.as<OrderWaitFor>();
                 if (waitFor != nullptr)
                 {
@@ -3366,6 +3464,7 @@ namespace OpenLoco::Vehicles
             uint32_t allPossibleCargoToWaitFor = 0;
             for (auto& order : orders)
             {
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
                 auto* waitFor = order.as<OrderWaitFor>();
                 if (waitFor != nullptr)
                 {
@@ -3415,7 +3514,8 @@ namespace OpenLoco::Vehicles
             {
                 break;
             }
-            auto* unloadAll = order.as<OrderUnloadAll>();
+            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
+                auto* unloadAll = order.as<OrderUnloadAll>();
             if (unloadAll != nullptr)
             {
                 if (unloadAll->getCargo() == cargo.type)
@@ -3496,6 +3596,7 @@ namespace OpenLoco::Vehicles
     // 0x004BA142 returns false when loaded
     bool VehicleHead::updateLoadCargo()
     {
+        Rules::processStationArrival(enumValue(id));
         if (cargoTransferTimeout != 0)
         {
             cargoTransferTimeout--;
@@ -3547,7 +3648,8 @@ namespace OpenLoco::Vehicles
                 Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
                 break;
             }
-            auto* waitFor = order.as<OrderWaitFor>();
+            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
+                auto* waitFor = order.as<OrderWaitFor>();
             if (waitFor == nullptr)
             {
                 continue;
@@ -3595,7 +3697,8 @@ namespace OpenLoco::Vehicles
                 }
             }
         }
-        if (Lines::holdForTimetable(enumValue(id), currentOrder, enumValue(stationId)))
+        if (Rules::holdAtStation(enumValue(id))) return true;
+        if (Lines::holdForTimetable(enumValue(id), Rules::timetableOrder(enumValue(id), currentOrder), enumValue(stationId)))
         {
             return true;
         }
@@ -4293,8 +4396,14 @@ namespace OpenLoco::Vehicles
                 {
                     if (tileStationId == stationOrder->getStation())
                     {
+                        if (Rules::planArrival(enumValue(head.id)))
+                        {
+                            return Sub4ACEE7Result{ 5, 0, StationId::null };
+                        }
+                        Rules::passed(enumValue(head.id));
                         curOrder++;
                         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+                        Rules::prepareVehicle(enumValue(head.id));
                         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
                         stationProcessed = true;
                     }
@@ -4304,6 +4413,7 @@ namespace OpenLoco::Vehicles
             if (!stationProcessed)
             {
                 if (head.stationId != tileStationId
+                    && Rules::canStopAt(enumValue(head.id), enumValue(tileStationId))
                     && (train.veh1->var_48 & Flags48::expressMode) == Flags48::none)
                 {
                     auto* station = StationManager::get(tileStationId);
@@ -4386,8 +4496,14 @@ namespace OpenLoco::Vehicles
                 return Sub4ACEE7Result{ 0, 0, StationId::null };
             }
         }
+        if (Rules::planArrival(enumValue(head.id)))
+        {
+            return Sub4ACEE7Result{ 5, 0, StationId::null };
+        }
+        Rules::passed(enumValue(head.id));
         curOrder++;
         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+        Rules::prepareVehicle(enumValue(head.id));
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
         return Sub4ACEE7Result{ 0, 0, StationId::null };
     }
@@ -4443,8 +4559,9 @@ namespace OpenLoco::Vehicles
         setSignalState(targetPos, tad, targetTrackType, lightStateFlags);
     }
 
-    // Same colours as a block signal: red on the signal the head passes, yellow then
-    // the following state on the signals behind it.
+    // Keep native block-signal progression: state 1 on the routed post, then
+    // states 2 and 3 behind it. Colours depend on the object's aspect count;
+    // native state 0 is danger, while SIGC3 state 1 is yellow, not red.
     static void applyPassedSignalColours(const World::Pos3& signalPos, uint16_t connection, const World::Pos3& trainPos, VehicleHead& head)
     {
         if ((connection & World::Track::AdditionalTaDFlags::hasSignal) == 0)
@@ -4571,8 +4688,14 @@ namespace OpenLoco::Vehicles
                 {
                     if (tileStationId == stationOrder->getStation())
                     {
+                        if (Rules::planArrival(enumValue(head.id)))
+                        {
+                            return Sub4ACEE7Result{ 5, 0, StationId::null };
+                        }
+                        Rules::passed(enumValue(head.id));
                         curOrder++;
                         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+                        Rules::prepareVehicle(enumValue(head.id));
                         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
                         stationProcessed = true;
                     }
@@ -4582,6 +4705,7 @@ namespace OpenLoco::Vehicles
             if (!stationProcessed)
             {
                 if (head.stationId != tileStationId
+                    && Rules::canStopAt(enumValue(head.id), enumValue(tileStationId))
                     && (train.veh1->var_48 & Flags48::expressMode) == Flags48::none)
                 {
                     return Sub4ACEE7Result{ 4, 0, tileStationId };
@@ -4599,6 +4723,11 @@ namespace OpenLoco::Vehicles
         uint16_t connection = tc.connections[0];
 
         const bool pathLogic = head.var_52 != 1 && !isPlaceDown && Signals::isRailLogicActive();
+        if (pathLogic && !Signals::validatePendingPath(head, nextPos, tc))
+        {
+            train.veh1->var_48 &= ~Flags48::passSignal;
+            return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
+        }
         const auto reservedConnection = pathLogic ? Signals::reservedConnectionAt(head, nextPos, tc) : std::nullopt;
         bool pathApproved = reservedConnection.has_value();
 
@@ -4612,9 +4741,9 @@ namespace OpenLoco::Vehicles
             {
                 connection = trackLongestPathing(head, nextPos, tc, requiredMods, queryMods);
             }
-            else if (pathLogic && Signals::isInPathMode(enumValue(head.id)))
+            else if (const auto start = pathLogic ? Signals::reservationStartAtJunction(head, nextPos, tc) : std::nullopt; start)
             {
-                const auto reserved = Signals::reserveFrom(head, nextPos, tc, Signals::ReserveStart::extend);
+                const auto reserved = Signals::reserveFrom(head, nextPos, tc, *start);
                 if (!reserved)
                 {
                     return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
@@ -4663,6 +4792,19 @@ namespace OpenLoco::Vehicles
                     break;
                 }
             }
+            // A selected junction arm can itself carry a special signal. Apply
+            // the same native passing colours as the single-connection case.
+            if (pathApproved && (connection & World::Track::AdditionalTaDFlags::hasSignal))
+            {
+                const auto entry = Signals::classifyEntry(nextPos, connection);
+                if (entry.hasFacingSignal && entry.kind != Signals::SignalKind::none)
+                {
+                    TrackAndDirection::_TrackAndDirection passedTad{ 0, 0 };
+                    passedTad._data = connection & World::Track::AdditionalTaDFlags::basicTaDMask;
+                    setReverseSignalOccupiedInBlock(nextPos, passedTad, head.owner, head.trackType);
+                    applyPassedSignalColours(nextPos, connection, pos, head);
+                }
+            }
         }
         else
         {
@@ -4681,21 +4823,16 @@ namespace OpenLoco::Vehicles
             {
                 if (!reservedConnection)
                 {
-                    if (head.var_5C != 0 && !Signals::pieceHeldByProtectedOther(head, nextPos, connection))
+                    // A pass override cannot substitute for a safe waypoint
+                    // route, including physical wagons without protected holds.
+                    const auto start = Signals::isChainSignal(entry.kind) ? Signals::ReserveStart::chainSignal : Signals::ReserveStart::pathSignal;
+                    const auto reserved = Signals::reserveFrom(head, nextPos, tc, start);
+                    if (!reserved)
                     {
-                        Signals::setPathMode(enumValue(head.id), false);
+                        train.veh1->var_48 &= ~Flags48::passSignal;
+                        return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
                     }
-                    else
-                    {
-                        const auto start = Signals::isChainSignal(entry.kind) ? Signals::ReserveStart::chainSignal : Signals::ReserveStart::pathSignal;
-                        const auto reserved = Signals::reserveFrom(head, nextPos, tc, start);
-                        if (!reserved)
-                        {
-                            train.veh1->var_48 &= ~Flags48::passSignal;
-                            return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
-                        }
-                        connection = *reserved;
-                    }
+                    connection = *reserved;
                     pathApproved = true;
                 }
 
@@ -4769,6 +4906,7 @@ namespace OpenLoco::Vehicles
 
                     if (pathLogic && Signals::blockHasForeignPath(head, nextPos, connection))
                     {
+                        Signals::onPathWait(head, nextPos, tc);
                         return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
                     }
                 }
@@ -4787,6 +4925,7 @@ namespace OpenLoco::Vehicles
         {
             if (Signals::pieceHeldByProtectedOther(head, nextPos, connection))
             {
+                Signals::onPathWait(head, nextPos, tc);
                 return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
             }
             if (Signals::isInPathMode(enumValue(head.id)))
@@ -4840,8 +4979,17 @@ namespace OpenLoco::Vehicles
                 return Sub4ACEE7Result{ 0, 0, StationId::null };
             }
         }
+        if (Rules::planArrival(enumValue(head.id)))
+        {
+            return Sub4ACEE7Result{ 5, 0, StationId::null };
+        }
+        // Safety proof may extend past this route-through waypoint. Choose the
+        // following order afresh instead of committing that proof's later forks.
+        Signals::dropPendingPath(enumValue(head.id));
+        Rules::passed(enumValue(head.id));
         curOrder++;
         head.currentOrder = curOrder->getOffset() - head.orderTableOffset;
+        Rules::prepareVehicle(enumValue(head.id));
         Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(head.id));
         return Sub4ACEE7Result{ 0, 0, StationId::null };
     }
@@ -6710,8 +6858,14 @@ namespace OpenLoco::Vehicles
         }
         else
         {
-            const auto subPositionLength = static_cast<uint32_t>(World::TrackData::getTrackSubPositon(newTad.track._data).size());
-            newSubPos = subPositionLength - 1 - train.veh2->subPosition;
+            const auto reversedSubPosition = World::TrackData::getReversedTrackSubPosition(newTad.track._data, train.veh2->subPosition);
+            if (!reversedSubPosition)
+            {
+                vehicleFlags |= VehicleFlags::commandStop;
+                liftUpVehicle();
+                return;
+            }
+            newSubPos = *reversedSubPosition;
 
             const auto& trackSize = World::TrackData::getUnkTrack(newTad.track._data);
             newPos += trackSize.pos;

@@ -72,6 +72,7 @@ namespace OpenLoco::Ui
         debug = 61,
         lineManager = 63,
         lineColourSchemes = 64,
+        rules = 65,
 
         undefined = 255
     };

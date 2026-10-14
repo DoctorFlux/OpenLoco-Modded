@@ -139,7 +139,10 @@ namespace OpenLoco::Signals
 
     DisplayState chooseDisplayState(SignalKind kind, const DisplayChoice& choice);
     // A two-state signal has no yellow frame; proceed is green there.
-    DisplayState postStateFor(DisplayState state, uint8_t stateCount);
+    // Logical colours are not the native object state numbers: native 0 is red.
+    uint8_t postStateFor(DisplayState state, uint8_t stateCount);
+    // Waiting at a special signal displays red without changing packed occupancy.
+    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount);
 
     struct SignalClaim
     {
@@ -175,6 +178,12 @@ namespace OpenLoco::Signals
     void clearWaitingSignals(uint16_t owner);
     bool isSignalWaiting(const SideKey& side);
     bool isTrainWaiting(uint16_t owner);
+    // The painter combines approaching blocked routes with actual path waits.
+    // Approach checks never create a reservation or a simulation wait.
+    bool isSignalBlockedForDisplay(const SideKey& side);
+    void setApproachingSignals(uint16_t owner, const std::vector<SideKey>& sides);
+    void clearApproachingSignals(uint16_t owner);
+    bool beginApproachProbe(uint16_t owner, uint32_t tick);
 
     struct ReservationArrow
     {
@@ -220,7 +229,16 @@ namespace OpenLoco::Signals
     EntryInfo classifyEntry(const World::Pos3& entrance, uint16_t connection);
     bool isRailLogicActive();
     bool isSpecialFacingSide(const World::Pos3& entrance, uint16_t trackAndDirection);
+    // Recheck physical occupation and holds before consuming an existing path.
+    // A rejected path is released and the train enters a normal path wait.
+    bool validatePendingPath(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
+    // With rail logic active, the physical front checks foreign occupation
+    // even after a block-signal handoff, before changing piece/routing handle.
+    bool physicalEntryIsClear(Vehicles::VehicleHead& head, const World::Pos3& nextPos, uint16_t connection, const World::Track::TrackConnections& tc);
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
+    std::optional<ReserveStart> reservationStartAtJunction(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
+    void onPathWait(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
+    void refreshApproachSignals(Vehicles::VehicleHead& head);
     std::optional<uint16_t> reserveFrom(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc, ReserveStart start);
     bool pieceHeldByProtectedOther(const Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection);
     bool blockHasForeignPath(const Vehicles::VehicleHead& head, const World::Pos3& entrance, uint16_t connection);

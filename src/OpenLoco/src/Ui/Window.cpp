@@ -503,7 +503,7 @@ namespace OpenLoco::Ui
             return -1;
         }
 
-        auto widgetIndex = 0;
+        auto widgetIndex = -1;
         auto scrollIndex = 0;
         for (auto& widget : widgets)
         {

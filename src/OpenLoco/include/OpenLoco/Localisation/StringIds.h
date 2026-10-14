@@ -2234,6 +2234,32 @@ namespace OpenLoco::StringIds
     constexpr StringId line_own_colours = 2522;
     constexpr StringId line_use_line_colours = 2523;
 
+    constexpr StringId rules_title = 2524;
+    constexpr StringId rules_check = 2525;
+    constexpr StringId rules_compare = 2526;
+    constexpr StringId rules_stop = 2527;
+    constexpr StringId rules_cargo = 2528;
+    constexpr StringId rules_number = 2529;
+    constexpr StringId rules_join = 2530;
+    constexpr StringId rules_extra = 2531;
+    constexpr StringId rules_target = 2532;
+    constexpr StringId rules_name = 2533;
+    constexpr StringId rules_bin = 2534;
+    constexpr StringId rules_name_prompt = 2535;
+    constexpr StringId rules_number_prompt = 2536;
+    constexpr StringId rules_minutes = 2537;
+    constexpr StringId rules_times = 2538;
+    constexpr StringId rules_platform = 2539;
+    constexpr StringId rules_button_short = 2540;
+    constexpr StringId rules_first_row = 2541;
+    constexpr StringId rules_last_row = 2542;
+    constexpr StringId rules_forever = 2543;
+    constexpr StringId rules_loop = 2544;
+    constexpr StringId rules_when = 2545;
+    constexpr StringId rules_details = 2546;
+    constexpr StringId rules_actions = 2547;
+
+
     constexpr StringId temporary_object_load_str_0 = 8192;
     constexpr StringId temporary_object_load_str_1 = 8193;
     constexpr StringId temporary_object_load_str_2 = 8194;

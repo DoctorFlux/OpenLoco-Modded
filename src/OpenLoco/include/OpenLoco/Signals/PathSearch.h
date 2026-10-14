@@ -39,6 +39,7 @@ namespace OpenLoco::Signals
         bool blocked = false;
         bool isTarget = false;
         uint32_t distanceToTarget = 0;
+        uint8_t entryDirection = 0; // Incoming graph junction, independent of the outgoing piece.
     };
 
     class TrackGraph
@@ -60,6 +61,7 @@ namespace OpenLoco::Signals
         std::vector<StepEdge> starts;
         SearchMode mode = SearchMode::pathSignal;
         bool hasTarget = false;
+        bool requireTarget = false; // A waypoint proves direction; protection continues to a safe waiting point.
         uint32_t maxExpansions = 4096;
         uint32_t maxReservedPieces = 64;
     };

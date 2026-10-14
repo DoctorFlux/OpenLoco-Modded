@@ -1,3 +1,4 @@
+#include "CommandLine.h"
 #include "Environment.h"
 #include "Config.h"
 #include "Ui.h"
@@ -66,7 +67,7 @@ namespace OpenLoco::Environment
 
     static fs::path resolveLocoInstallPath()
     {
-        autoCreateDirectory(Platform::getUserDirectory());
+        autoCreateDirectory((getCommandLineOptions().userPath ? fs::absolute(fs::u8path(*getCommandLineOptions().userPath)) : Platform::getUserDirectory()));
         auto& cfg = Config::get();
 
         // Validate any existing configured install path first
@@ -303,7 +304,7 @@ namespace OpenLoco::Environment
             case PathId::heightmap:
             case PathId::customObjects:
             case PathId::screenshots:
-                return Platform::getUserDirectory();
+                return (getCommandLineOptions().userPath ? fs::absolute(fs::u8path(*getCommandLineOptions().userPath)) : Platform::getUserDirectory());
             case PathId::languageFiles:
             case PathId::objects:
                 return Platform::getDataDirectory();

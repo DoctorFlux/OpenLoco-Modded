@@ -1,3 +1,5 @@
+#include "Rules/Rules.h"
+#include "Lines/Line.h"
 #include "Vehicles/VehicleManager.h"
 #include "Audio/Audio.h"
 #include "Date.h"
@@ -163,6 +165,13 @@ namespace OpenLoco::VehicleManager
         Vehicles::TrackAndDirection reverseTad = trackAndDirection;
         if (head->mode != TransportMode::road)
         {
+            const auto reversedSubPosition = World::TrackData::getReversedTrackSubPosition(trackAndDirection.track._data, initialSubPosition);
+            if (!reversedSubPosition)
+            {
+                return PlaceDownResult::Unk0;
+            }
+            subPosition = *reversedSubPosition;
+
             if (Vehicles::sub_4A2A58(pos, trackAndDirection.track, head->owner, head->trackType) & (1U << 0))
             {
                 return PlaceDownResult::Unk1;
@@ -172,9 +181,6 @@ namespace OpenLoco::VehicleManager
             {
                 return PlaceDownResult::Unk1;
             }
-
-            const auto subPositionLength = static_cast<uint32_t>(World::TrackData::getTrackSubPositon(trackAndDirection.track._data).size());
-            subPosition = subPositionLength - 1 - initialSubPosition;
 
             const auto& trackSize = World::TrackData::getUnkTrack(trackAndDirection.track._data);
             reversePos += trackSize.pos;
@@ -413,6 +419,8 @@ namespace OpenLoco::VehicleManager
         }
 
         Audio::stopVehicleNoise(head.id);
+        Lines::unassignVehicle(enumValue(head.id));
+        Rules::forget({ Rules::OwnerKind::vehicle, enumValue(head.id) });
         Signals::forgetTrain(enumValue(head.id));
         Vehicles::RoutingManager::freeRoutingHandle(head.routingHandle);
         Vehicles::OrderManager::freeOrders(&head);
