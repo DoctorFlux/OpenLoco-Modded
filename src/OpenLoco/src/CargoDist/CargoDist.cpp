@@ -568,7 +568,7 @@ namespace OpenLoco::CargoDist
                 continue;
             }
             const auto route = routes.find({ stations.at(source.id).company, source.cargo, source.id, packet.destination });
-            if (route != routes.end() && std::any_of(route->second.begin(), route->second.end(), [&](const Route& candidate) { return stops.contains(candidate.next) && usefulHop(stations.at(source.id).company, source.cargo, source.id, candidate.next, packet.destination); }))
+            if (route != routes.end() && std::any_of(route->second.begin(), route->second.end(), [&](const Route& candidate) { return (stops.contains(packet.destination) && usefulHop(stations.at(source.id).company, source.cargo, source.id, packet.destination, packet.destination)) || (stops.contains(candidate.next) && usefulHop(stations.at(source.id).company, source.cargo, source.id, candidate.next, packet.destination)); }))
             {
                 count += packet.quantity;
             }
@@ -603,10 +603,11 @@ namespace OpenLoco::CargoDist
             {
                 continue;
             }
+            const bool through = stops.contains(packet.destination) && usefulHop(key.company, key.cargo, key.from, key.to, key.to);
             Route* selected = nullptr;
             for (auto& candidate : found->second)
             {
-                if (stops.contains(candidate.next) && usefulHop(key.company, key.cargo, key.from, candidate.next, key.to)
+                if ((through || (stops.contains(candidate.next) && usefulHop(key.company, key.cargo, key.from, candidate.next, key.to)))
                     && (!selected || std::tuple(rank(candidate), candidate.next) < std::tuple(rank(*selected), selected->next)))
                 {
                     selected = &candidate;

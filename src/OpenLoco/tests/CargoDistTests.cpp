@@ -9,6 +9,7 @@
 #include <OpenLoco/Localisation/StringManager.h>
 #include <OpenLoco/Random.h>
 #include <OpenLoco/Rules/Rules.h>
+#include <OpenLoco/Scenario/ScenarioManager.h>
 #include <OpenLoco/Ui/Window.h>
 #include <OpenLoco/Vehicles/OrderManager.h>
 #include <OpenLoco/Vehicles/Orders.h>
@@ -1595,4 +1596,122 @@ TEST_F(AutomaticTransferFixture, adjacentPrivateStopsWaitForSafeContextAfterRelo
     EXPECT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 0);
     reach(*carrier, 2, 2);
     EXPECT_EQ(*CargoDist::load(*carrier, carrierBody->primaryCargo, *carrierBogie), 12);
+}
+
+TEST_F(CargoDistGameFixture, longRouteDiscoveryResumesWithoutPublishingAPartialService)
+{
+    using namespace OpenLoco;
+    const auto original = state().services.at(enumValue(head->id));
+    bogie->secondaryCargo.type = 1;
+    bogie->secondaryCargo.acceptedTypes = 2;
+    bogie->secondaryCargo.maxQty = 5;
+    StationManager::get(StationId(2))->cargoStats[0].isAccepted(false);
+    CargoDist::stationChanged(2);
+    for (uint16_t id = 3; id <= 63; ++id)
+    {
+        auto* station = StationManager::get(StationId(id));
+        *station = OpenLoco::Station{};
+        station->name = StringIds::empty;
+        station->owner = CompanyId(0);
+        station->flags = StationFlags::allModes;
+        station->x = static_cast<int16_t>(id * 32);
+        station->cargoStats[0].origin = StationId(id);
+        station->cargoStats[0].isAccepted(id == 63);
+        CargoDist::stationChanged(id);
+        Vehicles::OrderStopAt order{ StationId(id) };
+        Vehicles::OrderManager::insertOrder(head, head->sizeOfOrderTable - 1, &order);
+    }
+    CargoDist::vehicleChanged(*head);
+    EXPECT_EQ(state().services.at(enumValue(head->id)), original);
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_pending_service.sv5";
+    {
+        std::ofstream file(path);
+        file << "Disposable pending service";
+    }
+    ASSERT_TRUE(saveCompanion(path));
+    ASSERT_TRUE(loadCompanion(path));
+    EXPECT_EQ(StationManager::get(StationId(1))->cargoStats[0].quantity, 12);
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+    std::filesystem::remove(companionPath(path));
+    std::filesystem::remove(path);
+    const auto savedTick = ScenarioManager::getScenarioTicks();
+    size_t ticks = 0;
+    while (state().services.at(enumValue(head->id)) == original && ticks++ < 50)
+    {
+        ScenarioManager::setScenarioTicks(savedTick + static_cast<uint32_t>(ticks));
+        CargoDist::tick();
+    }
+    ASSERT_LT(ticks, 50);
+    EXPECT_GT(ticks, 0);
+    EXPECT_EQ(state().services.at(enumValue(head->id)).size(), 126); // Adjacent service legs, not a quadratic clique.
+    calculate(gameState());
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    StationManager::get(StationId(1))->cargoStats[0].quantity = 12;
+    CargoDist::stationChanged(1);
+    body->primaryCargo.qty = 0;
+    CargoDist::propertiesChanged(*head);
+    auto* late = StationManager::get(StationId(60));
+    late->cargoStats[0].quantity = 12;
+    late->cargoStats[0].origin = StationId(60);
+    CargoDist::stationChanged(60);
+    head->stationId = StationId(60);
+    head->currentOrder = 118;
+    head->checkIfAtOrderStation();
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    EXPECT_EQ(vehicleDestined(enumValue(head->id), 0, 63), 12);
+    ScenarioManager::setScenarioTicks(savedTick);
+}
+TEST_F(AutomaticTransferFixture, aNamedGroupDoesNotMakeAnExplicitUnloadConditional)
+{
+    using namespace OpenLoco;
+    using namespace OpenLoco::Vehicles;
+    OrderUnloadAll unload(0);
+    OrderManager::insertOrder(head, 4, &unload);
+    const auto owner = Rules::ownerForVehicle(enumValue(head->id));
+    const auto p = Rules::snapshot(owner);
+    Rules::Edit edit;
+    edit.block.kind = Rules::Kind::group;
+    edit.block.first = p.rows[1].key;
+    edit.block.last = p.rows[2].key;
+    edit.block.name = "Interchange";
+    ASSERT_TRUE(Rules::submit(owner, edit));
+    CargoDist::vehicleChanged(*head);
+    calculate(gameState());
+    reach(*head, 1, 0);
+    ASSERT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+    reach(*head, 2, 2);
+    ASSERT_TRUE(*CargoDist::unload(*head, body->primaryCargo, *bogie, [](const auto&) { ADD_FAILURE(); }));
+    EXPECT_EQ(waiting(2), 12);
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+}
+
+TEST_F(CargoDistGameFixture, pickupDiscardsThePreviousReachedOccurrenceBeforeRepositioning)
+{
+    using namespace OpenLoco;
+    const auto created = Lines::createLine("Repositioned visits", TransportMode::rail, 2);
+    ASSERT_TRUE(created.ok);
+    for (uint16_t station : { 1, 2, 1, 2 })
+    {
+        Lines::LineOrder order;
+        order.station = station;
+        if (Lines::findLine(created.id)->orders.empty())
+        {
+            order.filters.push_back({ 0, 0, false, true });
+        }
+        ASSERT_TRUE(Lines::addOrder(created.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(created.id, enumValue(head->id), TransportMode::rail).ok);
+    CargoDist::vehicleChanged(*head);
+    calculate(gameState());
+    head->currentOrder = 0;
+    head->checkIfAtOrderStation();
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 0);
+    head->tileX = -1;
+    CargoDist::vehicleChanged(*head);
+    head->tileX = 32;
+    head->currentOrder = 6; // Loading after the later visit to station 1.
+    CargoDist::vehicleChanged(*head);
+    calculate(gameState());
+    EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
 }
