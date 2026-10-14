@@ -5,7 +5,7 @@
 | Feature | Vanilla | Framework plan | Default without opt-in features |
 | --- | --- | --- | --- |
 | Orders | Per vehicle, six types | Shared lines can reference one list | Vanilla orders |
-| Conditional orders | No | Implemented, TESTING: native inline editor in vehicle Route/shared-line Orders, directly editable readable fields, multi-stop/waypoint containers and drag/drop. Rules expands the current window; the line browser stays visible. A list with no blocks runs as it does now | Off until a block is added |
+| Conditional orders | No | Implemented, COMPLETED (user accepted): native inline editor in vehicle Route/shared-line Orders, directly editable readable fields, multi-stop/waypoint containers and drag/drop. Rules expands the current window; the line browser stays visible. A list with no blocks runs as it does now | Off until a block is added |
 | Timetable | No | Shared-line timetable | Off |
 | Block signals | Yes | Kept | On |
 | Path signals | No | Path and chain checkboxes on a normal signal, with one-way or two-way placement, and a train-window reservation viewer. Implemented | Off until a player places one |
@@ -25,7 +25,7 @@
 
 ## Native feature surface
 
-Block rules, shared lines, timetables and path signals are implemented and remain TESTING for the recorded native acceptance items. Latest UI checkpoint `be510fcb` (D58, following D57 `91037492`) on `codex/native-inline-rules` includes D56 safety checkpoint `cf47b6db`, placement fix `3027c2d8`, signal fix `4f5faaae` and block-rules checkpoint `e42b1da8`. Reconfigured Debug/Release builds and complete suites each passed 447/447; focused Rules passed 182/182 (20 new UI regressions), with earlier 87 focused safety/placement checks preserved. D54 and D55 failed the user's native movement recheck; D56 fixes waypoint protection ending before an occupied or reserved continuation. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-14) for the consolidated delivery and manual checks.
+Block rules are implemented and accepted by the user for master integration (D59, 2026-10-14). Shared lines, timetables and path signals retain their separately recorded TESTING statuses and historical unitemized checks. Latest UI checkpoint `be510fcb` (D58, following D57 `91037492`) on `codex/native-inline-rules` includes D56 safety checkpoint `cf47b6db`, placement fix `3027c2d8`, signal fix `4f5faaae` and block-rules checkpoint `e42b1da8`. Reconfigured Debug/Release builds and complete suites each passed 447/447; focused Rules passed 182/182 (20 new UI regressions), with earlier 87 focused safety/placement checks preserved. D54 and D55 failed the user's native movement recheck; D56 fixes waypoint protection ending before an occupied or reserved continuation. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-14) for the consolidated delivery and manual checks.
 
 | Feature | Player-visible surface | Still works without opting in |
 | --- | --- | --- |

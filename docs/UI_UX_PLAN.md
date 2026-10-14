@@ -81,3 +81,5 @@ Inline geometry changes force thumb recalculation for both editing panes, includ
 
 
 D58 (2026-10-14) refines the inline editor: only logic uses shaped blocks. Stops and waypoints sit on the ordinary list background with native medium-bold captions and white circle numbers, rather than rounded puzzle bodies or text numbering. Selection uses the native flat black highlight/white text. Drag grips stay in the margin, nesting and both progress markers remain, and shared orders display native timetable slot notes. Larger condition text is unchanged. User visual acceptance remains pending.
+
+D59 (2026-10-14) records user acceptance of the delivered step and explicit approval to merge the complete logic branch into master. Phase 4 is COMPLETED (user accepted); this supersedes the earlier inline UI TESTING gate. Automated evidence remains 447/447 Debug/Release, focused Rules 182/182. Individual historical gameplay checks are retained as unitemized, not newly claimed as passed.

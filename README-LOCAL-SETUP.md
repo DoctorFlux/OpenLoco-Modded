@@ -157,3 +157,5 @@ Only a short user visual check is requested: compact native appearance and reada
 The rebuilt startup stamp is `v26.09-modded.1-46`, branch `codex/native-inline-rules`, source `91037492`. Debug/Release complete suites each passed 447/447; full details and remaining acceptance are in `docs/DEVELOPMENT_STATUS.md`.
 
 D58 (`be510fcb`, startup `v26.09-modded.1-48`) restores native plain stop/waypoint rows, bold captions and white number circles inside logic. Rebuilt Debug/Release suites passed 447/447 each. Restart the updated executable when convenient for your visual check; game control stays with you.
+
+D59 (2026-10-14): the user accepted Phase 4 delivery and requested normal integration of the complete logic branch into master. Source is unchanged from the verified `be510fcb` build; the rollback tag remains `v26.09-modded.1`. Existing executables keep their verified source stamp until a later rebuild. Future gameplay development uses a fresh feature branch.
