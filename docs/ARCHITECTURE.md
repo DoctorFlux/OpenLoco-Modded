@@ -1,5 +1,7 @@
 # Architecture
 
+D68 accepts CargoDist for master integration. Its native subsystem keeps aggregated packets and identities outside packed station/vehicle records, discovers compatible possible services from private/shared/Rules orders, publishes bounded routing replacements and handles transfers at physical StopAt cargo boundaries. Native production, quantities, age/losses and final payments remain; feeder credit links vehicle/line reporting. Read-only native Cargo summaries and validated settings commands share this subsystem. `.ocargodist` v1 loads after the existing companions; no mod loader, new save container, consist dependency or scripting runtime is added. Source `2d3bb93c` already passes 566/566 tests in both configurations; integration changes docs/history only.
+
 ## Layers and dependencies
 
 ```

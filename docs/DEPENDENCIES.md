@@ -1,5 +1,9 @@
 # Dependencies
 
+CargoDist is **COMPLETED (user accepted D68, 2026-10-14)** and approved for normal master integration. Recorded Debug/Release suites pass 566/566 on unchanged source `2d3bb93c`, including 113 CargoDist checks. Historical TESTING/manual gates are superseded for this delivery; individual manual scenarios are not newly claimed as performed. Both release checkpoints remain unchanged; this integration creates no release.
+
+D66 end-to-end journeys depend on the existing compatible placed-service graph, native cargo lifecycle and accepting destination stations. Combined facilities share their StationId; separate stations need a connecting service. Train, bus/tram, truck, ship and aircraft transfers use the same packets and economy accounting. There is no warehouse, consist, shunting, population-agent or new save-container dependency. Native payment calculations also accept explicit CargoObject metadata for asset-free accounting regressions; the loaded-object entry point and formula remain unchanged.
+
 Hard dependencies are required to activate. Optional integrations add behaviour when the other mod is present and must not be required for the base feature.
 
 ```
@@ -15,9 +19,9 @@ Engine foundation
     |       +-- Path signals
     |       +-- Dynamic consists
     |               +-- Shunting
-    |                       +-- Yard rules (same Rules window, later)
+    |                       +-- Yard rules (same inline Rules editor, later)
     |
-    +-- Cargo routing API
+    +-- CargoDist packets and routing
             +-- Cargo demand
             |       +-- (optional) shunting wagon requests
             |       +-- (optional) destination check in the Rules palette
@@ -38,7 +42,8 @@ Engine foundation
 | Shunting | Consist editing on track and reservations |
 | Yard rules | Shunting and the Rules window |
 | Wagon requests between freight and yards | Cargo demand and shunting |
-| Passenger transfers | Passenger destinations and shared lines |
+| Passenger transfers | CargoDist compatible service graph; private orders or shared lines |
+| CargoDist persistence | Matching native save and `.ocargodist` v1; line/rules companions when referenced |
 | Larger maps or object caps | Save container, then NOF-aware object records |
 
 ## Must work without the other mod
@@ -63,7 +68,7 @@ Mods name capabilities they need (`logic`, `lines`, `reservations`, `consists`, 
 
 ## Implemented block-rule dependencies
 
-Private rules need only vanilla orders and vehicle state. Shared rules bind to Lines and load after its companion. Late/on-time checks require a matching timetable slot. Platform-free checks require a rail list and connected station tracks; physical occupied holds include wagons, while reservations are ignored. Missing check data is unavailable and selects the following Else if/Else branch. No destination or consist subsystem is required; those later blocks stay hidden.
+Private rules need only vanilla orders and vehicle state. Shared rules bind to Lines and load after its companion. Late/on-time checks require a matching timetable slot. Platform-free checks require a rail list and connected station tracks; physical occupied holds include wagons, while reservations are ignored. Missing check data is unavailable and selects the following Else if/Else branch. Existing checks need no destination or consist subsystem. D62/D63 adds destination checks backed by CargoDist; consist/yard blocks remain hidden.
 
 Else chains, Forever repeats and Break need no additional subsystem. Break validates its enclosing Repeat; the shared editor layout and OrderManager display-frame refresh serve private and shared order lists. Existing save companions and packed orders keep their versions.
 
@@ -103,3 +108,9 @@ D56 adds no dependency. Bounded PathSearch target-reached state keeps safety che
 D57 supersedes the standalone-window/small-font UI dependency description above. Inline editing uses the existing native medium fonts and glyph measurements, Dropdown/TextInput, widget/window events, scroll areas and validated Rules commands. Each window owns its editor session; the shared-line browser plus route and palette need three UI scroll areas. Captured drag continuation is opt-in for the two order hosts. No external toolkit, browser, Blockly runtime, scripting language or new persistence dependency is introduced.
 
 D57 regression verification also covers native scroll-index lookup for adjacent browser/order panes: the previous pre-incremented widget index selected the preceding pane. The corrected lookup includes widget zero, preserves the scrollbar-to-content mapping and is required for the three-pane editor.
+
+## CargoDist delivery (D62/D63)
+
+CargoDist depends on native cargo production/compartments/acceptance/economy and the existing order model. Shared lines and Rules provide optional effective-order integrations; private services work independently. Consists, shunting and the save container are not prerequisites. `.ocargodist` loads after lines/signals/rules and validates native holder identities/amounts. Destination checks use this shared subsystem and existing stop keys. Native medium-font widgets, dropdown paging and per-window state need no external UI, scripting or network dependency. Computational and display work is bounded; motion and reservation ownership are unchanged.
+
+D65 automatic-transfer follow-up supersedes standalone CargoDist windows and congestion overlays. Use normal StopAt/private/shared/optional-rule routes and base-game combined StationIds. Inline Cargo-tab summaries and the per-game Options Misc Automatic/Classic preset replace the large UI; mixed modes and hidden settings persist. Reached-stop ownership/key/revision/signature context and UI caches are transient and reconstruct after load, preserving cargo when unresolved. Packed saves and companion versions remain unchanged. CargoDist is COMPLETED by D68 user acceptance; no consist/shunting or new save-container dependency is introduced.

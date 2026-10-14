@@ -135,7 +135,7 @@ namespace OpenLoco::Rules
                     {
                         continue;
                     }
-                    if (static_cast<unsigned>(c->check) > static_cast<unsigned>(Check::year) || static_cast<unsigned>(c->compare) > 2 || c->cargo >= 32 || c->value < 0)
+                    if (static_cast<unsigned>(c->check) > static_cast<unsigned>(Check::cargoOnboardFor) || static_cast<unsigned>(c->compare) > 2 || c->cargo >= 32 || c->value < 0)
                     {
                         return { false, "Invalid check" };
                     }
@@ -143,7 +143,7 @@ namespace OpenLoco::Rules
                     {
                         return { false, "Platforms are only available on rail lists" };
                     }
-                    if (c->check == Check::cargoWaiting || c->check == Check::platformFree || c->check == Check::late || c->check == Check::onTime)
+                    if (c->check == Check::cargoWaiting || c->check == Check::cargoWaitingFor || c->check == Check::cargoOnboardFor || c->check == Check::platformFree || c->check == Check::late || c->check == Check::onTime)
                     {
                         auto stop = indexOf(p, c->stop);
                         if (stop >= p.rows.size() || ((p.rows[stop].raw & 7) != 1 && (p.rows[stop].raw & 7) != 2))
@@ -1076,6 +1076,116 @@ namespace OpenLoco::Rules
     Decision next(const Program& p, Runtime& r, uint32_t tick, const Evaluate& evaluate, Key arrivalOnly)
     {
         return nextWithCode(p, compile(p), r, tick, evaluate, arrivalOnly);
+    }
+
+    PossibleService possibleService(const Program& p, size_t budget)
+    {
+        PossibleService result;
+        if (p.rows.empty() || !validate(p))
+        {
+            return result;
+        }
+        const auto code = compile(p);
+        struct Position
+        {
+            size_t pc = 0;
+            Key last = 0;
+            std::map<Key, bool> branches;
+            auto operator<=>(const Position&) const = default;
+        };
+        std::vector<Position> pending(1);
+        std::set<Position> seen;
+        while (!pending.empty() && budget)
+        {
+            --budget;
+            auto current = std::move(pending.back());
+            pending.pop_back();
+            if (current.pc >= code.instructions.size())
+            {
+                current.pc = 0;
+                current.branches.clear();
+            }
+            if (!seen.insert(current).second)
+            {
+                continue;
+            }
+            const auto& instruction = code.instructions[current.pc];
+            const auto* block = instruction.op == Op::row ? nullptr : blockById(p, instruction.key);
+            ++current.pc;
+            switch (instruction.op)
+            {
+                case Op::row:
+                    if ((p.rows[indexOf(p, instruction.key)].raw & 7) == 1)
+                    {
+                        result.stops.insert(instruction.key);
+                        if (current.last && current.last != instruction.key)
+                        {
+                            result.links.emplace(current.last, instruction.key);
+                        }
+                        current.last = instruction.key;
+                    }
+                    break;
+                case Op::check:
+                case Op::otherwise:
+                {
+                    bool taken = false;
+                    for (auto parent = block->parent; parent;)
+                    {
+                        taken |= current.branches.contains(parent) && current.branches.at(parent);
+                        const auto* previous = blockById(p, parent);
+                        parent = previous && previous->kind == Kind::elseIf ? previous->parent : 0;
+                    }
+                    if (taken || !block->enabled)
+                    {
+                        current.branches[block->id] = false;
+                        current.pc = instruction.jump;
+                    }
+                    else
+                    {
+                        if (instruction.op == Op::check)
+                        {
+                            auto failure = current;
+                            failure.pc = instruction.jump;
+                            failure.branches[block->id] = false;
+                            pending.push_back(std::move(failure));
+                        }
+                        current.branches[block->id] = true;
+                    }
+                    break;
+                }
+                case Op::skip:
+                case Op::breakLoop:
+                    current.pc = instruction.jump;
+                    break;
+                case Op::goTo:
+                    if (block->enabled)
+                    {
+                        current.pc = code.entries.at(block->target);
+                    }
+                    break;
+                case Op::repeatEnd:
+                    if (block->number != 1)
+                    {
+                        if (block->number)
+                        {
+                            pending.push_back(current);
+                        }
+                        current.pc = instruction.jump;
+                        std::erase_if(current.branches, [&](const auto& entry) {
+                            const auto* inner = blockById(p, entry.first);
+                            return inner && indexOf(p, inner->first) >= indexOf(p, block->first) && indexOf(p, inner->last) <= indexOf(p, block->last);
+                        });
+                    }
+                    break;
+                case Op::arrival:
+                case Op::repeatStart:
+                case Op::wait:
+                    break;
+            }
+            pending.push_back(std::move(current));
+        }
+        result.limited = !pending.empty();
+        return result;
     }
     RoutePreview previewRoute(const Program& p, Runtime runtime, Key committed, uint32_t tick, const Evaluate& evaluate)
     {

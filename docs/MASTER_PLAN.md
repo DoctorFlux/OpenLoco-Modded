@@ -1,5 +1,7 @@
 # Master plan
 
+CargoDist is **COMPLETED (user accepted, D68, 2026-10-14)** and approved for normal integration into master. It delivers passenger/mail destinations, two-way multimodal feeders, freight interchanges, private/shared/possible-rule services, linked earnings, compact native Cargo views and companion persistence. Recorded Debug/Release suites pass 566/566 on unchanged tested source `2d3bb93c`. Historical TESTING gates below are superseded for CargoDist. Keep release checkpoints; no new release is implied. Save-container work, consists and shunting remain deferred. Next concrete task after integration is the user's next requested feature on a fresh branch from master.
+
 OpenLoco Advanced Modding Framework turns this fork into an extensible transport simulation while the unmodified game remains playable. Current gameplay features are native, opt-in systems using shared engine code (D23); no mod loader is shipped.
 
 This file is the authority for goals and sequencing. Detailed behaviour lives in the linked documents. Those documents must not contradict this plan.
@@ -7,7 +9,7 @@ This file is the authority for goals and sequencing. Detailed behaviour lives in
 ## Goals
 
 - Keep Chris Sawyer's Locomotion graphics, camera, UI style, and default rules.
-- Make new systems opt-in so a player who adds no blocks or other feature settings keeps the current OpenLoco behavior.
+- Existing optional systems preserve default OpenLoco behaviour. D62 explicitly makes CargoDist automatic in new and older saves; selecting Manual preserves classic cargo distribution.
 - Share one implementation of orders, reservations, cargo routing, and programmable logic across gameplay systems.
 - Let players configure the delivered gameplay systems in native windows without compiling C++.
 - Stay compatible with upstream OpenLoco where that does not block the framework. Track that in `UPSTREAM_TRACKING.md`.
@@ -91,13 +93,13 @@ Phases are detailed in `ROADMAP.md`. The short form:
 1. Mod loader. Removed (D23).
 2. Packages and manager UI. Removed with the loader (D23).
 3. Shared lines, then timetables.
-4. Block rules on a vehicle's orders and on a shared line's orders, in one Rules window. Checkpoint before this step: `v26.09-modded.1`.
-5. Versioned save container and mod state. Align with upstream NSF.
-6. Dynamic consists and on-track coupling.
+4. Block rules on a vehicle's orders and on a shared line's orders, edited inline in their native order windows. Checkpoint before this step: `v26.09-modded.1`.
+5. Versioned save container and mod state. Align with upstream NSF. DEFERRED; matching companions are permitted.
+6. Dynamic consists and on-track coupling. DEFERRED by user; CargoDist completion does not resume this phase.
 7. Path reservations and signals.
-8. Shunting jobs and yard programs.
-9. Cargo demand.
-10. Passenger destinations.
+8. Shunting jobs and yard programs. DEFERRED until consists exist.
+9. Cargo demand. CargoDist routing/transfers are COMPLETED (D68), ahead of Phases 5/6/8; industry markets remain later.
+10. Passenger destinations. CargoDist packets/transfers are COMPLETED (D68); new generation models remain later.
 11. Object limits and larger worlds, aligned with NOF.
 12. Performance, packaging, release.
 
@@ -119,7 +121,11 @@ The packaging decision is in `DECISIONS.md`: hybrid monorepo until a mod needs i
 - `DECISIONS.md`, `UPSTREAM_TRACKING.md`
 - `docs/mods/` for each gameplay spec
 
-## Current milestone
+## Accepted milestone (D68, 2026-10-14)
+
+CargoDist is COMPLETED by user acceptance and approved for master integration from `codex/cargo-distribution`. Shared lines/timetables, path/chain signals and the first logic delivery remain COMPLETED. The user deferred Phase 5, consists and shunting. Automatic passenger/mail/freight distribution applies to new and older saves; Manual preserves classic behaviour. Packed saves stay unchanged, with a matching `.ocargodist` companion. Latest recorded suites pass 566/566 in both configurations. See `mods/CARGO_DISTRIBUTION.md` and development status for integration results and evidence.
+
+## Historical milestone records
 
 Phase 4 is implemented on `codex/block-logic-programming` and remains TESTING until its required in-game checks are recorded. Native opt-in features supersede the original package-loader goal (D23). Preserve master and `v26.09-modded.1` while testing; no release or merge is implied. Consists, shunting, destinations, NSF/NOF and multiplayer remain later work.
 
@@ -144,3 +150,5 @@ Signal follow-up D48 is implemented in TESTING on `codex/directional-waypoint-si
 D49 closes the screenshot's free-circle workaround and native junction signal bypass on the same signal-fix branch. Required waypoint proofs cannot revisit the same directed junction before the waypoint, while distinct valid alternatives remain. Special signals on outgoing arms are checked before path mode starts. Both full suites passed 385/385; native acceptance remains user-run and TESTING.
 
 D57 supersedes the separate-window UI workflow: the Rules button expands native Vehicle Route or shared-line Orders in place, retaining the line browser and existing controls. Compact C blocks use readable native medium-font fields and per-window edit sessions. This UI-only follow-up is on `codex/native-inline-rules`; Phase 4 remains TESTING pending the user's short appearance/edit/drag acceptance. No later gameplay milestone starts here.
+
+D65 automatic-transfer follow-up supersedes standalone CargoDist windows and congestion overlays. Use normal StopAt/private/shared/optional-rule routes and base-game combined StationIds. Inline Cargo-tab summaries and the per-game Options Misc Automatic/Classic preset replace the large UI; mixed modes and hidden settings persist. Reached-stop ownership/key/revision/signature context and UI caches are transient and reconstruct after load, preserving cargo when unresolved. Packed saves and companion versions remain unchanged. CargoDist remains TESTING pending a short user coal/passenger/save check; no consist/shunting or new save-container dependency is introduced.

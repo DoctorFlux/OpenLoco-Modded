@@ -71,6 +71,8 @@ namespace OpenLoco::Rules
             case Check::platformFree: return "platform " + std::to_string(condition.platform) + " free at row " + std::to_string(indexOf(program, condition.stop) + 1);
             case Check::late: return "late at row " + std::to_string(indexOf(program, condition.stop) + 1);
             case Check::onTime: return "on time at row " + std::to_string(indexOf(program, condition.stop) + 1);
+            case Check::cargoWaitingFor: return "cargo waiting for stop " + std::to_string(condition.stop) + " " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
+            case Check::cargoOnboardFor: return "cargo onboard for stop " + std::to_string(condition.stop) + " " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
             case Check::year: return "year " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
         }
         return {};
@@ -145,13 +147,13 @@ namespace OpenLoco::Rules
             add(BlockField::when, timingOf(program, b) == Timing::onArrival ? "arrive" : "before");
         }
         auto condition = [&](const Condition& c, bool extra) {
-            constexpr const char* checks[] = { "cargo", "full", "empty", "space", "platform", "late", "on time", "year" };
+            constexpr const char* checks[] = { "cargo", "full", "empty", "space", "platform", "late", "on time", "year", "waiting for", "onboard for" };
             add(BlockField::check, checks[static_cast<unsigned>(c.check)], extra);
-            if (c.check == Check::cargoWaiting || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
+            if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
             {
                 add(BlockField::stop, ordinal(c.stop) ? "stop " + std::to_string(ordinal(c.stop)) : "missing", extra);
             }
-            if (c.check == Check::cargoWaiting)
+            if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor)
             {
                 std::string label = "cargo " + std::to_string(c.cargo + 1);
                 if (const auto* cargo = ObjectManager::get<CargoObject>(c.cargo))
@@ -166,7 +168,7 @@ namespace OpenLoco::Rules
             {
                 add(BlockField::cargo, "plat " + std::to_string(c.platform), extra);
             }
-            if (c.check == Check::cargoWaiting || c.check == Check::year)
+            if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::year)
             {
                 add(BlockField::compare, c.compare == Compare::less ? "<" : c.compare == Compare::greater ? ">"
                                                                                                           : "=",

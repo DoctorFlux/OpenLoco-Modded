@@ -1,7 +1,6 @@
-#include "Rules/Rules.h"
-#include "Lines/Line.h"
 #include "Vehicles/VehicleManager.h"
 #include "Audio/Audio.h"
+#include "CargoDist/Game.h"
 #include "Date.h"
 #include "Entities/EntityManager.h"
 #include "Game.h"
@@ -10,10 +9,12 @@
 #include "GameCommands/Vehicles/VehiclePickupWater.h"
 #include "GameState.h"
 #include "GameStateFlags.h"
+#include "Lines/Line.h"
 #include "Map/Track/SubpositionData.h"
 #include "Map/Track/TrackData.h"
 #include "MessageManager.h"
 #include "Objects/ObjectManager.h"
+#include "Rules/Rules.h"
 #include "SceneManager.h"
 #include "Signals/PathSignals.h"
 #include "Ui/WindowManager.h"
@@ -37,6 +38,7 @@ namespace OpenLoco::VehicleManager
     {
         if (Game::hasFlags(GameStateFlags::tileManagerLoaded) && !SceneManager::isEditorMode())
         {
+            CargoDist::tick();
             for (auto* v : VehicleList())
             {
                 v->updateVehicle();
@@ -193,8 +195,12 @@ namespace OpenLoco::VehicleManager
         else
         {
 
-            const auto subPositionLength = static_cast<uint32_t>(World::TrackData::getRoadSubPositon(trackAndDirection.road._data).size());
-            subPosition = subPositionLength - 1 - initialSubPosition;
+            const auto reversed = World::TrackData::getReversedRoadSubPosition(trackAndDirection.road._data, initialSubPosition);
+            if (!reversed)
+            {
+                return PlaceDownResult::Unk0;
+            }
+            subPosition = reversed->subPosition;
 
             const auto& roadSize = World::TrackData::getUnkRoad(trackAndDirection.road.basicRad());
             reversePos += roadSize.pos;
@@ -202,16 +208,7 @@ namespace OpenLoco::VehicleManager
             {
                 reversePos -= World::Pos3{ World::kRotationOffset[roadSize.rotationEnd], 0 };
             }
-            reverseTad.road.setReversed(!trackAndDirection.road.isReversed());
-            reverseTad.road._data ^= (1U << 7);
-            if (reverseTad.road.isChangingLane())
-            {
-                reverseTad.road._data ^= (1U << 7);
-                if (!reverseTad.road.isOvertaking())
-                {
-                    reverseTad.road._data ^= (1U << 8);
-                }
-            }
+            reverseTad.road._data = reversed->trackAndDirection;
         }
 
         Vehicles::RoutingManager::resetRoutings(head->routingHandle);

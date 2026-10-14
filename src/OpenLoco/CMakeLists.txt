@@ -1,4 +1,8 @@
 set(OLOCO_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CargoDist/View.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CargoDist/Save.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CargoDist/CargoDist.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CargoDist/Game.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Audio/AmbientAudio.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Audio/Audio.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Audio/Music.cpp"
@@ -784,6 +788,7 @@ set(private_compile_definitions
 )
 
 set(test_files
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/CargoDistTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/TileManagerTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/GameplayOptionsTests.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/RulesTests.cpp"

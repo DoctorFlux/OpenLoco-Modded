@@ -1,4 +1,5 @@
 #include "World/StationManager.h"
+#include "CargoDist/Game.h"
 #include "Config.h"
 #include "Game.h"
 #include "GameCommands/GameCommands.h"
@@ -40,6 +41,7 @@ namespace OpenLoco::StationManager
     // 0x0048B1D8
     void reset()
     {
+        CargoDist::reset();
         for (auto& station : rawStations())
         {
             station.name = StringIds::null;
@@ -680,6 +682,7 @@ namespace OpenLoco::StationManager
     // 0x0048F7D1
     void deallocateStation(const StationId stationId)
     {
+        CargoDist::stationRemoved(enumValue(stationId));
         WindowManager::close(WindowType::station, WindowNumber_t(stationId));
 
         auto station = get(stationId);

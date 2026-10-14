@@ -44,7 +44,9 @@ namespace OpenLoco::Rules
         platformFree,
         late,
         onTime,
-        year
+        year,
+        cargoWaitingFor,
+        cargoOnboardFor
     };
     enum class Compare : uint8_t
     {
@@ -195,6 +197,14 @@ namespace OpenLoco::Rules
     };
     // Current facts projected on a runtime copy, at most 256 steps and 64 destinations.
     RoutePreview previewRoute(const Program& program, Runtime runtime, Key committed, uint32_t tick, const Evaluate& evaluate);
+    struct PossibleService
+    {
+        std::set<Key> stops;
+        std::set<std::pair<Key, Key>> links;
+        bool limited = false;
+    };
+    // Read-only abstract control flow: both possible condition outcomes, exclusive Else chains.
+    PossibleService possibleService(const Program& program, size_t budget = 4096);
     enum class RoutePreviewMode : uint8_t
     {
         vehicleProgress,

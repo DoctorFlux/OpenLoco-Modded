@@ -1,4 +1,5 @@
 #include "Entities/EntityManager.h"
+#include "CargoDist/Game.h"
 #include "Entities/EntityTweener.h"
 #include "GameCommands/GameCommands.h"
 #include "GameState.h"
@@ -38,6 +39,7 @@ namespace OpenLoco::EntityManager
     // 0x0046FDFD
     void reset()
     {
+        CargoDist::reset();
         // Reset all entities to 0
         std::fill(std::begin(rawEntities()), std::end(rawEntities()), Entity{});
         // Reset all entity lists
@@ -302,6 +304,10 @@ namespace OpenLoco::EntityManager
     // 0x0047024A
     void freeEntity(EntityBase* const entity)
     {
+        if (entity->baseType == EntityBaseType::vehicle)
+        {
+            CargoDist::componentRemoved(enumValue(entity->id));
+        }
         entity->invalidateSprite();
 
         EntityTweener::get().removeEntity(entity);

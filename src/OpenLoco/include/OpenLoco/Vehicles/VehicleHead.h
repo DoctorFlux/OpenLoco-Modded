@@ -88,6 +88,8 @@ namespace OpenLoco::Vehicles
         void updateDaily();
         VehicleStatus getStatus() const;
         OrderRingView getCurrentOrders() const;
+        // Physical station boundary; advances orders before the native cargo phase.
+        void checkIfAtOrderStation();
         bool isPlaced() const { return tileX != -1 && !has38Flags(Flags38::isGhost); }
         bool hasAnyCargo();
         char* generateCargoTotalString(char* buffer);
@@ -142,7 +144,6 @@ namespace OpenLoco::Vehicles
         bool updateWater();
         void tryCreateInitialMovementSound(const Status initialStatus);
         void setStationVisitedTypes();
-        void checkIfAtOrderStation();
         void updateLastJourneyAverageSpeed();
         void beginUnloading();
         void beginLoading();

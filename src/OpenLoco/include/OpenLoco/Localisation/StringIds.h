@@ -2258,7 +2258,35 @@ namespace OpenLoco::StringIds
     constexpr StringId rules_when = 2545;
     constexpr StringId rules_details = 2546;
     constexpr StringId rules_actions = 2547;
-
+    constexpr StringId cargo_dist_title = 2548;
+    constexpr StringId cargo_dist_settings = 2549;
+    constexpr StringId cargo_dist_waiting = 2550;
+    constexpr StringId cargo_dist_planned = 2551;
+    constexpr StringId cargo_dist_capacity = 2552;
+    constexpr StringId cargo_dist_cargo = 2553;
+    constexpr StringId cargo_dist_company = 2554;
+    constexpr StringId cargo_dist_group = 2555;
+    constexpr StringId cargo_dist_sort = 2556;
+    constexpr StringId cargo_dist_manual = 2557;
+    constexpr StringId cargo_dist_symmetric = 2558;
+    constexpr StringId cargo_dist_asymmetric = 2559;
+    constexpr StringId cargo_dist_auto = 2560;
+    constexpr StringId cargo_dist_overlay = 2561;
+    constexpr StringId cargo_dist_distance = 2562;
+    constexpr StringId cargo_dist_returning = 2563;
+    constexpr StringId cargo_dist_accuracy = 2564;
+    constexpr StringId cargo_dist_destinations = 2565;
+    constexpr StringId cargo_transfer_label = 2566;
+    constexpr StringId cargo_transfer_automatic = 2567;
+    constexpr StringId cargo_transfer_classic = 2568;
+    constexpr StringId cargo_transfer_custom = 2569;
+    constexpr StringId cargo_transfer_finding = 2570;
+    constexpr StringId cargo_transfer_connection = 2571;
+    constexpr StringId cargo_transfer_to = 2572;
+    constexpr StringId cargo_transfer_via = 2573;
+    constexpr StringId cargo_transfer_many = 2574;
+    constexpr StringId cargo_transfer_limited = 2575;
+    constexpr StringId cargo_transfer_tip = 2576;
 
     constexpr StringId temporary_object_load_str_0 = 8192;
     constexpr StringId temporary_object_load_str_1 = 8193;

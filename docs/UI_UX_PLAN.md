@@ -1,5 +1,11 @@
 # UI and UX
 
+D68 accepts the delivered CargoDist UI for master integration: normal orders/shared lines/optional Rules, compact expandable station/vehicle destination summaries, Automatic/Classic in Options Misc and no automatic-origin wording. The D62/D63 standalone windows and congestion overlays remain superseded by D65/D67. No new layout or controls are added during integration; historical CargoDist TESTING gates are superseded.
+
+D67 automatic Cargo entries show native quantities followed by distribution/destination summaries; omit the legacy station "en-route from" line and vehicle "from [station]" suffix. Station base rows return to 12 pixels, with destination lines using the existing shared variable-row geometry. Vehicle image/compartment geometry and controls remain. Classic entries retain native presentation. Origin metadata is not changed by drawing.
+
+D66 keeps the D65 compact interface. One native cargo entry can expand several final station destinations, including different stops within one town. A combined station's cargo pool is shared across its facilities; an ordinary nonaccepting interchange uses the same summary. Use normal orders/lines and optional Rules, with Automatic/Classic in Options Misc. No warehouse designation, transfer-order button or new destination window is added. Feeder credit contributes to existing vehicle/shared-line profit reporting; company cash follows final delivery. Test evidence and user-only acceptance are in development status.
+
 ## Style
 
 Use the existing OpenLoco window widgets, colours, and string ids. Do not add a separate toolkit. Windows should look like the vehicle and station windows players already know.
@@ -83,3 +89,11 @@ Inline geometry changes force thumb recalculation for both editing panes, includ
 D58 (2026-10-14) refines the inline editor: only logic uses shaped blocks. Stops and waypoints sit on the ordinary list background with native medium-bold captions and white circle numbers, rather than rounded puzzle bodies or text numbering. Selection uses the native flat black highlight/white text. Drag grips stay in the margin, nesting and both progress markers remain, and shared orders display native timetable slot notes. Larger condition text is unchanged. User visual acceptance remains pending.
 
 D59 (2026-10-14) records user acceptance of the delivered step and explicit approval to merge the complete logic branch into master. Phase 4 is COMPLETED (user accepted); this supersedes the earlier inline UI TESTING gate. Automated evidence remains 447/447 Debug/Release, focused Rules 182/182. Individual historical gameplay checks are retained as unitemized, not newly claimed as passed.
+
+## Compact automatic-transfer UI (COMPLETED, D68)
+
+D65 supersedes D62/D63 standalone CargoDist windows and all Cargo congestion overlays. There is no Map > Cargo, Destinations or line Capacity entry. Existing Path/All route display is retained.
+
+Station/vehicle Cargo tabs keep native dimensions, sprites, quantity captions, empty rows, catchment/refit controls and other tabs. Automatic cargo adds one destination/transfer summary beneath each nonempty entry. Clicking the row expands/collapses destination quantities inline, with the existing scrollbar. Classic rows retain their native geometry. All draw, hover, hit and scroll positions come from the same cached CargoRows layout; per-window expansion clears on closure, owner change or game reset. Native normal-medium text is clipped to available width, never overlaid on controls. Queries/drawing are read-only and bounded; pending/unavailable routing displays Finding route/Waiting for connection.
+
+Options > Miscellaneous places Cargo transfers beside Lines in the existing 420×356 layout. Automatic/Classic apply validated per-game settings. Mixed saved modes display disabled Custom (saved); opening the control never overwrites them. Advanced saved values remain hidden and preserved. Menus retain game/company/settings guards. Rules destination fields are unchanged. D68 records user delivery acceptance; future visual regressions remain user-controlled.
