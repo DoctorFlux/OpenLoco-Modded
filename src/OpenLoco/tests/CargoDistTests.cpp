@@ -4,12 +4,15 @@
 #include <OpenLoco/CargoDist/View.h>
 #include <OpenLoco/Entities/EntityManager.h>
 #include <OpenLoco/GameCommands/GameCommands.h>
+#include <OpenLoco/GameState.h>
 #include <OpenLoco/Lines/Line.h>
 #include <OpenLoco/Localisation/StringIds.h>
 #include <OpenLoco/Localisation/StringManager.h>
+#include <OpenLoco/Objects/CargoObject.h>
 #include <OpenLoco/Random.h>
 #include <OpenLoco/Rules/Rules.h>
 #include <OpenLoco/Scenario/ScenarioManager.h>
+#include <OpenLoco/SceneManager.h>
 #include <OpenLoco/Ui/Window.h>
 #include <OpenLoco/Vehicles/OrderManager.h>
 #include <OpenLoco/Vehicles/Orders.h>
@@ -21,6 +24,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <sstream>
+#include <tuple>
 
 using namespace OpenLoco::CargoDist;
 namespace CargoDist = OpenLoco::CargoDist;
@@ -1714,4 +1718,618 @@ TEST_F(CargoDistGameFixture, pickupDiscardsThePreviousReachedOccurrenceBeforeRep
     CargoDist::vehicleChanged(*head);
     calculate(gameState());
     EXPECT_EQ(*CargoDist::load(*head, body->primaryCargo, *bogie), 12);
+}
+
+namespace
+{
+    // Town stop 1 -- combined interchange 2 -- outer station 3 -- town stops 4/5.
+    // Facilities share a StationId, not an artificial warehouse or transfer order.
+    struct CargoJourneyFixture : AutomaticTransferFixture
+    {
+        struct Transport
+        {
+            OpenLoco::Vehicles::VehicleHead* head;
+            OpenLoco::Vehicles::VehicleBody* body;
+            OpenLoco::Vehicles::VehicleBogie* bogie;
+        };
+        Transport local{};
+
+        void station(uint16_t id, bool accepts)
+        {
+            using namespace OpenLoco;
+            auto* value = StationManager::get(StationId(id));
+            *value = OpenLoco::Station{};
+            value->flags = StationFlags::allModes;
+            value->name = StringIds::empty;
+            value->owner = CompanyId(0);
+            value->town = TownId(id > 3 ? 1 : 0);
+            value->x = static_cast<int16_t>(id * 32);
+            for (uint8_t cargo : { 0, 1 })
+            {
+                value->cargoStats[cargo].origin = StationId(id);
+                value->cargoStats[cargo].isAccepted(accepts);
+            }
+            CargoDist::stationChanged(id);
+        }
+        void mode(Transport transport, OpenLoco::VehicleType type, uint8_t cargo = 0)
+        {
+            using namespace OpenLoco;
+            const auto transportMode = type == VehicleType::train ? TransportMode::rail : type == VehicleType::ship ? TransportMode::water
+                : type == VehicleType::aircraft                                                                     ? TransportMode::air
+                                                                                                                    : TransportMode::road;
+            for (auto* part = static_cast<Vehicles::VehicleBase*>(transport.head); part; part = part->nextVehicleComponent())
+            {
+                part->mode = transportMode;
+            }
+            transport.head->vehicleType = type;
+            transport.body->primaryCargo.type = cargo;
+            transport.body->primaryCargo.acceptedTypes = 1U << cargo;
+            CargoDist::vehicleChanged(*transport.head);
+        }
+        Transport create(std::initializer_list<uint16_t> stops, OpenLoco::VehicleType type = OpenLoco::VehicleType::bus)
+        {
+            using namespace OpenLoco;
+            using namespace OpenLoco::Vehicles;
+            VehicleBase* parts[7];
+            const VehicleEntityType types[] = { VehicleEntityType::head, VehicleEntityType::vehicle_1, VehicleEntityType::vehicle_2, VehicleEntityType::bogie, VehicleEntityType::bogie, VehicleEntityType::body_start, VehicleEntityType::tail };
+            for (size_t i = 0; i < 7; ++i)
+            {
+                parts[i] = reinterpret_cast<VehicleBase*>(EntityManager::createEntityVehicle());
+                parts[i]->baseType = EntityBaseType::vehicle;
+                parts[i]->subType = types[i];
+                parts[i]->owner = CompanyId(0);
+                parts[i]->head = parts[0]->id;
+                parts[i]->tileX = 32;
+                parts[i]->nextCarId = EntityId::null;
+                if (i)
+                {
+                    parts[i - 1]->nextCarId = parts[i]->id;
+                }
+            }
+            Transport result{ reinterpret_cast<VehicleHead*>(parts[0]), reinterpret_cast<VehicleBody*>(parts[5]), reinterpret_cast<VehicleBogie*>(parts[3]) };
+            result.head->status = Status::loading;
+            result.head->stationId = StationId(*stops.begin());
+            EntityManager::moveEntityToList(result.head, EntityManager::EntityListType::vehicleHead);
+            OrderManager::allocateOrders(*result.head);
+            for (auto id : stops)
+            {
+                OrderStopAt order{ StationId(id) };
+                OrderManager::insertOrder(result.head, result.head->sizeOfOrderTable - 1, &order);
+            }
+            result.body->primaryCargo.maxQty = 20;
+            result.body->creationDay = 42;
+            mode(result, type);
+            return result;
+        }
+        void share(Transport transport, std::initializer_list<uint16_t> stops)
+        {
+            using namespace OpenLoco;
+            const auto line = Lines::createLine("Transfer chain", transport.head->mode, 2);
+            ASSERT_TRUE(line.ok);
+            for (auto id : stops)
+            {
+                Lines::LineOrder order;
+                order.station = id;
+                ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+            }
+            ASSERT_TRUE(Lines::assignVehicle(line.id, enumValue(transport.head->id), transport.head->mode).ok);
+        }
+        Transport feeder() { return { head, body, bogie }; }
+        Transport trunk() { return { carrier, carrierBody, carrierBogie }; }
+        Holder holding(Transport t) { return { true, OpenLoco::enumValue(t.body->id), t.body->primaryCargo.type, 0 }; }
+        uint32_t loadAt(Transport t, uint16_t id, uint16_t offset)
+        {
+            reach(*t.head, id, offset);
+            return CargoDist::load(*t.head, t.body->primaryCargo, *t.bogie).value();
+        }
+        uint32_t unloadAt(Transport t, uint16_t id, uint16_t offset)
+        {
+            reach(*t.head, id, offset);
+            uint32_t delivered = 0;
+            CargoDist::unload(*t.head, t.body->primaryCargo, *t.bogie, [&](const Packet& packet) { delivered += packet.quantity; });
+            return delivered;
+        }
+        void SetUp() override
+        {
+            AutomaticTransferFixture::SetUp();
+            station(4, true);
+            station(5, true);
+            station(3, false);
+            local = create({ 3, 4, 5 });
+            mode(feeder(), OpenLoco::VehicleType::bus);
+            CargoDist::vehicleChanged(*carrier);
+            calculate(gameState());
+        }
+    };
+    struct PassengerJourneyTests : CargoJourneyFixture, testing::WithParamInterface<std::tuple<OpenLoco::VehicleType, bool, uint8_t>>
+    {
+    };
+}
+
+TEST_P(PassengerJourneyTests, differentTownDestinationsAndReturnFeedersUseNormalOrders)
+{
+    using namespace OpenLoco;
+    const auto [longDistanceMode, shared, cargo] = GetParam();
+    auto settings = state().settings;
+    settings.modes[cargo] = Mode::symmetric;
+    ASSERT_TRUE(submitSettings(settings));
+    mode(feeder(), cargo == 0 ? VehicleType::bus : VehicleType::tram, cargo);
+    mode(trunk(), longDistanceMode, cargo);
+    mode(local, cargo == 0 ? VehicleType::tram : VehicleType::bus, cargo);
+    if (shared)
+    {
+        share(feeder(), { 1, 2 });
+        share(trunk(), { 2, 3 });
+        share(local, { 3, 4, 5 });
+    }
+    if (cargo == 1)
+    {
+        StationManager::get(StationId(1))->deliverCargoToStation(cargo, 12);
+    }
+    CargoDist::vehicleChanged(*head);
+    CargoDist::vehicleChanged(*carrier);
+    CargoDist::vehicleChanged(*local.head);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    const auto to4 = state().destined(holding(feeder()), 4);
+    const auto to5 = state().destined(holding(feeder()), 5);
+    ASSERT_GT(to4, 0);
+    ASSERT_GT(to5, 0);
+    EXPECT_EQ(to4 + to5, 12);
+    // Acceptance at the outer stations must not prematurely end these journeys.
+    for (uint16_t id : { 2, 3 })
+    {
+        StationManager::get(StationId(id))->cargoStats[cargo].isAccepted(true);
+        CargoDist::stationChanged(id);
+    }
+    calculate(gameState());
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    EXPECT_EQ(state().destined({ false, 2, cargo, 0 }, 4), to4);
+    EXPECT_EQ(state().destined({ false, 2, cargo, 0 }, 5), to5);
+    EXPECT_EQ(CargoDist::load(*head, body->primaryCargo, *bogie).value(), 0);
+    ASSERT_EQ(loadAt(trunk(), 2, 0), 12);
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), 0);
+    ASSERT_EQ(loadAt(local, 3, 0), 12);
+    EXPECT_EQ(unloadAt(local, 4, 2), to4);
+    EXPECT_EQ(local.body->primaryCargo.qty, to5);
+    EXPECT_EQ(unloadAt(local, 5, 4), to5);
+    EXPECT_EQ(local.body->primaryCargo.qty, 0);
+
+    // Native return production selects the now-reachable town-1 stop.
+    for (uint16_t id : { 1, 2, 3, 4, 5 })
+    {
+        StationManager::get(StationId(id))->cargoStats[cargo].isAccepted(id == 1);
+        CargoDist::stationChanged(id);
+    }
+    StationManager::get(StationId(5))->deliverCargoToStation(cargo, 9);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(local, 5, 4), 9);
+    EXPECT_EQ(state().destined(holding(local), 1), 9);
+    EXPECT_EQ(unloadAt(local, 3, 0), 0);
+    ASSERT_EQ(loadAt(trunk(), 3, 2), 9);
+    EXPECT_EQ(unloadAt(trunk(), 2, 0), 0);
+    ASSERT_EQ(loadAt(feeder(), 2, 2), 9);
+    EXPECT_EQ(unloadAt(feeder(), 1, 0), 9);
+    EXPECT_EQ(state().quantity(holding(feeder())), 0);
+    for (uint16_t id : { 1, 2, 3, 4, 5 })
+    {
+        EXPECT_EQ(StationManager::get(StationId(id))->cargoStats[cargo].quantity, 0);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(NormalAndShared, PassengerJourneyTests, testing::Combine(testing::Values(OpenLoco::VehicleType::train, OpenLoco::VehicleType::ship, OpenLoco::VehicleType::aircraft), testing::Bool(), testing::Values(uint8_t(0), uint8_t(1))));
+
+TEST_F(CargoJourneyFixture, partialLoadsLeaveIndependentFinalDestinationsAtEachInterchange)
+{
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    carrierBody->primaryCargo.maxQty = 7;
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(trunk(), 2, 0), 7);
+    EXPECT_EQ(waiting(2), 5);
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), 0);
+    const auto to4 = state().destined({ false, 3, 0, 0 }, 4);
+    const auto to5 = state().destined({ false, 3, 0, 0 }, 5);
+    EXPECT_EQ(to4 + to5, 7);
+    ASSERT_EQ(loadAt(local, 3, 0), 7);
+    EXPECT_EQ(unloadAt(local, 4, 2), to4);
+    EXPECT_EQ(unloadAt(local, 5, 4), to5);
+    EXPECT_EQ(waiting(2) + to4 + to5, 12);
+    EXPECT_EQ(state().quantity(holding(local)), 0);
+}
+
+TEST_F(CargoJourneyFixture, nonacceptingStationStoresFreightForSeveralIndustriesAndCarriers)
+{
+    using namespace OpenLoco;
+    local.head->tileX = -1;
+    CargoDist::vehicleChanged(*local.head);
+    mode(feeder(), VehicleType::train);
+    auto a = create({ 2, 4 }, VehicleType::truck);
+    auto b = create({ 2, 5 }, VehicleType::ship);
+    share(a, { 2, 4 });
+    calculate(gameState());
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    const auto to4 = state().destined(holding(feeder()), 4);
+    const auto to5 = state().destined(holding(feeder()), 5);
+    ASSERT_GT(to4, 0);
+    ASSERT_GT(to5, 0);
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    EXPECT_FALSE(StationManager::get(StationId(2))->cargoStats[0].isAccepted());
+    EXPECT_EQ(waiting(2), 12);
+    EXPECT_EQ(CargoDist::load(*head, body->primaryCargo, *bogie).value(), 0);
+    EXPECT_EQ(loadAt(trunk(), 2, 0), 0); // Its destination accepts no coal.
+    EXPECT_EQ(loadAt(a, 2, 0), to4);
+    EXPECT_EQ(loadAt(b, 2, 0), to5);
+    EXPECT_EQ(waiting(2), 0);
+    EXPECT_EQ(unloadAt(a, 4, 2), to4);
+    EXPECT_EQ(unloadAt(b, 5, 2), to5);
+    EXPECT_EQ(to4 + to5, 12);
+}
+
+TEST_F(CargoJourneyFixture, nearbySeparateStationsNeedAnActualConnectingService)
+{
+    using namespace OpenLoco;
+    station(6, false);
+    Vehicles::OrderManager::deleteOrder(carrier, 0);
+    Vehicles::OrderStopAt railHub{ StationId(6) };
+    Vehicles::OrderManager::insertOrder(carrier, 0, &railHub);
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    EXPECT_EQ(loadAt(feeder(), 1, 0), 0);
+    EXPECT_EQ(waiting(1), 12);
+    auto connector = create({ 2, 6 }, VehicleType::tram);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    ASSERT_EQ(loadAt(connector, 2, 0), 12);
+    EXPECT_EQ(unloadAt(connector, 6, 2), 0);
+    ASSERT_EQ(loadAt(trunk(), 6, 0), 12);
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), 0);
+    ASSERT_EQ(loadAt(local, 3, 0), 12);
+    const auto to4 = state().destined(holding(local), 4);
+    EXPECT_EQ(unloadAt(local, 4, 2), to4);
+    EXPECT_EQ(unloadAt(local, 5, 4), 12 - to4);
+}
+
+TEST_F(CargoJourneyFixture, unconnectedInterchangeWaitsUntilOnwardVehiclesArePlaced)
+{
+    carrier->tileX = -1;
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    EXPECT_EQ(loadAt(feeder(), 1, 0), 0);
+    EXPECT_EQ(waiting(1), 12);
+    carrier->tileX = 64;
+    CargoDist::vehicleChanged(*carrier);
+    calculate(gameState());
+    EXPECT_EQ(loadAt(feeder(), 1, 0), 12);
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    EXPECT_EQ(waiting(2), 12);
+}
+
+TEST_F(CargoJourneyFixture, acceptingCombinedStationsDeliverTheirShareAndTransferTheRest)
+{
+    using namespace OpenLoco;
+    auto settings = state().settings;
+    settings.modes[0] = Mode::symmetric;
+    ASSERT_TRUE(submitSettings(settings));
+    for (uint16_t id : { 2, 3 })
+    {
+        StationManager::get(StationId(id))->cargoStats[0].isAccepted(true);
+        CargoDist::stationChanged(id);
+    }
+    StationManager::get(StationId(1))->deliverCargoToStation(0, 28);
+    for (auto t : { feeder(), trunk(), local })
+    {
+        t.body->primaryCargo.maxQty = 40;
+        CargoDist::vehicleChanged(*t.head);
+    }
+    calculate(gameState());
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 40);
+    std::array<uint32_t, 6> destinations{};
+    for (uint16_t id : { 2, 3, 4, 5 })
+    {
+        destinations[id] = state().destined(holding(feeder()), id);
+        ASSERT_GT(destinations[id], 0);
+    }
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), destinations[2]);
+    EXPECT_EQ(waiting(2), 40 - destinations[2]);
+    ASSERT_EQ(loadAt(trunk(), 2, 0), 40 - destinations[2]);
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), destinations[3]);
+    ASSERT_EQ(loadAt(local, 3, 0), destinations[4] + destinations[5]);
+    EXPECT_EQ(unloadAt(local, 4, 2), destinations[4]);
+    EXPECT_EQ(unloadAt(local, 5, 4), destinations[5]);
+    EXPECT_EQ(destinations[2] + destinations[3] + destinations[4] + destinations[5], 40);
+    for (uint16_t id : { 1, 2, 3, 4, 5 })
+    {
+        EXPECT_EQ(waiting(id), 0);
+    }
+}
+
+TEST_F(CargoJourneyFixture, possiblePassengerDestinationsDoNotForceTheLocalLogicBranch)
+{
+    using namespace OpenLoco;
+    const auto owner = Rules::ownerForVehicle(enumValue(local.head->id));
+    const auto program = Rules::snapshot(owner);
+    Rules::Edit branch;
+    branch.block.kind = Rules::Kind::ifBlock;
+    branch.block.first = branch.block.last = program.rows[1].key;
+    branch.block.condition.check = Rules::Check::cargoWaiting;
+    branch.block.condition.stop = program.rows[0].key;
+    branch.block.condition.cargo = 0;
+    branch.block.condition.compare = Rules::Compare::greater;
+    branch.block.condition.value = 0;
+    ASSERT_TRUE(Rules::submit(owner, branch));
+    Rules::Edit alternative;
+    alternative.block.kind = Rules::Kind::otherwise;
+    alternative.block.parent = Rules::snapshot(owner).blocks.front().id;
+    alternative.block.first = alternative.block.last = program.rows[2].key;
+    ASSERT_TRUE(Rules::submit(owner, alternative));
+    CargoDist::vehicleChanged(*local.head);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    ASSERT_GT(state().destined(holding(feeder()), 4), 0);
+    ASSERT_GT(state().destined(holding(feeder()), 5), 0);
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    ASSERT_EQ(loadAt(trunk(), 2, 0), 12);
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), 0);
+    reach(*local.head, 3, 0);
+    const auto before = Rules::snapshot(owner);
+    const auto order = local.head->currentOrder;
+    ASSERT_EQ(CargoDist::load(*local.head, local.body->primaryCargo, *local.bogie).value(), 12);
+    EXPECT_EQ(local.head->currentOrder, order);
+    EXPECT_EQ(Rules::snapshot(owner), before);
+}
+
+TEST_F(CargoJourneyFixture, reloadAtBothHandoffsPreservesMixedOriginsAndDestinations)
+{
+    using namespace OpenLoco;
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    station(6, false);
+    auto otherOrigin = create({ 6, 2 }, VehicleType::tram);
+    StationManager::get(StationId(6))->deliverCargoToStation(0, 8);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(otherOrigin, 6, 0), 8);
+    CargoDist::ageVehicle(*otherOrigin.head);
+    EXPECT_EQ(unloadAt(otherOrigin, 2, 2), 0);
+    auto packets = state().holdings.at({ false, 2, 0, 0 }).packets;
+    EXPECT_EQ(state().quantity({ false, 2, 0, 0 }), 20);
+    EXPECT_TRUE(std::any_of(packets.begin(), packets.end(), [](const auto& p) { return p.origin == 6 && p.age == 1; }));
+    EXPECT_TRUE(std::any_of(packets.begin(), packets.end(), [](const auto& p) { return p.origin == 1 && p.age == 0; }));
+    // Each complete replacement reconstructs transient service/reached-stop context.
+    State restored;
+    std::istringstream first(encode(state()));
+    ASSERT_TRUE(readState(first, restored, 42, quantities(state())));
+    replaceState(std::move(restored));
+    ASSERT_EQ(loadAt(trunk(), 2, 0), 20);
+    EXPECT_EQ(state().holdings.at(holding(trunk())).packets, packets);
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), 0);
+    std::istringstream second(encode(state()));
+    ASSERT_TRUE(readState(second, restored, 42, quantities(state())));
+    replaceState(std::move(restored));
+    ASSERT_EQ(loadAt(local, 3, 0), 20);
+    EXPECT_EQ(state().holdings.at(holding(local)).packets, packets);
+    const auto to4 = state().destined(holding(local), 4);
+    EXPECT_EQ(unloadAt(local, 4, 2), to4);
+    EXPECT_EQ(unloadAt(local, 5, 4), 20 - to4);
+}
+
+TEST_F(CargoJourneyFixture, closedDestinationReroutesWaitingInterchangeCargo)
+{
+    using namespace OpenLoco;
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    ASSERT_GT(state().destined({ false, 2, 0, 0 }, 4), 0);
+    StationManager::get(StationId(4))->cargoStats[0].isAccepted(false);
+    CargoDist::stationChanged(4);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(trunk(), 2, 0), 12);
+    EXPECT_EQ(state().destined(holding(trunk()), 5), 12);
+    for (const auto& packet : state().holdings.at(holding(trunk())).packets)
+    {
+        EXPECT_EQ(packet.origin, 1);
+        EXPECT_EQ(packet.originX, 32);
+    }
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), 0);
+    ASSERT_EQ(loadAt(local, 3, 0), 12);
+    EXPECT_EQ(unloadAt(local, 4, 2), 0);
+    EXPECT_EQ(local.body->primaryCargo.qty, 12);
+    EXPECT_EQ(unloadAt(local, 5, 4), 12);
+}
+
+namespace
+{
+    struct CargoRevenueTests : testing::TestWithParam<bool>
+    {
+    };
+}
+
+TEST_P(CargoRevenueTests, twoFeederLegsAndSplitDeliveriesShareNativeRevenueAfterReload)
+{
+    using namespace OpenLoco;
+    // Use the game's payment formula with synthetic metadata, without original DAT assets.
+    auto& factor = getGameState().currencyMultiplicationFactor[0];
+    struct RestoreFactor
+    {
+        uint32_t& factor;
+        uint32_t previous;
+        ~RestoreFactor() { factor = previous; }
+    } restore{ factor, factor };
+    factor = 1024;
+    CargoObject object{};
+    object.paymentFactor = 1024;
+    object.premiumDays = 10;
+    object.maxNonPremiumDays = 20;
+    object.nonPremiumRate = 1024;
+    object.penaltyRate = 2048;
+    auto* company = CompanyManager::get(CompanyId(0));
+    struct RestorePayments
+    {
+        Company& company;
+        currency48_t cash;
+        currency32_t expenditure;
+        SceneManager::Flags scene;
+        ~RestorePayments()
+        {
+            company.cash = cash;
+            company.expenditures[0][ExpenditureType::TrainIncome] = expenditure;
+            SceneManager::setSceneFlags(scene);
+        }
+    } restorePayments{ *company, company->cash, company->expenditures[0][ExpenditureType::TrainIncome], SceneManager::getSceneFlags() };
+    SceneManager::setSceneFlags(SceneManager::Flags::none);
+    company->cash = currency48_t(1000);
+    company->expenditures[0][ExpenditureType::TrainIncome] = 0;
+    auto s = network();
+    s.stations[2].x = 12 * 32;
+    s.stations[3].x = 20 * 32;
+    s.stations[3].accepts = 0;
+    for (uint16_t id : { 4, 5 })
+    {
+        CargoDist::Station destination;
+        destination.id = id;
+        destination.x = static_cast<int16_t>((28 + id) * 32);
+        destination.accepts = 1;
+        s.setStation(destination);
+    }
+    s.setService(30, { { 0, 0, 3, 4, 20, 4, 0 }, { 0, 0, 3, 5, 20, 5, 0 } });
+    calculate(s, 1);
+    s.reconcile(source, 1, 17, 1, 4);
+    ASSERT_EQ(s.load(source, compartment, 17, { 2 }), 17);
+    auto income = [&](uint16_t station, const Packet& packet) {
+        const auto distance = (s.stations.at(station).x - packet.originX) / 32;
+        return int64_t(CompanyManager::calculateDeliveredCargoPayment(object, packet.quantity, distance, packet.age));
+    };
+    auto first = s.unload(compartment, 2, {}, 100, [&](const Packet& p) { return income(2, p); });
+    EXPECT_EQ(first.transferred, 17);
+    EXPECT_TRUE(first.delivered.empty());
+    EXPECT_EQ(company->cash.asInt64(), 1000);
+    int64_t credited = first.virtualCredit;
+    int64_t cash = 0, finalReported = 0;
+    uint32_t delivered = 0;
+    const Holder trunk{ true, 41, 0, 0 }, final{ true, 42, 0, 0 };
+    while (s.quantity({ false, 2, 0, 0 }))
+    {
+        const auto quantity = s.load({ false, 2, 0, 0 }, trunk, 7, { 3 });
+        ASSERT_GT(quantity, 0);
+        auto second = s.unload(trunk, 3, {}, 100, [&](const Packet& p) { return income(3, p); });
+        EXPECT_EQ(second.transferred, quantity);
+        EXPECT_TRUE(second.delivered.empty());
+        credited += second.virtualCredit;
+        // Resume saved credit and split packets between several final carriers/destinations.
+        State restored;
+        std::istringstream saved(encode(s));
+        ASSERT_TRUE(readState(saved, restored, 42, quantities(s)));
+        s = std::move(restored);
+        EXPECT_EQ(cash, 0);
+        EXPECT_EQ(company->cash.asInt64(), 1000);
+    }
+    ASSERT_GT(s.destined({ false, 3, 0, 0 }, 4), 0);
+    ASSERT_GT(s.destined({ false, 3, 0, 0 }, 5), 0);
+    if (GetParam())
+    {
+        for (size_t days = 0; days < 255; ++days)
+        {
+            s.age({ false, 3, 0, 0 });
+        }
+    }
+    for (uint16_t destination : { 4, 5 })
+    {
+        while (s.destined({ false, 3, 0, 0 }, destination))
+        {
+            const auto quantity = s.load({ false, 3, 0, 0 }, final, 3, { destination });
+            ASSERT_GT(quantity, 0);
+            auto result = s.unload(final, destination, {}, 100, [&](const Packet& p) { return income(destination, p); });
+            EXPECT_EQ(result.virtualCredit, 0);
+            EXPECT_EQ(result.transferred, 0);
+            for (const auto& packet : result.delivered)
+            {
+                const auto gross = static_cast<currency32_t>(income(destination, packet));
+                CompanyManager::applyPaymentToCompany(CompanyId(0), -gross, ExpenditureType::TrainIncome);
+                cash += gross;
+                finalReported += gross - packet.credit;
+                delivered += packet.quantity;
+            }
+            EXPECT_TRUE(s.unload(final, destination, {}, 100, [&](const Packet& p) { return income(destination, p); }).delivered.empty());
+        }
+    }
+    EXPECT_EQ(delivered, 17);
+    EXPECT_EQ(credited + finalReported, cash);
+    EXPECT_EQ(company->cash.asInt64(), 1000 + cash);
+    EXPECT_EQ(company->expenditures[0][ExpenditureType::TrainIncome], cash);
+    EXPECT_GT(credited, 0);
+    if (GetParam())
+    {
+        EXPECT_EQ(cash, 0);
+        EXPECT_EQ(finalReported, -credited);
+    }
+    else
+    {
+        EXPECT_GT(finalReported, 0);
+    }
+    EXPECT_EQ(s.quantity({ false, 2, 0, 0 }) + s.quantity({ false, 3, 0, 0 }) + s.quantity(final) + s.quantity(trunk), 0);
+}
+
+INSTANTIATE_TEST_SUITE_P(FreshAndDelayed, CargoRevenueTests, testing::Bool());
+
+TEST_F(CargoJourneyFixture, stopsWithinTheSameTownRemainDistinctPassengerDestinations)
+{
+    using namespace OpenLoco;
+    ASSERT_EQ(StationManager::get(StationId(4))->town, StationManager::get(StationId(5))->town);
+    auto settings = state().settings;
+    settings.modes[0] = Mode::symmetric;
+    ASSERT_TRUE(submitSettings(settings));
+    StationManager::get(StationId(4))->deliverCargoToStation(0, 7);
+    calculate(gameState());
+    ASSERT_EQ(loadAt(local, 4, 2), 7);
+    EXPECT_EQ(state().destined(holding(local), 5), 7);
+    EXPECT_EQ(unloadAt(local, 5, 4), 7);
+    StationManager::get(StationId(5))->deliverCargoToStation(0, 9);
+    ASSERT_EQ(loadAt(local, 5, 4), 9);
+    EXPECT_EQ(state().destined(holding(local), 4), 9);
+    EXPECT_EQ(unloadAt(local, 3, 0), 0);
+    EXPECT_EQ(local.body->primaryCargo.qty, 9);
+    EXPECT_EQ(unloadAt(local, 4, 2), 9);
+    EXPECT_EQ(waiting(4) + waiting(5), 0);
+}
+
+TEST_F(CargoJourneyFixture, finalReportingSubtractsSplitFeederCreditWithoutChangingGrossCash)
+{
+    using namespace OpenLoco;
+    ASSERT_EQ(loadAt(feeder(), 1, 0), 12);
+    int64_t feederCredit = 0;
+    for (auto& packet : gameState().holdings.at(holding(feeder())).packets)
+    {
+        packet.credit = packet.quantity * 7 + 1;
+        feederCredit += packet.credit;
+    }
+    head->var_58 = carrier->var_58 = local.head->var_58 = 0;
+    EXPECT_EQ(unloadAt(feeder(), 2, 2), 0);
+    ASSERT_EQ(loadAt(trunk(), 2, 0), 12);
+    EXPECT_EQ(unloadAt(trunk(), 3, 2), 0);
+    EXPECT_EQ(head->var_58, 0);
+    EXPECT_EQ(carrier->var_58, 0);
+    ASSERT_EQ(loadAt(local, 3, 0), 12);
+    currency32_t reported = 0;
+    uint32_t delivered = 0;
+    auto deliver = [&](const Packet& p) {
+        const auto gross = static_cast<currency32_t>(p.quantity * 31);
+        local.head->var_58 += gross;
+        reported += reportedPayment(gross);
+        EXPECT_EQ(paymentOrigin({ 0, 0 }), (World::Pos2{ p.originX, p.originY }));
+        delivered += p.quantity;
+    };
+    for (uint16_t destination : { 4, 5 })
+    {
+        reach(*local.head, destination, destination == 4 ? 2 : 4);
+        CargoDist::unload(*local.head, local.body->primaryCargo, *local.bogie, deliver);
+        EXPECT_FALSE(CargoDist::unload(*local.head, local.body->primaryCargo, *local.bogie, deliver).value());
+    }
+    EXPECT_EQ(delivered, 12);
+    EXPECT_EQ(local.head->var_58, 12 * 31);
+    EXPECT_EQ(takeIncomeAdjustment(enumValue(local.head->id)), -feederCredit);
+    EXPECT_EQ(takeIncomeAdjustment(enumValue(local.head->id)), 0);
+    EXPECT_EQ(reported + feederCredit, local.head->var_58);
+    EXPECT_EQ(reportedPayment(100), 100);
+    EXPECT_EQ(paymentOrigin({ 7, 9 }), (World::Pos2{ 7, 9 }));
 }

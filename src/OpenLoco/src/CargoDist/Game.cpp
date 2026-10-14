@@ -956,12 +956,13 @@ namespace OpenLoco::CargoDist
             future.clear();
         }
         auto result = _state.unload(*holder, enumValue(head.stationId), future, UINT16_MAX - station->cargoStats[cargo.type].quantity, [&](const Packet& packet) {
-            if (!ObjectManager::get<CargoObject>(cargo.type))
+            const auto* object = ObjectManager::get<CargoObject>(cargo.type);
+            if (!object)
             {
                 return int64_t(0);
             }
             const auto distance = Math::Vector::distance2D(World::Pos2{ station->x, station->y }, World::Pos2{ packet.originX, packet.originY }) / 32;
-            return int64_t(CompanyManager::calculateDeliveredCargoPayment(cargo.type, static_cast<uint16_t>(packet.quantity), static_cast<uint16_t>(distance), packet.age));
+            return int64_t(CompanyManager::calculateDeliveredCargoPayment(*object, static_cast<uint16_t>(packet.quantity), static_cast<uint16_t>(distance), packet.age));
         });
         auto& waitingNative = station->cargoStats[cargo.type];
         const bool previouslyEmpty = waitingNative.quantity == 0;
