@@ -144,3 +144,6 @@ D62/D63 CargoDist implementation includes native settings and grouped station/ve
 
 
 D64 follows the user's truck-placement assertion on CargoDist. Correct centre-line-to-lane conversion and checked native road reversal cover road vehicles and trams; six new placement regressions passed in the 10/10 focused Debug suite. Final full-suite results and the user placement recheck are recorded in development status. This is a stability follow-up on `codex/cargo-distribution`, not a later milestone or a master/release change.
+
+
+D64 final builds and complete suites pass 520/520 in Debug/Release on `22d67d05` (10 placement, 67 CargoDist). The user confirmed the crashing placement was near a bend/junction; the remaining task is the same placement with the new executable. Keep TESTING; no merge or release/tag change.

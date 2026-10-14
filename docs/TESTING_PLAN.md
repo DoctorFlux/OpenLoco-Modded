@@ -192,3 +192,6 @@ User-only short acceptance: use the isolated profile from local setup, create a 
 ## D64 road/tram placement regression
 
 Run `ctest --test-dir build/windows -C Debug -R VehiclePlacementTests --output-on-failure` (and Release). Ten checks cover prior rail bounds plus road preview/lane-length mismatch, all movement positions for both handedness values and native lane/turnaround flags, straight-road identity, bad input and rejection before native mutation. The user's minimal manual recheck is placing/picking up a truck or tram near curve ends with both pickup orientations; invalid placement should give the normal error, never a span assertion. No automated mouse/game control. Full final results and source stamp are in development status.
+
+
+D64 final evidence: source `22d67d05`, stamp `v26.09-modded.2-6`, both game builds succeeded; full Debug/Release suites each passed 520/520 (51.12/19.96 seconds), five test executable paths verified per configuration. Focused Debug placement passed 10/10. Release retains the documented seven test-PDB LNK4020 warnings; game linking is clean. The user confirmed placement near a bend/junction. Only its after-fix manual recheck remains for this crash report.
