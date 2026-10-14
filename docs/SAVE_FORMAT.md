@@ -1,6 +1,6 @@
 # Save format
 
-D68 accepts CargoDist and its existing `.ocargodist` v1 companion for master integration. Packed SV5/SC5, `.olines` v5, `.osignals` v3 and `.orules` v1/PHASES remain unchanged. Keep matching saves/companions together and retain checkpoint saves separately. The new save container and NSF/NOF work remain deferred; this integration adds no persistence fields or versions.
+CargoDist and its existing `.ocargodist` v1 companion are accepted and integrated into master through `eea93c8d` (D68). Packed SV5/SC5, `.olines` v5, `.osignals` v3 and `.orules` v1/PHASES remain unchanged. Keep matching saves/companions together and retain checkpoint saves separately. The new save container and NSF/NOF work remain deferred; this integration adds no persistence fields or versions.
 
 D66 adds no persistence fields or version changes. Multiple destinations/origins, packet age and cumulative feeder credits already use `.ocargodist` v1. Complete multileg tests round-trip those records at both interchange handoffs and before split final delivery, rebuilding transient service/reached-stop context. Packed SV5/SC5, `.olines` v5, `.osignals` v3 and existing `.orules` remain unchanged; no warehouse designation is persisted. Current verification is in development status.
 

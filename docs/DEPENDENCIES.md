@@ -1,6 +1,6 @@
 # Dependencies
 
-CargoDist is **COMPLETED (user accepted D68, 2026-10-14)** and approved for normal master integration. Recorded Debug/Release suites pass 566/566 on unchanged source `2d3bb93c`, including 113 CargoDist checks. Historical TESTING/manual gates are superseded for this delivery; individual manual scenarios are not newly claimed as performed. Both release checkpoints remain unchanged; this integration creates no release.
+CargoDist is **COMPLETED (user accepted D68, 2026-10-14)** and integrated into master through normal merge `eea93c8d`. Recorded Debug/Release suites pass 566/566 on unchanged source `2d3bb93c`, including 113 CargoDist checks. Historical TESTING/manual gates are superseded for this delivery; individual manual scenarios are not newly claimed as performed. Both release checkpoints remain unchanged; this integration creates no release.
 
 D66 end-to-end journeys depend on the existing compatible placed-service graph, native cargo lifecycle and accepting destination stations. Combined facilities share their StationId; separate stations need a connecting service. Train, bus/tram, truck, ship and aircraft transfers use the same packets and economy accounting. There is no warehouse, consist, shunting, population-agent or new save-container dependency. Native payment calculations also accept explicit CargoObject metadata for asset-free accounting regressions; the loaded-object entry point and formula remain unchanged.
 

@@ -168,7 +168,7 @@ Current published release: [26.09-modded.2](https://github.com/DoctorFlux/OpenLo
 
 ## Accepted CargoDist and isolated regression checks
 
-CargoDist is COMPLETED by user acceptance (D68, 2026-10-14) and approved for normal integration of `codex/cargo-distribution` into local/origin master. The feature branch and `v26.09-modded.1` / `v26.09-modded.2` tags remain checkpoints. Use the existing presets for future builds from master; create a fresh branch for the next requested feature. Save-container work, consists and shunting remain deferred.
+CargoDist is COMPLETED by user acceptance (D68, 2026-10-14) and integrated from `codex/cargo-distribution` into local/origin master through `eea93c8d`. The feature branch and `v26.09-modded.1` / `v26.09-modded.2` tags remain checkpoints. Use the existing presets for future builds from master; create a fresh branch for the next requested feature. Save-container work, consists and shunting remain deferred.
 
 Verified local executables are `build/windows/Debug/OpenLoco.exe` and `build/windows/Release/OpenLoco.exe`, stamped `v26.09-modded.2-13`, `codex/cargo-distribution`, `2d3bb93c`. Both complete suites passed 566/566, including 113 CargoDist checks. Their stamp records the actual tested source; this documentation/history-only integration does not rebuild or relabel those binaries. The public modded.2 ZIP is unchanged and does not include CargoDist; no new release is created here.
 

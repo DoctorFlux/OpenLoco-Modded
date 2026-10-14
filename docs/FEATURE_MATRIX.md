@@ -1,6 +1,6 @@
 # Feature matrix
 
-CargoDist is **COMPLETED (user accepted D68, 2026-10-14)** and approved for normal master integration. Recorded Debug/Release suites pass 566/566 on unchanged source `2d3bb93c`, including 113 CargoDist checks. Historical TESTING/manual gates are superseded for this delivery; individual manual scenarios are not newly claimed as performed. Both release checkpoints remain unchanged; this integration creates no release.
+CargoDist is **COMPLETED (user accepted D68, 2026-10-14)** and integrated into master through normal merge `eea93c8d`. Recorded Debug/Release suites pass 566/566 on unchanged source `2d3bb93c`, including 113 CargoDist checks. Historical TESTING/manual gates are superseded for this delivery; individual manual scenarios are not newly claimed as performed. Both release checkpoints remain unchanged; this integration creates no release.
 
 D67 automatic station/vehicle Cargo views omit origin wording and show quantity plus distribution/destination summaries. Station rows reclaim the origin line through shared row geometry. Packet origins/accounting and Classic presentation remain; no new save or language format. Verification is in development status.
 
@@ -33,7 +33,7 @@ D66 reconfigured Debug/Release game builds succeed and both complete suites pass
 
 ## Native feature surface
 
-Published as [26.09-modded.2](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.2) on 2026-10-14, with a verified Windows x64 Release ZIP and SHA-256. Fresh Release suite passed 447/447; master was the only branch at release cleanup; CargoDist development used its own branch; D68 accepts integration into master. Historical branch references below identify preserved implementation history, not current active branches.
+Published as [26.09-modded.2](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.2) on 2026-10-14, with a verified Windows x64 Release ZIP and SHA-256. Fresh Release suite passed 447/447; master was the only branch at release cleanup; CargoDist development used its own branch; D68 integrates it into master through `eea93c8d`. Historical branch references below identify preserved implementation history, not current active branches.
 
 Block rules are implemented and accepted by the user and integrated into master via `28e64e62` (D59, 2026-10-14). Shared lines, timetables and path signals are also COMPLETED by subsequent user acceptance (D61); historical unitemized checks are retained. Latest UI checkpoint `be510fcb` (D58, following D57 `91037492`) on `codex/native-inline-rules` includes D56 safety checkpoint `cf47b6db`, placement fix `3027c2d8`, signal fix `4f5faaae` and block-rules checkpoint `e42b1da8`. Reconfigured Debug/Release builds and complete suites each passed 447/447; focused Rules passed 182/182 (20 new UI regressions), with earlier 87 focused safety/placement checks preserved. D54 and D55 failed the user's native movement recheck; D56 fixes waypoint protection ending before an occupied or reserved continuation. Shunting, expanded objects and larger worlds below remain later plans. CargoDist destination systems are COMPLETED by D68 user acceptance. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-14) for the consolidated delivery and manual checks.
 

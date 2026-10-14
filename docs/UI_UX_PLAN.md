@@ -1,6 +1,6 @@
 # UI and UX
 
-D68 accepts the delivered CargoDist UI for master integration: normal orders/shared lines/optional Rules, compact expandable station/vehicle destination summaries, Automatic/Classic in Options Misc and no automatic-origin wording. The D62/D63 standalone windows and congestion overlays remain superseded by D65/D67. No new layout or controls are added during integration; historical CargoDist TESTING gates are superseded.
+The accepted CargoDist UI is integrated into master through `eea93c8d` (D68): normal orders/shared lines/optional Rules, compact expandable station/vehicle destination summaries, Automatic/Classic in Options Misc and no automatic-origin wording. The D62/D63 standalone windows and congestion overlays remain superseded by D65/D67. No new layout or controls are added during integration; historical CargoDist TESTING gates are superseded.
 
 D67 automatic Cargo entries show native quantities followed by distribution/destination summaries; omit the legacy station "en-route from" line and vehicle "from [station]" suffix. Station base rows return to 12 pixels, with destination lines using the existing shared variable-row geometry. Vehicle image/compartment geometry and controls remain. Classic entries retain native presentation. Origin metadata is not changed by drawing.
 

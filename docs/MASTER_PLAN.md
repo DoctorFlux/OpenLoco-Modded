@@ -1,6 +1,6 @@
 # Master plan
 
-CargoDist is **COMPLETED (user accepted, D68, 2026-10-14)** and approved for normal integration into master. It delivers passenger/mail destinations, two-way multimodal feeders, freight interchanges, private/shared/possible-rule services, linked earnings, compact native Cargo views and companion persistence. Recorded Debug/Release suites pass 566/566 on unchanged tested source `2d3bb93c`. Historical TESTING gates below are superseded for CargoDist. Keep release checkpoints; no new release is implied. Save-container work, consists and shunting remain deferred. Next concrete task after integration is the user's next requested feature on a fresh branch from master.
+CargoDist is **COMPLETED (user accepted, D68, 2026-10-14)** and integrated into master through normal merge `eea93c8d`. It delivers passenger/mail destinations, two-way multimodal feeders, freight interchanges, private/shared/possible-rule services, linked earnings, compact native Cargo views and companion persistence. Recorded Debug/Release suites pass 566/566 on unchanged tested source `2d3bb93c`. Historical TESTING gates below are superseded for CargoDist. Keep release checkpoints; no new release is implied. Save-container work, consists and shunting remain deferred. Next concrete task is the user's next requested feature on a fresh branch from master.
 
 OpenLoco Advanced Modding Framework turns this fork into an extensible transport simulation while the unmodified game remains playable. Current gameplay features are native, opt-in systems using shared engine code (D23); no mod loader is shipped.
 
@@ -123,7 +123,7 @@ The packaging decision is in `DECISIONS.md`: hybrid monorepo until a mod needs i
 
 ## Accepted milestone (D68, 2026-10-14)
 
-CargoDist is COMPLETED by user acceptance and approved for master integration from `codex/cargo-distribution`. Shared lines/timetables, path/chain signals and the first logic delivery remain COMPLETED. The user deferred Phase 5, consists and shunting. Automatic passenger/mail/freight distribution applies to new and older saves; Manual preserves classic behaviour. Packed saves stay unchanged, with a matching `.ocargodist` companion. Latest recorded suites pass 566/566 in both configurations. See `mods/CARGO_DISTRIBUTION.md` and development status for integration results and evidence.
+CargoDist is COMPLETED by user acceptance and approved integrated into master through `eea93c8d` from `codex/cargo-distribution`. Shared lines/timetables, path/chain signals and the first logic delivery remain COMPLETED. The user deferred Phase 5, consists and shunting. Automatic passenger/mail/freight distribution applies to new and older saves; Manual preserves classic behaviour. Packed saves stay unchanged, with a matching `.ocargodist` companion. Latest recorded suites pass 566/566 in both configurations. See `mods/CARGO_DISTRIBUTION.md` and development status for integration results and evidence.
 
 ## Historical milestone records
 
