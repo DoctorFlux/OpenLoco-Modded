@@ -25,6 +25,8 @@
 
 ## Native feature surface
 
+Published as [26.09-modded.2](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.2) on 2026-10-14, with a verified Windows x64 Release ZIP and SHA-256. Fresh Release suite passed 447/447; only master remains as a local/origin branch. Historical branch references below identify preserved implementation history, not current active branches.
+
 Block rules are implemented and accepted by the user and integrated into master via `28e64e62` (D59, 2026-10-14). Shared lines, timetables and path signals retain their separately recorded TESTING statuses and historical unitemized checks. Latest UI checkpoint `be510fcb` (D58, following D57 `91037492`) on `codex/native-inline-rules` includes D56 safety checkpoint `cf47b6db`, placement fix `3027c2d8`, signal fix `4f5faaae` and block-rules checkpoint `e42b1da8`. Reconfigured Debug/Release builds and complete suites each passed 447/447; focused Rules passed 182/182 (20 new UI regressions), with earlier 87 focused safety/placement checks preserved. D54 and D55 failed the user's native movement recheck; D56 fixes waypoint protection ending before an occupied or reserved continuation. Shunting, destination systems, expanded objects and larger worlds below describe later planned surfaces, not delivered features. See [development status](DEVELOPMENT_STATUS.md#current-delivery-snapshot--2026-10-14) for the consolidated delivery and manual checks.
 
 | Feature | Player-visible surface | Still works without opting in |

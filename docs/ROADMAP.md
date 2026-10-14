@@ -133,3 +133,5 @@ D59 supersedes the prior Phase 4 TESTING/merge gate: the user accepted the deliv
 D59 integration result: normal merge `28e64e62` and accepted feature head `1371ff4d` were pushed to origin. No conflicts or source/build-input changes from tested `be510fcb`; rollback preserved. Next task is Phase 5 dependency review on a fresh feature branch.
 
 D60 prepares accepted Phase 4 for release `v26.09-modded.2` and removes merged local/origin feature branches at the user's request. Master remains the sole active branch; rollback tags retain historical checkpoints. Release preparation does not start Phase 5.
+
+D60 completed: `v26.09-modded.2` / `26.09-modded.2` published from tagged master `c1660c34` with verified Windows x64 ZIP and checksum. Fresh Release suite passed 447/447. Only master remains locally/on origin; merged history and modded.1 rollback tag remain. Phase 5 is not started.
