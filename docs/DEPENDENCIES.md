@@ -15,9 +15,9 @@ Engine foundation
     |       +-- Path signals
     |       +-- Dynamic consists
     |               +-- Shunting
-    |                       +-- Yard rules (same Rules window, later)
+    |                       +-- Yard rules (same inline Rules editor, later)
     |
-    +-- Cargo routing API
+    +-- CargoDist packets and routing
             +-- Cargo demand
             |       +-- (optional) shunting wagon requests
             |       +-- (optional) destination check in the Rules palette
@@ -38,7 +38,8 @@ Engine foundation
 | Shunting | Consist editing on track and reservations |
 | Yard rules | Shunting and the Rules window |
 | Wagon requests between freight and yards | Cargo demand and shunting |
-| Passenger transfers | Passenger destinations and shared lines |
+| Passenger transfers | CargoDist compatible service graph; private orders or shared lines |
+| CargoDist persistence | Matching native save and `.ocargodist` v1; line/rules companions when referenced |
 | Larger maps or object caps | Save container, then NOF-aware object records |
 
 ## Must work without the other mod
@@ -63,7 +64,7 @@ Mods name capabilities they need (`logic`, `lines`, `reservations`, `consists`, 
 
 ## Implemented block-rule dependencies
 
-Private rules need only vanilla orders and vehicle state. Shared rules bind to Lines and load after its companion. Late/on-time checks require a matching timetable slot. Platform-free checks require a rail list and connected station tracks; physical occupied holds include wagons, while reservations are ignored. Missing check data is unavailable and selects the following Else if/Else branch. No destination or consist subsystem is required; those later blocks stay hidden.
+Private rules need only vanilla orders and vehicle state. Shared rules bind to Lines and load after its companion. Late/on-time checks require a matching timetable slot. Platform-free checks require a rail list and connected station tracks; physical occupied holds include wagons, while reservations are ignored. Missing check data is unavailable and selects the following Else if/Else branch. Existing checks need no destination or consist subsystem. D62/D63 adds destination checks backed by CargoDist; consist/yard blocks remain hidden.
 
 Else chains, Forever repeats and Break need no additional subsystem. Break validates its enclosing Repeat; the shared editor layout and OrderManager display-frame refresh serve private and shared order lists. Existing save companions and packed orders keep their versions.
 

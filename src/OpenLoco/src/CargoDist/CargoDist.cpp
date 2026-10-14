@@ -134,6 +134,19 @@ namespace OpenLoco::CargoDist
         {
             return;
         }
+        size_t edges = links.size();
+        for (const auto& [id, previous] : services)
+        {
+            if (id != vehicle)
+            {
+                edges += previous.size();
+            }
+        }
+        if (edges > kMaxRoutes || (!services.contains(vehicle) && services.size() >= 1000))
+        {
+            limited = true;
+            return;
+        }
         services[vehicle] = links;
         dirty = true;
         ++revision;

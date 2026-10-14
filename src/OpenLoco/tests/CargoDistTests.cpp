@@ -1078,3 +1078,14 @@ TEST_F(CargoDistGameFixture, serviceUsageIncludesEveryCompartmentAndSurvivesEmpt
         }
     }
 }
+
+TEST(CargoDistTests, serviceObservationLimitRejectsAtomically)
+{
+    auto s = network();
+    const auto before = s.services;
+    const auto revision = s.revision;
+    s.setService(10, std::vector<Link>(kMaxRoutes + 1, Link{ 0, 0, 1, 2, 10, 1, 0 }));
+    EXPECT_EQ(s.services, before);
+    EXPECT_EQ(s.revision, revision);
+    EXPECT_TRUE(s.limited);
+}

@@ -621,15 +621,20 @@ namespace OpenLoco::CargoDist
             const auto& s = session(window);
             Gfx::TextRenderer text(context);
             const auto layout = viewLayout(window.width, window.height);
-            auto footer = s.feedback.empty() ? status() : s.feedback;
-            if (_overlay)
+            auto footer = status();
+            if (!s.feedback.empty())
             {
-                footer += " | white: spare, green: flow, yellow: busy, red: overloaded";
+                footer += " | " + s.feedback;
             }
             std::vector<char> buffer(footer.begin(), footer.end());
             buffer.push_back(0);
             text.clipString(layout.footer.width, buffer.data());
             text.drawString({ layout.footer.x, layout.footer.y }, Colour::black, buffer.data());
+            if (_overlay)
+            {
+                text.setCurrentFont(Gfx::Font::small);
+                text.drawString({ layout.footer.x, static_cast<int16_t>(layout.footer.y + 11) }, Colour::black, "White: spare  Green: flow  Yellow: busy  Red: overloaded");
+            }
         }
         void drawScroll(Ui::Window& window, Gfx::DrawingContext& context, uint32_t)
         {
