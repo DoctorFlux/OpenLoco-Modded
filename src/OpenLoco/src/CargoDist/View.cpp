@@ -204,7 +204,8 @@ namespace OpenLoco::CargoDist
                     {
                         continue;
                     }
-                    entries.push_back({ cargo, 0, native.origin != station->id() ? 22 : 12, 0, native.quantity, enumValue(native.origin), {} });
+                    const bool showOrigin = state().settings.modes[cargo] == Mode::manual && native.origin != station->id();
+                    entries.push_back({ cargo, 0, showOrigin ? 22 : 12, 0, native.quantity, enumValue(native.origin), {} });
                     holders.push_back({ { false, window.number, cargo, 0 } });
                 }
             }

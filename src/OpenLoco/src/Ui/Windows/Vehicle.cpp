@@ -2458,14 +2458,20 @@ namespace OpenLoco::Ui::Windows::Vehicle
 
             auto cargoObj = ObjectManager::get<CargoObject>(cargoType);
             auto unitNameFormat = cargoQty == 1 ? cargoObj->unitNameSingular : cargoObj->unitNamePlural;
-            auto station = StationManager::get(stationId);
-
             FormatArguments args{};
-            args.push(StringIds::cargo_from);
+            const bool showOrigin = CargoDist::state().settings.modes[cargoType] == CargoDist::Mode::manual;
+            if (showOrigin)
+            {
+                args.push(StringIds::cargo_from);
+            }
             args.push(unitNameFormat);
             args.push<uint32_t>(cargoQty);
-            args.push(station && !station->empty() ? station->name : StringIds::empty);
-            args.push(station && !station->empty() ? station->town : TownId::null);
+            if (showOrigin)
+            {
+                auto station = StationManager::get(stationId);
+                args.push(station && !station->empty() ? station->name : StringIds::empty);
+                args.push(station && !station->empty() ? station->town : TownId::null);
+            }
 
             auto point = Point(x, y);
             tr.drawStringLeft(point, Colour::black, strFormat, args);

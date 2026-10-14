@@ -1,5 +1,7 @@
 # UI and UX
 
+D67 automatic Cargo entries show native quantities followed by distribution/destination summaries; omit the legacy station "en-route from" line and vehicle "from [station]" suffix. Station base rows return to 12 pixels, with destination lines using the existing shared variable-row geometry. Vehicle image/compartment geometry and controls remain. Classic entries retain native presentation. Origin metadata is not changed by drawing.
+
 D66 keeps the D65 compact interface. One native cargo entry can expand several final station destinations, including different stops within one town. A combined station's cargo pool is shared across its facilities; an ordinary nonaccepting interchange uses the same summary. Use normal orders/lines and optional Rules, with Automatic/Classic in Options Misc. No warehouse designation, transfer-order button or new destination window is added. Feeder credit contributes to existing vehicle/shared-line profit reporting; company cash follows final delivery. Test evidence and user-only acceptance are in development status.
 
 ## Style

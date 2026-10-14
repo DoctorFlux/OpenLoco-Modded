@@ -593,6 +593,7 @@ namespace OpenLoco::Ui::Windows::Station
 
                 const auto& widget = self.widgets[widx::scrollview];
                 auto xPos = widget.width() - 14;
+                const bool showOrigin = CargoDist::state().settings.modes[cargoId] == CargoDist::Mode::manual && cargo.origin != StationId(self.number);
 
                 {
                     FormatArguments args{};
@@ -600,7 +601,7 @@ namespace OpenLoco::Ui::Windows::Station
                     args.push<uint32_t>(cargo.quantity);
 
                     auto cargoStr = StringIds::station_cargo;
-                    if (cargo.origin != StationId(self.number))
+                    if (showOrigin)
                     {
                         cargoStr = StringIds::station_cargo_en_route_start;
                     }
@@ -610,7 +611,7 @@ namespace OpenLoco::Ui::Windows::Station
                     y += 10;
                 }
 
-                if (cargo.origin != StationId(self.number))
+                if (showOrigin)
                 {
                     auto originStation = StationManager::get(cargo.origin);
                     FormatArguments args{};

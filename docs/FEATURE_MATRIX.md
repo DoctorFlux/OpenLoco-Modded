@@ -1,5 +1,7 @@
 # Feature matrix
 
+D67 automatic station/vehicle Cargo views omit origin wording and show quantity plus distribution/destination summaries. Station rows reclaim the origin line through shared row geometry. Packet origins/accounting and Classic presentation remain; no new save or language format. Verification is in development status.
+
 D66 extends verification of existing automatic transfers to multiple final destinations in one station/compartment, two-way town bus/tram feeders connected by rail/ship/air, same-town stops and empty freight interchanges with several consumers. Private/shared routes use the same system. Native feeder/final revenue linkage is tested through partial splits, two transfers, reload and delayed zero-payment delivery. Source `fa6d60cc` adds 24 checks to the 542 baseline; current complete-suite results are in development status. Keep CargoDist TESTING pending user acceptance. No separate warehouse, large window or new save format is added.
 
 D66 reconfigured Debug/Release game builds succeed and both complete suites pass **566/566**, including 113 CargoDist checks. Source/stamp verification and caveats are in development status; only the short user journey/interchange/reload check remains.

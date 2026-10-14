@@ -24,6 +24,8 @@ Possible rule branches participate in connectivity without changing actual execu
 
 ## Storage and controls
 
+D67 removes origin wording from automatic cargo presentation: station rows omit "en-route from" and reclaim its line; vehicle quantity captions omit "from [station]". Destination/next-hop summaries and expansion remain the player-facing information. Origin, coordinates, age and credits remain in the packet ledger for routing and payment. Classic retains native captions/layout; no language strings, packed data or companion formats change.
+
 Packed Order, vehicle/station records, GameState and SV5/SC5 layouts stay unchanged. Existing `.olines` v5, `.osignals` v3 and old `.orules` records remain readable. Version 1 `<save>.SV5.ocargodist` stores cargo settings, packets, identity/quantity validation, observations, accounting and resumable graph jobs. Missing or rejected data reconstructs native quantities with named diagnostics and no invented feeder credit. Writes use temporary-file replacement.
 
 D65 supersedes the D62/D63 large-window workflow: use ordinary orders, shared lines and optional Rules. Native Cargo tabs provide compact expandable summaries, with a Cargo transfers preset in Options > Miscellaneous. Separate settings/destination/capacity windows and cargo congestion overlays are removed; existing Path/All route displays remain. Destination cargo checks extend the existing Rules editor. No shunting, consist editing, industry production changes, NSF/NOF or external runtime is added.
