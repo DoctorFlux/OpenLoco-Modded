@@ -1,6 +1,16 @@
 # Testing plan
 
-## Latest verified implementation — 2026-10-14
+## Current CargoDist journey verification — 2026-10-14
+
+D66 source `fa6d60cc` adds 24 tests to the 542 baseline (113 CargoDist total). Both reconfigured game builds succeed; complete Debug/Release suites pass **566/566 each** (82.24/15.75 seconds). Focused Debug passes 113/113 (5.28 seconds). Stamp: `v26.09-modded.2-11`. Reconfigure with `cmake --preset windows -DOPENLOCO_BUILD_TESTS=ON`, build both presets, then run complete serial Debug/Release suites. Paths, stamps, data and protected refs are verified in `journeys-report.json`; build caveats and logs are in development status.
+
+Focused command: `ctest --test-dir build/windows -C Debug -R "^(CargoDist|AutomaticTransfer|CargoJourney)|PassengerJourneyTests|CargoRevenueTests" --output-on-failure --parallel 1`, and repeat with Release. Run companion-file tests with access to their disposable temporary files; a restricted run can fail file replacement even when model/journey checks pass. Evidence uses `build/windows/journeys-*`.
+
+The 12 passenger/mail matrix cases use private/shared train, ship and aircraft trunks with bus/tram feeders and complete forward/return native cargo handoffs. Other cases cover several destinations sharing one compartment/station, accepting combined stations delivering only their share, same-town endpoints, partial loads, nonaccepting freight interchanges/multiple consumers/unsuitable carriers, actual connectors between separate stations, missing placed onward services, possible logic branches without forcing them, mixed-origin/age reloads at both handoffs and consumer closure. Native payment metadata plus the company payment API verify two feeder legs, split deliveries, persisted credit and delayed zero-payment accounting. Adapter reporting verifies scope restoration and one-time credit deduction.
+
+These tests use synthetic native components/stations and reached StopAt hooks, not moving-world road/rail geometry, airport landing, docking or industry assets. Request only a short user check: a bus/tram → outer station → long-distance carrier → destination feeder journey (observe more than one final stop and a return journey), a feeder → ordinary empty station → accepting industry handoff, and one save/reload while waiting. Reuse an existing ship/air connection if available. Use normal private orders or shared lines and compact Cargo summaries. Leave game control to the user; keep TESTING until feedback is recorded.
+
+## Historical Rules verification — 2026-10-14
 
 Checkpoint `be510fcb` on `codex/native-inline-rules`: reconfigured Debug/Release game builds succeeded; complete serial suites passed **447/447 in each configuration**, with **182 Rules tests** (98 model/editor, 59 game integration, 25 map), **83 signal checks** (46 PathSignalTests, 37 WaypointSignalFixture), four placement tests and existing line/timetable/gameplay/utility coverage. Focused Release Rules passed **182/182**. All five executable paths were checked per configuration. Evidence: `build/windows/native-orders-{debug,release}-{build,tests}.log`, configure/discovery JSONs and `native-orders-focused-tests.log`.
 

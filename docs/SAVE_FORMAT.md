@@ -1,5 +1,7 @@
 # Save format
 
+D66 adds no persistence fields or version changes. Multiple destinations/origins, packet age and cumulative feeder credits already use `.ocargodist` v1. Complete multileg tests round-trip those records at both interchange handoffs and before split final delivery, rebuilding transient service/reached-stop context. Packed SV5/SC5, `.olines` v5, `.osignals` v3 and existing `.orules` remain unchanged; no warehouse designation is persisted. Current verification is in development status.
+
 ## What the code does now
 
 - Files are SV5/SC5 via Sawyer chunks.

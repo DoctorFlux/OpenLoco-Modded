@@ -1,5 +1,7 @@
 # Roadmap
 
+Current CargoDist follow-up D66 verifies complete two-way town-feeder journeys, multiple final destinations sharing combined stations, and nonaccepting freight interchanges serving several consumers. Continue on `codex/cargo-distribution` from D65 checkpoint `0466592b` (542 tests); source `fa6d60cc` adds 24 regressions and shares the native payment calculator. No warehouse type, new order, large UI or save-format change is required. Build/test evidence is in development status. Next concrete task is the user's short passenger/freight-interchange/reload check; CargoDist remains TESTING and consists/shunting/save-container work remains deferred.
+
 Each milestone is independently buildable. Do not land a whole phase as one change. Status values are defined in `DEVELOPMENT_STATUS.md`.
 
 ## Phase 0 — Baseline

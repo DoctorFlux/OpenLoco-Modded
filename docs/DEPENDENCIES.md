@@ -1,5 +1,7 @@
 # Dependencies
 
+D66 end-to-end journeys depend on the existing compatible placed-service graph, native cargo lifecycle and accepting destination stations. Combined facilities share their StationId; separate stations need a connecting service. Train, bus/tram, truck, ship and aircraft transfers use the same packets and economy accounting. There is no warehouse, consist, shunting, population-agent or new save-container dependency. Native payment calculations also accept explicit CargoObject metadata for asset-free accounting regressions; the loaded-object entry point and formula remain unchanged.
+
 Hard dependencies are required to activate. Optional integrations add behaviour when the other mod is present and must not be required for the base feature.
 
 ```

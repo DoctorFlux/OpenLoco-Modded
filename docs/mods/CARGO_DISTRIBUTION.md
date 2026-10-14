@@ -1,6 +1,18 @@
-# Automatic cargo transfers (D65)
+# Automatic cargo transfers (D65/D66)
 
 Status: TESTING. Branch: `codex/cargo-distribution`. Preserved checkpoint: `e4d7bbb2` (D64 code `22d67d05`). Starting Debug/Release baseline for this follow-up: 520 tests each. Master and both release tags remain unchanged.
+
+D66 verifies complete multimodal journeys from the D65 checkpoint `0466592b` (542-test baseline). Source `fa6d60cc` adds 24 journey/accounting regressions and shares the native payment calculator between loaded-cargo and explicit-metadata callers. The existing automatic routing already supports these scenarios; this follow-up does not introduce a warehouse type or alter order execution. Complete build results are recorded in development status.
+
+## End-to-end destinations and interchanges (D66)
+
+Passengers and mail choose a final served, accepting station. Town/city journeys use stations serving those towns; stops within one town remain separate destinations. A single station, combined facility or compartment can contain groups for several final stations. Native town/building production and acceptance still determine what is generated and which stops can be endpoints; there are no individual people, extra population generation or building-level destinations.
+
+Normal bus/tram orders can connect an inner-town stop to an outer combined railway station, a train can connect two outer stations, and another bus/tram can finish the journey at an inner-town stop. The same services support return journeys when the reverse connections exist. Ships and aircraft participate through their docks/airports and compatible connecting services. Acceptance at an interchange delivers only its addressed groups; other groups transfer or continue aboard. Several final destinations can share each leg and split at later stops.
+
+A normal nonaccepting station can store transferred coal or any other compatible cargo. Train A's mine/interchange route feeds Train B's interchange/consumer route; several onward vehicles and consumer stations may share the waiting stock. No special warehouse designation or Transfer/Unload instruction is needed. Combined facilities share a StationId; separate nearby stations require an actual connecting service. Without a compatible placed onward service to an accepting endpoint, new cargo waits at its origin. Existing transferred stock waits or reroutes when a completed plan loses its connection.
+
+Earnings are linked by packet credit: each transfer credits the feeder's reported revenue virtually, and final delivery subtracts all earlier credits from the final carrier's reported revenue. Only final delivery pays company cash using the native origin/distance/age formula. Total feeder credit plus final reported revenue equals gross final revenue before running costs. Shared-line profit aggregates its vehicles. A long delay may reduce final payment below prior credits, producing negative final reported revenue; it must not create compensating company cash. Partial loads and reloads preserve every credit unit.
 
 ## Approved delivery
 
@@ -50,8 +62,8 @@ Two Checks join the existing inline Rules editor: Cargo waiting for a destinatio
 
 The service graph describes possible order connectivity and observed journey times; it does not promise a physical connection or predict cargo-dependent branches. Actual motion and reservations decide whether a vehicle can travel. A blocked service or permanently untaken branch can leave cargo waiting. Metadata, service-edge and published route caps are 262144 records, with reserved native-holder space; assignment is limited to accuracy times 16 units per call when several destinations exist. Limited forecasts can show a subset; narrow the cargo/company filter for large networks. These are explicit bounded-work limits rather than a change to engine map/object/entity caps.
 
-Final reconfigured Debug/Release game builds succeeded; complete suites each passed 514/514 with 67 CargoDist checks. The prior focused Debug suite passed 65/65. Build caveats and evidence are recorded in development status. Native visual acceptance is the user's short transfer, destination view, overlay and save/reload check. No automated game control is used.
+Historical D63 verification: reconfigured Debug/Release game builds and suites passed 514/514 with 67 CargoDist checks. D65 supersedes the destination-window/overlay acceptance workflow; current results and the short user-only normal-route check are in development status. No automated game control is used.
 
 D65 discovery refinement: changed-vehicle setup is bounded to 4096 work steps. Unfinished possible rides resume using the solver's 4096-step tick budget; the old complete service is retained until replacement. Adjacent load/unload-capable boundaries seed a sparse graph, while same-car through boarding can use its reachable destination directly. Pending contexts are transient and restart safely after load. Coverage includes the 63-order native limit with two cargo types, pending discovery save/reload, later-stop boarding, Group-wrapped unconditional unloading and pickup discarding the old occurrence. Focused Debug passes 89/89; final complete-suite results are in development status.
 
-Final source checkpoint: `c54cfbc8` (initial implementation `40b624bb`). Reconfigured Debug/Release game builds and complete suites pass 542/542 each; focused cargo coverage is 89 checks, up from 67. Actual evidence, stamps and test-symbol caveats are in development status. Keep TESTING for the user-only coal/passenger/reload check; no large-window or cargo-overlay acceptance is required.
+D65 source checkpoint: `c54cfbc8` (initial implementation `40b624bb`). Reconfigured Debug/Release game builds and suites passed 542/542 each, with 89 CargoDist checks. D66 source `fa6d60cc` adds 24 complete-journey/accounting checks (113 CargoDist); current full results, stamps and caveats are in development status. Keep TESTING for the user-only passenger/freight-interchange/reload check; no large-window or cargo-overlay acceptance is required.

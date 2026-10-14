@@ -1,5 +1,7 @@
 # Master plan
 
+Current CargoDist follow-up D66 verifies complete passenger/mail journeys with feeders at both ends and freight handoffs at ordinary nonaccepting stations. Multiple final station destinations, same-town stops, reverse journeys, private/shared/possible-rule services and compatible rail/road/tram/ship/air carriers use the existing automatic subsystem. Native production, acceptance, company payment and compact UI remain; there is no warehouse object or new save container. Continue on the CargoDist branch, retain TESTING pending the user's short journey/handoff/reload check, and keep consists/shunting/save-container work deferred. Current evidence and the next concrete task are in development status.
+
 OpenLoco Advanced Modding Framework turns this fork into an extensible transport simulation while the unmodified game remains playable. Current gameplay features are native, opt-in systems using shared engine code (D23); no mod loader is shipped.
 
 This file is the authority for goals and sequencing. Detailed behaviour lives in the linked documents. Those documents must not contradict this plan.
@@ -119,7 +121,7 @@ The packaging decision is in `DECISIONS.md`: hybrid monorepo until a mod needs i
 - `DECISIONS.md`, `UPSTREAM_TRACKING.md`
 - `docs/mods/` for each gameplay spec
 
-## Current milestone (D62, 2026-10-14)
+## Current milestone (D66, 2026-10-14)
 
 CargoDist is implemented in TESTING on `codex/cargo-distribution`. Shared lines/timetables, path/chain signals and the first logic delivery are COMPLETED by user acceptance and recorded 447/447 tests. The user deferred Phase 5, consists and shunting, and approved complete passenger/mail/freight distribution with automatic defaults for new and older saves. Manual distribution preserves classic behaviour when selected. Packed saves stay unchanged; a matching `.ocargodist` companion carries extended cargo state. See `mods/CARGO_DISTRIBUTION.md`.
 

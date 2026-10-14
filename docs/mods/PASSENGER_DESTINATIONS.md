@@ -1,5 +1,11 @@
 # Passenger destinations
 
+## Current end-to-end behaviour (D66, TESTING)
+
+Normal private/shared/optional-rule services support inner-town bus/tram stop → outer combined station → train/ship/aircraft → destination outer station → local feeder → final town stop, with reverse journeys where connections exist. Several final station destinations coexist in the same waiting pool and compartment. Intermediate acceptance does not end a journey addressed elsewhere. Different stops within one town remain distinct endpoints; native production and station catchment/acceptance are preserved. This uses station destinations, not individual people or building-level passenger agents.
+
+D66 adds native cargo-adapter regressions for passengers and mail, private/shared train/ship/aircraft trunk services, both directions, local bus/tram feeders, accepting interchanges, same-town stops, partial quantities and mixed-origin reloads. It confirms the existing D65 routing rather than adding a separate passenger workflow. Use compact Cargo summaries; no destination window or transfer order is required. The current test baseline/results and remaining short user check are in development status.
+
 Current delivery: native CargoDist is implemented in TESTING (D62/D63), using automatic defaults in new and older saves and a `.ocargodist` companion. See [Cargo distribution](CARGO_DISTRIBUTION.md). This supersedes the classic-by-default and save-container gates below. Existing production and payment formulas remain; explicit industry-demand markets, wagon requests, and additional population-demand generation below are later proposals.
 
 ## Earlier proposal (historical)

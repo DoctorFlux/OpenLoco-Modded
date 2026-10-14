@@ -1,5 +1,11 @@
 # Cargo demand
 
+## Ordinary freight interchanges (D66, TESTING)
+
+An ordinary station with no accepting industry can hold destination-aware cargo between services: mine → feeder → empty interchange → onward carriers → accepting consumer stations. Multiple consumers share that stock, and only suitable carriers board their groups. No warehouse object or Transfer/Unload order is added. Private/shared/possible-rule routes and compatible trains, trucks, trams, ships and aircraft use the same routing. A placed connection to an accepting consumer is required for new feeder boarding; absence of a connection leaves cargo waiting without inventing demand or payment.
+
+Native production, losses, ageing, acceptance and final industry delivery remain. Virtual feeder revenue and final reported revenue share one gross native payment; company cash arrives once at final delivery. D66 verifies several consumers, unsuitable/returning carriers, partial loads, lost consumers and split-credit/reload accounting. Explicit industry demand markets and production changes in the historical proposal remain deferred.
+
 Current delivery: native CargoDist is implemented in TESTING (D62/D63), using automatic defaults in new and older saves and a `.ocargodist` companion. See [Cargo distribution](CARGO_DISTRIBUTION.md). This supersedes the classic-by-default and save-container gates below. Existing production and payment formulas remain; explicit industry-demand markets, wagon requests, and additional population-demand generation below are later proposals.
 
 ## Earlier proposal (historical)
