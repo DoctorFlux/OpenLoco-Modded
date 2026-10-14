@@ -1,12 +1,14 @@
 # Cargo demand
 
-## Ordinary freight interchanges (D66, TESTING)
+D68 accepts the implemented CargoDist portion and approves master integration. The historical proposal below retains future industry-market/population-generation work; completion does not implement those extensions. Tests and acceptance are recorded in development status.
+
+## Ordinary freight interchanges (COMPLETED, D68)
 
 An ordinary station with no accepting industry can hold destination-aware cargo between services: mine → feeder → empty interchange → onward carriers → accepting consumer stations. Multiple consumers share that stock, and only suitable carriers board their groups. No warehouse object or Transfer/Unload order is added. Private/shared/possible-rule routes and compatible trains, trucks, trams, ships and aircraft use the same routing. A placed connection to an accepting consumer is required for new feeder boarding; absence of a connection leaves cargo waiting without inventing demand or payment.
 
 Native production, losses, ageing, acceptance and final industry delivery remain. Virtual feeder revenue and final reported revenue share one gross native payment; company cash arrives once at final delivery. D66 verifies several consumers, unsuitable/returning carriers, partial loads, lost consumers and split-credit/reload accounting. Explicit industry demand markets and production changes in the historical proposal remain deferred.
 
-Current delivery: native CargoDist is implemented in TESTING (D62/D63), using automatic defaults in new and older saves and a `.ocargodist` companion. See [Cargo distribution](CARGO_DISTRIBUTION.md). This supersedes the classic-by-default and save-container gates below. Existing production and payment formulas remain; explicit industry-demand markets, wagon requests, and additional population-demand generation below are later proposals.
+Current delivery: native CargoDist is COMPLETED (user accepted D68), using automatic defaults in new and older saves and a `.ocargodist` companion. See [Cargo distribution](CARGO_DISTRIBUTION.md). This supersedes the classic-by-default and save-container gates below. Existing production and payment formulas remain; explicit industry-demand markets, wagon requests, and additional population-demand generation below are later proposals.
 
 ## Earlier proposal (historical)
 
@@ -39,4 +41,4 @@ A rules check can read cargo waiting. Freight destination becomes a check in tha
 
 Classic mode matches current delivery for a fixed seed. Destination mode delivers to the demanded industry rather than the first accepting station. A request with no shunting mod still lets the train depart.
 
-D65 automatic-transfer follow-up supersedes standalone CargoDist windows and congestion overlays. Use normal StopAt/private/shared/optional-rule routes and base-game combined StationIds. Inline Cargo-tab summaries and the per-game Options Misc Automatic/Classic preset replace the large UI; mixed modes and hidden settings persist. Reached-stop ownership/key/revision/signature context and UI caches are transient and reconstruct after load, preserving cargo when unresolved. Packed saves and companion versions remain unchanged. CargoDist remains TESTING pending a short user coal/passenger/save check; no consist/shunting or new save-container dependency is introduced.
+D65 automatic-transfer follow-up supersedes standalone CargoDist windows and congestion overlays. Use normal StopAt/private/shared/optional-rule routes and base-game combined StationIds. Inline Cargo-tab summaries and the per-game Options Misc Automatic/Classic preset replace the large UI; mixed modes and hidden settings persist. Reached-stop ownership/key/revision/signature context and UI caches are transient and reconstruct after load, preserving cargo when unresolved. Packed saves and companion versions remain unchanged. CargoDist is COMPLETED by D68 user acceptance; no consist/shunting or new save-container dependency is introduced.

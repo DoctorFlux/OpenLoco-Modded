@@ -1,6 +1,6 @@
 # Roadmap
 
-Current CargoDist follow-up D66 verifies complete two-way town-feeder journeys, multiple final destinations sharing combined stations, and nonaccepting freight interchanges serving several consumers. Continue on `codex/cargo-distribution` from D65 checkpoint `0466592b` (542 tests); source `fa6d60cc` adds 24 regressions and shares the native payment calculator. No warehouse type, new order, large UI or save-format change is required. Build/test evidence is in development status. Next concrete task is the user's short passenger/freight-interchange/reload check; CargoDist remains TESTING and consists/shunting/save-container work remains deferred.
+CargoDist delivery is **COMPLETED (user accepted D68, 2026-10-14)**, including the implemented Phase 9/10 portions. Integrate the complete CargoDist branch normally into master with all related acceptance documentation; preserve both release tags and the feature branch. Source `2d3bb93c` already passes reconfigured game builds and 566/566 tests in each configuration. Verify unchanged source/data/build inputs and reuse the recorded test evidence during integration. No new release, warehouse type, order or save format is added. Next concrete task is the user's next requested nondeferred feature on a fresh branch from master. Consists/shunting/save-container work remains deferred. Later TESTING/manual gates in historical checkpoint records are superseded for CargoDist by D68.
 
 Each milestone is independently buildable. Do not land a whole phase as one change. Status values are defined in `DEVELOPMENT_STATUS.md`.
 
@@ -107,11 +107,11 @@ D56 (`cf47b6db`), same branch, follows another failed D55 manual stopping check.
 
 ## Phase 9 — Cargo demand
 
-The CargoDist portion is implemented in TESTING ahead of Phase 6/8: automatic asymmetric freight, compatible services, transfers, destination views and persistence. Manual is selectable. Spec: `mods/CARGO_DISTRIBUTION.md`. Industry markets and production scheduling in `mods/CARGO_DEMAND.md` remain future extensions.
+The CargoDist portion is COMPLETED (user accepted D68): automatic asymmetric freight, compatible services, nonaccepting interchanges, destinations, linked earnings and persistence. Manual is selectable. Spec: `mods/CARGO_DISTRIBUTION.md`. Industry markets and production scheduling in `mods/CARGO_DEMAND.md` remain future extensions.
 
 ## Phase 10 — Passengers
 
-The CargoDist portion is implemented in TESTING with automatic symmetric passengers/mail, aggregated packets, transfers, destination views and persistence. Manual is selectable. Spec: `mods/CARGO_DISTRIBUTION.md`. New passenger population/generation models in `mods/PASSENGER_DESTINATIONS.md` remain future extensions.
+The CargoDist portion is COMPLETED (user accepted D68): automatic symmetric passengers/mail, multiple station destinations, two-way multimodal feeders, aggregated packets, transfers, native views and persistence. Manual is selectable. Spec: `mods/CARGO_DISTRIBUTION.md`. New population/generation models in `mods/PASSENGER_DESTINATIONS.md` remain future extensions.
 
 ## Phase 11 — Objects and worlds
 

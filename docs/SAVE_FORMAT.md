@@ -1,5 +1,7 @@
 # Save format
 
+D68 accepts CargoDist and its existing `.ocargodist` v1 companion for master integration. Packed SV5/SC5, `.olines` v5, `.osignals` v3 and `.orules` v1/PHASES remain unchanged. Keep matching saves/companions together and retain checkpoint saves separately. The new save container and NSF/NOF work remain deferred; this integration adds no persistence fields or versions.
+
 D66 adds no persistence fields or version changes. Multiple destinations/origins, packet age and cumulative feeder credits already use `.ocargodist` v1. Complete multileg tests round-trip those records at both interchange handoffs and before split final delivery, rebuilding transient service/reached-stop context. Packed SV5/SC5, `.olines` v5, `.osignals` v3 and existing `.orules` remain unchanged; no warehouse designation is persisted. Current verification is in development status.
 
 ## What the code does now
@@ -79,10 +81,10 @@ D49's edge incoming direction, search ancestry and junction-start decision are t
 
 D57 editor sessions, selections, callbacks, normal-window sizes and captured scroll state are transient UI only. Expanding Ui::Window to three scroll areas and adding an opt-in WindowEventList flag changes no Order, S5::GameState or companion schema. Existing .orules v1/PHASES, .olines v5 and .osignals v3 load and run with the inline editor; no save conversion or migration is required.
 
-## CargoDist companion v1 (D62/D63, TESTING)
+## CargoDist companion v1 (COMPLETED, D68)
 
 The user deferred the save-container phase and approved `<save>.SV5.ocargodist`. It is a temporary subsystem companion; S5/SC5, Order, vehicle/station sizes, `.olines` v5 and `.osignals` v3 are unchanged. Cargo settings, identity-bound packets/quantities, origin history, allocation cursors, station/service observations, published routes, pending graph work, last visits and pending virtual income are persisted under `OCARGODIST 1`. The bounded text payload has a checksum and matching-save fingerprint. Malformed/mismatched data is rejected atomically with a named warning and native amounts reconstruct automatically. Writes use validated temporary replacement; failure fails the save.
 
 Old `.orules` files remain readable. Destination waiting/onboard checks append check values 8/9 to existing v1 definitions; older builds reject companions containing those checks. Keep both release-checkpoint saves separate. Copies/renames of new saves must preserve matching `.olines`, `.osignals`, `.orules` and `.ocargodist` names. Missing cargo companions enable automatic migration with no invented prior feeder credit. Full schema and limits are in `mods/CARGO_DISTRIBUTION.md`.
 
-D65 automatic-transfer follow-up supersedes standalone CargoDist windows and congestion overlays. Use normal StopAt/private/shared/optional-rule routes and base-game combined StationIds. Inline Cargo-tab summaries and the per-game Options Misc Automatic/Classic preset replace the large UI; mixed modes and hidden settings persist. Reached-stop ownership/key/revision/signature context and UI caches are transient and reconstruct after load, preserving cargo when unresolved. Packed saves and companion versions remain unchanged. CargoDist remains TESTING pending a short user coal/passenger/save check; no consist/shunting or new save-container dependency is introduced.
+D65 automatic-transfer follow-up supersedes standalone CargoDist windows and congestion overlays. Use normal StopAt/private/shared/optional-rule routes and base-game combined StationIds. Inline Cargo-tab summaries and the per-game Options Misc Automatic/Classic preset replace the large UI; mixed modes and hidden settings persist. Reached-stop ownership/key/revision/signature context and UI caches are transient and reconstruct after load, preserving cargo when unresolved. Packed saves and companion versions remain unchanged. CargoDist is COMPLETED by D68 user acceptance; no consist/shunting or new save-container dependency is introduced.

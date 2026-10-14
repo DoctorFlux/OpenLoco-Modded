@@ -1,6 +1,6 @@
 # Automatic cargo transfers (D65/D66)
 
-Status: TESTING. Branch: `codex/cargo-distribution`. Preserved checkpoint: `e4d7bbb2` (D64 code `22d67d05`). Starting Debug/Release baseline for this follow-up: 520 tests each. Master and both release tags remain unchanged.
+Status: **COMPLETED (user accepted D68, 2026-10-14)**. Developed on `codex/cargo-distribution`, accepted for normal master integration. Tested source `2d3bb93c`: Debug/Release builds succeed and complete suites pass 566/566 each, including 113 CargoDist checks. Earlier checkpoint/baseline records remain historical. Both release tags are preserved; the existing modded.2 download is unchanged.
 
 D66 verifies complete multimodal journeys from the D65 checkpoint `0466592b` (542-test baseline). Source `fa6d60cc` adds 24 journey/accounting regressions and shares the native payment calculator between loaded-cargo and explicit-metadata callers. The existing automatic routing already supports these scenarios; this follow-up does not introduce a warehouse type or alter order execution. Complete build results are recorded in development status.
 
@@ -32,7 +32,7 @@ D65 supersedes the D62/D63 large-window workflow: use ordinary orders, shared li
 
 ## Verification
 
-Require quantity conservation, direct/multimodal transfer routing, symmetric/asymmetric/manual behaviour, capacity alternatives, possible branches and loops, native timing/losses, partial compartments, exactly-once company cash, migration, lifecycle/reused IDs, save/load during transfer and graph work, stale-state clearing, bounded/deterministic execution and native inline row geometry, expansion and scrolling. Build both configurations and run both complete suites. The user controls the short coal-chain, passenger-transfer and save/reload acceptance check. Keep TESTING until recorded acceptance.
+Require quantity conservation, direct/multimodal transfer routing, symmetric/asymmetric/manual behaviour, capacity alternatives, possible branches and loops, native timing/losses, partial compartments, exactly-once company cash, migration, lifecycle/reused IDs, save/load during transfer and graph work, stale-state clearing, bounded/deterministic execution and native inline row geometry, expansion and scrolling. Build both configurations and run both complete suites. D68 records user delivery acceptance; future game regression checks remain user-controlled. Earlier manual gates are superseded without claiming individual checks were performed.
 
 ## Reference
 
@@ -62,10 +62,10 @@ Two Checks join the existing inline Rules editor: Cargo waiting for a destinatio
 
 ## Limits and acceptance
 
-The service graph describes possible order connectivity and observed journey times; it does not promise a physical connection or predict cargo-dependent branches. Actual motion and reservations decide whether a vehicle can travel. A blocked service or permanently untaken branch can leave cargo waiting. Metadata, service-edge and published route caps are 262144 records, with reserved native-holder space; assignment is limited to accuracy times 16 units per call when several destinations exist. Limited forecasts can show a subset; narrow the cargo/company filter for large networks. These are explicit bounded-work limits rather than a change to engine map/object/entity caps.
+The service graph describes possible order connectivity and observed journey times; it does not promise a physical connection or predict cargo-dependent branches. Actual motion and reservations decide whether a vehicle can travel. A blocked service or permanently untaken branch can leave cargo waiting. Metadata, service-edge and published route caps are 262144 records, with reserved native-holder space; assignment is limited to accuracy times 16 units per call when several destinations exist. Limited forecasts can show a subset; large networks may show a limited summary. These are explicit bounded-work limits rather than a change to engine map/object/entity caps.
 
 Historical D63 verification: reconfigured Debug/Release game builds and suites passed 514/514 with 67 CargoDist checks. D65 supersedes the destination-window/overlay acceptance workflow; current results and the short user-only normal-route check are in development status. No automated game control is used.
 
 D65 discovery refinement: changed-vehicle setup is bounded to 4096 work steps. Unfinished possible rides resume using the solver's 4096-step tick budget; the old complete service is retained until replacement. Adjacent load/unload-capable boundaries seed a sparse graph, while same-car through boarding can use its reachable destination directly. Pending contexts are transient and restart safely after load. Coverage includes the 63-order native limit with two cargo types, pending discovery save/reload, later-stop boarding, Group-wrapped unconditional unloading and pickup discarding the old occurrence. Focused Debug passes 89/89; final complete-suite results are in development status.
 
-D65 source checkpoint: `c54cfbc8` (initial implementation `40b624bb`). Reconfigured Debug/Release game builds and suites passed 542/542 each, with 89 CargoDist checks. D66 source `fa6d60cc` adds 24 complete-journey/accounting checks (113 CargoDist); current full results, stamps and caveats are in development status. Keep TESTING for the user-only passenger/freight-interchange/reload check; no large-window or cargo-overlay acceptance is required.
+D65 source checkpoint: `c54cfbc8` (initial implementation `40b624bb`). Reconfigured Debug/Release game builds and suites passed 542/542 each, with 89 CargoDist checks. D66 source `fa6d60cc` adds 24 complete-journey/accounting checks (113 CargoDist); current full results, stamps and caveats are in development status. D68 accepts this delivery as COMPLETED; no large-window or cargo-overlay acceptance is required.
