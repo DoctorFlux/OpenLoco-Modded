@@ -73,6 +73,10 @@ namespace OpenLoco::Ui
         lineManager = 63,
         lineColourSchemes = 64,
         rules = 65,
+        cargoDistribution = 66,
+        stationCargoDistribution = 67,
+        vehicleCargoDistribution = 68,
+        lineCargoDistribution = 69,
 
         undefined = 255
     };

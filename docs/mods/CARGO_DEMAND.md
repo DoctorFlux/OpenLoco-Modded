@@ -1,5 +1,10 @@
 # Cargo demand
 
+Current delivery: native CargoDist is implemented in TESTING (D62/D63), using automatic defaults in new and older saves and a `.ocargodist` companion. See [Cargo distribution](CARGO_DISTRIBUTION.md). This supersedes the classic-by-default and save-container gates below. Existing production and payment formulas remain; explicit industry-demand markets, wagon requests, and additional population-demand generation below are later proposals.
+
+## Earlier proposal (historical)
+
+
 Not implemented. Classic freight stays the default.
 
 ## Model

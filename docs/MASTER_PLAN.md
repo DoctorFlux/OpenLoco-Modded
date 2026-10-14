@@ -7,7 +7,7 @@ This file is the authority for goals and sequencing. Detailed behaviour lives in
 ## Goals
 
 - Keep Chris Sawyer's Locomotion graphics, camera, UI style, and default rules.
-- Make new systems opt-in so a player who adds no blocks or other feature settings keeps the current OpenLoco behavior.
+- Existing optional systems preserve default OpenLoco behaviour. D62 explicitly makes CargoDist automatic in new and older saves; selecting Manual preserves classic cargo distribution.
 - Share one implementation of orders, reservations, cargo routing, and programmable logic across gameplay systems.
 - Let players configure the delivered gameplay systems in native windows without compiling C++.
 - Stay compatible with upstream OpenLoco where that does not block the framework. Track that in `UPSTREAM_TRACKING.md`.
@@ -91,13 +91,13 @@ Phases are detailed in `ROADMAP.md`. The short form:
 1. Mod loader. Removed (D23).
 2. Packages and manager UI. Removed with the loader (D23).
 3. Shared lines, then timetables.
-4. Block rules on a vehicle's orders and on a shared line's orders, in one Rules window. Checkpoint before this step: `v26.09-modded.1`.
-5. Versioned save container and mod state. Align with upstream NSF.
-6. Dynamic consists and on-track coupling.
+4. Block rules on a vehicle's orders and on a shared line's orders, edited inline in their native order windows. Checkpoint before this step: `v26.09-modded.1`.
+5. Versioned save container and mod state. Align with upstream NSF. DEFERRED; matching companions are permitted.
+6. Dynamic consists and on-track coupling. DEFERRED until after CargoDist.
 7. Path reservations and signals.
-8. Shunting jobs and yard programs.
-9. Cargo demand.
-10. Passenger destinations.
+8. Shunting jobs and yard programs. DEFERRED until consists exist.
+9. Cargo demand. CargoDist routing is implemented in TESTING ahead of Phases 5/6/8; industry markets remain later.
+10. Passenger destinations. CargoDist packets/transfers are implemented in TESTING; new generation models remain later.
 11. Object limits and larger worlds, aligned with NOF.
 12. Performance, packaging, release.
 
@@ -119,7 +119,11 @@ The packaging decision is in `DECISIONS.md`: hybrid monorepo until a mod needs i
 - `DECISIONS.md`, `UPSTREAM_TRACKING.md`
 - `docs/mods/` for each gameplay spec
 
-## Current milestone
+## Current milestone (D62, 2026-10-14)
+
+CargoDist is implemented in TESTING on `codex/cargo-distribution`. Shared lines/timetables, path/chain signals and the first logic delivery are COMPLETED by user acceptance and recorded 447/447 tests. The user deferred Phase 5, consists and shunting, and approved complete passenger/mail/freight distribution with automatic defaults for new and older saves. Manual distribution preserves classic behaviour when selected. Packed saves stay unchanged; a matching `.ocargodist` companion carries extended cargo state. See `mods/CARGO_DISTRIBUTION.md`.
+
+## Historical milestone records
 
 Phase 4 is implemented on `codex/block-logic-programming` and remains TESTING until its required in-game checks are recorded. Native opt-in features supersede the original package-loader goal (D23). Preserve master and `v26.09-modded.1` while testing; no release or merge is implied. Consists, shunting, destinations, NSF/NOF and multiplayer remain later work.
 

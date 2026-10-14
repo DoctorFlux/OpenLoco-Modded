@@ -48,6 +48,10 @@ D47 follow-up prevents completed Path/All routes disappearing during constructio
 4. Save `<save>.SV5.orules` when the tests above pass. A missing file leaves the orders as they are. This does not wait for phase 5 and does not widen `S5::GameState`.
 5. Passenger, freight-destination, and yard blocks stay out of the palette until those features exist. They extend this shared editor.
 
+## Current priority - CargoDist (D62)
+
+Before deferred Phases 5/6/8, the implemented TESTING milestone is the approved combined passenger/mail/freight CargoDist milestone: bounded demand/flow routing, native cargo lifecycle and transfer accounting, matching companion persistence, native settings/destination views/map overlays and Rules checks. All cargo types default to automatic, including older saves. Implement on `codex/cargo-distribution`; starting full-suite baseline 447. No physical coupling, yard jobs or new save container. Spec: `mods/CARGO_DISTRIBUTION.md`.
+
 ## Phase 5 — Save container
 
 1. Re-read upstream NSF notes.
@@ -90,7 +94,7 @@ D55 (`99ee01af`) follows the user's failed D54 movement recheck. Complete local 
 
 D56 (`cf47b6db`), same branch, follows another failed D55 manual stopping check. A waypoint no longer ends signal protection before occupied/reserved track: bounded safety checks continue to the safe waiting boundary for all three kinds. Native waypoint advancement replans unused continuation claims without releasing occupied holds. Nine new checks cover stopped wagons, foreign reservations, shared orders/resumption, later orders, Chain exits, safe boundaries, bounds and station compatibility. Focused checks passed 87/87; both rebuilt full suites passed 427/427. The next task is the user's short waypoint-before-blocker/red-stop/resumption check; keep signals TESTING.
 
-## Phase 8 — Shunting
+## Phase 8 — Shunting (DEFERRED)
 
 1. Job records and state machine.
 2. Single shunter sorts wagons.
@@ -101,11 +105,11 @@ D56 (`cf47b6db`), same branch, follows another failed D55 manual stopping check.
 
 ## Phase 9 — Cargo demand
 
-Destination-aware freight with classic mode left on by default. Spec: `docs/mods/CARGO_DEMAND.md`.
+The CargoDist portion is implemented in TESTING ahead of Phase 6/8: automatic asymmetric freight, compatible services, transfers, destination views and persistence. Manual is selectable. Spec: `mods/CARGO_DISTRIBUTION.md`. Industry markets and production scheduling in `mods/CARGO_DEMAND.md` remain future extensions.
 
 ## Phase 10 — Passengers
 
-Aggregated origin-destination groups and transfers. Classic passengers remain the default. Spec: `docs/mods/PASSENGER_DESTINATIONS.md`.
+The CargoDist portion is implemented in TESTING with automatic symmetric passengers/mail, aggregated packets, transfers, destination views and persistence. Manual is selectable. Spec: `mods/CARGO_DISTRIBUTION.md`. New passenger population/generation models in `mods/PASSENGER_DESTINATIONS.md` remain future extensions.
 
 ## Phase 11 — Objects and worlds
 
@@ -135,3 +139,5 @@ D59 integration result: normal merge `28e64e62` and accepted feature head `1371f
 D60 prepares accepted Phase 4 for release `v26.09-modded.2` and removes merged local/origin feature branches at the user's request. Master remains the sole active branch; rollback tags retain historical checkpoints. Release preparation does not start Phase 5.
 
 D60 completed: `v26.09-modded.2` / `26.09-modded.2` published from tagged master `c1660c34` with verified Windows x64 ZIP and checksum. Fresh Release suite passed 447/447. Only master remains locally/on origin; merged history and modded.1 rollback tag remain. Phase 5 is not started.
+
+D62/D63 CargoDist implementation includes native settings and grouped station/vehicle views, line capacity, cargo overlays, destination checks and companion persistence. Focused Debug checks passed 65/65. Final full Debug/Release results and native acceptance belong in development status. Consists/shunting and the new save container remain deferred; no master merge or new release is implied.

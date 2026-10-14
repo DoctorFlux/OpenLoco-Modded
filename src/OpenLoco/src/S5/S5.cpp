@@ -1,3 +1,4 @@
+#include "CargoDist/CargoDist.h"
 #include "Rules/Rules.h"
 #define DO_TITLE_SEQUENCE_CHECKS
 
@@ -450,6 +451,7 @@ namespace OpenLoco::S5
     {
         FileStream fs(path, StreamMode::write);
         const bool saved = exportGameStateToFile(fs, flags);
+        fs.close();
         if (saved)
         {
             Lines::saveCompanion(path);
@@ -458,6 +460,11 @@ namespace OpenLoco::S5
             if (!Rules::saveCompanion(path))
             {
                 Logging::error("Unable to write rules companion for {}", path.string());
+                return false;
+            }
+            if (!CargoDist::saveCompanion(path))
+            {
+                Logging::error("Unable to write CargoDist companion {}", CargoDist::companionPath(path).string());
                 return false;
             }
         }
@@ -733,6 +740,10 @@ namespace OpenLoco::S5
             {
                 Logging::warn("Rules companion {} is invalid or does not match this save; orders remain unchanged", Rules::companionPath(path).string());
             }
+            if (!CargoDist::loadCompanion(path))
+            {
+                Logging::warn("CargoDist companion {} is invalid or mismatched; native cargo quantities were migrated", CargoDist::companionPath(path).string());
+            }
             Signals::onCompanionLoaded();
         }
         return loaded;
@@ -902,6 +913,7 @@ namespace OpenLoco::S5
             // Copy the S5 gamestate contents to the destination gamestate, field by field
             auto& src = file->gameState;
             dst = *importGameState(src);
+            CargoDist::reset();
 
             // Copy scenario options
             if (hasLoadFlags(flags, LoadFlags::scenario | LoadFlags::landscape))

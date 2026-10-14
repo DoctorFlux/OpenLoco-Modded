@@ -1,3 +1,4 @@
+#include "CargoDist/View.h"
 #include "Engine/Limits.h"
 #include "Entities/Entity.h"
 #include "Entities/EntityManager.h"
@@ -30,6 +31,7 @@
 #include "Ui/LastMapWindowAttributes.h"
 #include "Ui/ScrollView.h"
 #include "Ui/Widget.h"
+#include "Ui/Widgets/ButtonWidget.h"
 #include "Ui/Widgets/CaptionWidget.h"
 #include "Ui/Widgets/FrameWidget.h"
 #include "Ui/Widgets/ImageButtonWidget.h"
@@ -137,7 +139,8 @@ namespace OpenLoco::Ui::Windows::MapWindow
         Widgets::Tab(Widx::kTabRoutes, { 96, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tab_map_routes),
         Widgets::Tab(Widx::kTabOwnership, { 158, 15 }, { 31, 27 }, WindowColour::secondary, ImageIds::tab, StringIds::tab_map_ownership),
         Widgets::ScrollView(Widx::kScrollview, { 3, 44 }, { 240, 215 }, WindowColour::secondary, Scrollbars::horizontal | Scrollbars::vertical),
-        Widgets::Label(Widx::kStatusBar, { 3, 250 }, { 322, 21 }, WindowColour::secondary, ContentAlign::center)
+        Widgets::Label(Widx::kStatusBar, { 3, 250 }, { 322, 21 }, WindowColour::secondary, ContentAlign::center),
+        Widgets::Button(WidgetId{ "mapDistribution" }, { 192, 20 }, { 100, 16 }, WindowColour::secondary, StringIds::cargo_dist_cargo, StringIds::cargo_dist_title)
 
     );
 
@@ -207,6 +210,11 @@ namespace OpenLoco::Ui::Windows::MapWindow
     // 0x0046B8CF
     static void onMouseUp(Window& self, WidgetIndex_t widgetIndex, [[maybe_unused]] const WidgetId id)
     {
+        if (id == WidgetId{ "mapDistribution" })
+        {
+            CargoDist::openView(CargoDist::ViewKind::settings, 0, &self);
+            return;
+        }
         switch (id)
         {
             case Widx::kCloseButton:
@@ -1208,6 +1216,9 @@ namespace OpenLoco::Ui::Windows::MapWindow
         self.widgets[widx::panel].right = self.width - 1;
         self.widgets[widx::panel].bottom = self.height - 1;
 
+        self.widgets[self.widgets.size() - 1].hidden = self.width < 296;
+        self.widgets[self.widgets.size() - 1].left = self.width - 104;
+        self.widgets[self.widgets.size() - 1].right = self.width - 4;
         self.widgets[widx::caption].right = self.width - 2;
         self.widgets[widx::closeButton].left = self.width - 15;
         self.widgets[widx::closeButton].right = self.width - 3;
@@ -2202,6 +2213,7 @@ namespace OpenLoco::Ui::Windows::MapWindow
 
         drawVehiclesOnMap(drawingCtx, self.currentTab + widx::tabOverall);
 
+        CargoDist::drawMapLinks(drawingCtx, [](int16_t x, int16_t y) { return locationToMapWindowPos({ x, y }); });
         drawViewportPosition(drawingCtx);
 
         if (self.showTownNames)

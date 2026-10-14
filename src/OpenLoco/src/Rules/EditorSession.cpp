@@ -118,7 +118,7 @@ namespace OpenLoco::Rules
         WidgetIndex_t menuWidget = 0;
         static constexpr const char* names[] = { "Group", "If", "Else", "Repeat", "Wait until", "Skip", "Go to", "Else if", "Break" };
         static constexpr Kind paletteKinds[] = { Kind::group, Kind::ifBlock, Kind::elseIf, Kind::otherwise, Kind::repeat, Kind::waitUntil, Kind::skip, Kind::goTo, Kind::breakLoop };
-        static constexpr const char* checkNames[] = { "Cargo waiting", "This vehicle is full", "This vehicle is empty", "This vehicle has space", "Platform is free", "This vehicle is late", "This vehicle is on time", "The year" };
+        static constexpr const char* checkNames[] = { "Cargo waiting", "This vehicle is full", "This vehicle is empty", "This vehicle has space", "Platform is free", "This vehicle is late", "This vehicle is on time", "The year", "Cargo waiting for a destination", "Cargo onboard for a destination" };
         int32_t layoutWidth = 200;
 
         WidgetIndex_t canvas = 0, palette = 0, check = 0, compare = 0, stop = 0, cargo = 0, number = 0, join = 0, extra = 0, target = 0, name = 0, limit = 0, firstRow = 0, lastRow = 0, bin = 0, details = 0, actions = 0;
@@ -412,7 +412,7 @@ namespace OpenLoco::Rules
                 labels.push_back("This stop has cargo");
                 choices.push_back(257);
                 labels.push_back("This stop has no cargo");
-                for (unsigned i = 0; i <= unsigned(Check::year); ++i)
+                for (unsigned i = 0; i <= unsigned(Check::cargoOnboardFor); ++i)
                 {
                     if (i == unsigned(Check::platformFree) && !program.rail)
                     {
@@ -618,7 +618,7 @@ namespace OpenLoco::Rules
                     c.compare = choice == 256 ? Compare::greater : Compare::equal;
                     c.value = 0;
                 }
-                if (c.check == Check::cargoWaiting || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
+                if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
                 {
                     const auto previousStop = indexOf(program, c.stop);
                     if (previousStop >= program.rows.size() || ((program.rows[previousStop].raw & 7) != 1 && (program.rows[previousStop].raw & 7) != 2))
@@ -882,16 +882,16 @@ namespace OpenLoco::Rules
                     enable(s.extra);
                 }
                 const auto& c = s.editingExtra ? b->extra : b->condition;
-                if (c.check == Check::cargoWaiting || c.check == Check::year)
+                if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::year)
                 {
                     enable(s.compare);
                     enable(s.number);
                 }
-                if (c.check == Check::cargoWaiting || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
+                if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
                 {
                     enable(s.stop);
                 }
-                if (c.check == Check::cargoWaiting || c.check == Check::platformFree)
+                if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::platformFree)
                 {
                     enable(s.cargo);
                 }

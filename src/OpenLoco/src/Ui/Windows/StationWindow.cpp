@@ -1,3 +1,4 @@
+#include "CargoDist/View.h"
 #include "Config.h"
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
@@ -19,6 +20,7 @@
 #include "Objects/ObjectManager.h"
 #include "Ui/ToolManager.h"
 #include "Ui/Widget.h"
+#include "Ui/Widgets/ButtonWidget.h"
 #include "Ui/Widgets/CaptionWidget.h"
 #include "Ui/Widgets/FrameWidget.h"
 #include "Ui/Widgets/ImageButtonWidget.h"
@@ -379,6 +381,7 @@ namespace OpenLoco::Ui::Windows::Station
             scrollview = Common::widx::content_begin,
             status_bar,
             station_catchment,
+            distribution,
         };
 
         namespace Widx
@@ -392,7 +395,8 @@ namespace OpenLoco::Ui::Windows::Station
             Common::makeCommonWidgets(223, 136),
             Widgets::ScrollView(Widx::kScrollview, { 3, 44 }, { 217, 80 }, WindowColour::secondary, 2),
             Widgets::Label(Widx::kStatusBar, { 3, 125 }, { 195, 10 }, WindowColour::secondary, ContentAlign::left, StringIds::accepted_cargo_separator, StringIds::small_black_string),
-            Widgets::ImageButton(Widx::kStationCatchment, { 198, 44 }, { 24, 24 }, WindowColour::secondary, ImageIds::show_station_catchment, StringIds::station_catchment)
+            Widgets::ImageButton(Widx::kStationCatchment, { 198, 44 }, { 24, 24 }, WindowColour::secondary, ImageIds::show_station_catchment, StringIds::station_catchment),
+            Widgets::Button(WidgetId{ "stationDistribution" }, { 3, 44 }, { 88, 16 }, WindowColour::secondary, StringIds::cargo_dist_destinations)
 
         );
 
@@ -401,6 +405,7 @@ namespace OpenLoco::Ui::Windows::Station
         {
             Common::prepareDraw(self);
 
+            self.widgets[widx::scrollview].top = 62;
             self.widgets[widx::scrollview].right = self.width - 26;
             self.widgets[widx::scrollview].bottom = self.height - 14;
 
@@ -461,6 +466,11 @@ namespace OpenLoco::Ui::Windows::Station
         // 0x0048EB0B
         static void onMouseUp(Window& self, WidgetIndex_t widgetIndex, const WidgetId id)
         {
+            if (id == WidgetId{ "stationDistribution" })
+            {
+                CargoDist::openView(CargoDist::ViewKind::station, self.number, &self);
+                return;
+            }
             switch (id)
             {
                 case Widx::kStationCatchment:

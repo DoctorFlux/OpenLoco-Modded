@@ -1,7 +1,6 @@
-#include "Rules/Rules.h"
-#include "Lines/Line.h"
 #include "Vehicles/VehicleManager.h"
 #include "Audio/Audio.h"
+#include "CargoDist/Game.h"
 #include "Date.h"
 #include "Entities/EntityManager.h"
 #include "Game.h"
@@ -10,10 +9,12 @@
 #include "GameCommands/Vehicles/VehiclePickupWater.h"
 #include "GameState.h"
 #include "GameStateFlags.h"
+#include "Lines/Line.h"
 #include "Map/Track/SubpositionData.h"
 #include "Map/Track/TrackData.h"
 #include "MessageManager.h"
 #include "Objects/ObjectManager.h"
+#include "Rules/Rules.h"
 #include "SceneManager.h"
 #include "Signals/PathSignals.h"
 #include "Ui/WindowManager.h"
@@ -37,6 +38,7 @@ namespace OpenLoco::VehicleManager
     {
         if (Game::hasFlags(GameStateFlags::tileManagerLoaded) && !SceneManager::isEditorMode())
         {
+            CargoDist::tick();
             for (auto* v : VehicleList())
             {
                 v->updateVehicle();

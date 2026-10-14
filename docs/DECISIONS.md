@@ -65,6 +65,10 @@
 
 | D61 | 2026-10-14 | Accept shared lines/timetables/path-chain signals; defer Phase 5 and implement Phase 6.1 consist foundation on a fresh branch. | User accepted existing gameplay and chose persistent identity, lifecycle integration and a native overview before physical coupling. | Preserve master and release tags. Keep packed SV5/SC5 unchanged and use validated subsystem companions as needed. On-track coupling and automated shunting follow separately; no new save container or NSF/NOF implementation. |
 
+| D62 | 2026-10-14 | Deliver full native CargoDist before consists/shunting, with automatic distribution in new and older saves. | User approved all cargo types, possible conditional branches, full native UI and OpenTTD-style virtual feeder credits. | Supersedes D61's next milestone and earlier opt-in-only cargo proposals. Preserve packed saves and existing companions; add `.ocargodist` v1. Preserve native production/payment formula and provide Manual mode. Use the MIT repository's native implementation with OpenTTD behaviour as reference. |
+
+| D63 | 2026-10-14 | CargoDist runs in native cargo transitions, with aggregated identity-checked packets and a matching `.ocargodist` v1 companion. | Complete player-facing CargoDist must coexist with packed saves, actual motion, independent rules, cargo loss/age and existing revenue. | Use bounded abstract order connectivity and atomic route publication; fair deterministic allocation avoids PRNG changes. Preserve native cash payments and separately report virtual feeder credit, including unsettled save state. Provide independent native views and read-only cached overlays; keep TESTING for user acceptance. |
+
 ## Script language tradeoffs
 
 Not selected.

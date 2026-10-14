@@ -1,4 +1,5 @@
 #include "Viewport.hpp"
+#include "CargoDist/View.h"
 #include "Config.h"
 #include "Graphics/Gfx.h"
 #include "Graphics/ImageIds.h"
@@ -219,6 +220,7 @@ namespace OpenLoco::Ui
         Gfx::SoftwareDrawingContext routeCtx;
         routeCtx.pushRenderTarget(zoomViewRt);
         Lines::drawRouteStrokes(routeCtx, zoom, static_cast<uint8_t>(options.rotation));
+        CargoDist::drawWorldLinks(routeCtx, zoom, static_cast<uint8_t>(options.rotation));
     }
 
     // 0x004CA444

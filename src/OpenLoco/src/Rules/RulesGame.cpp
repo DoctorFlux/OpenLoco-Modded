@@ -1,3 +1,4 @@
+#include "CargoDist/Game.h"
 #include "Date.h"
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
@@ -237,6 +238,27 @@ namespace OpenLoco::Rules
             if (station == nullptr || station->empty())
             {
                 return { false, false, "Station no longer exists" };
+            }
+            if (c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor)
+            {
+                if (!head || CargoDist::state().settings.modes[c.cargo] == CargoDist::Mode::manual)
+                {
+                    return { false, false, "Destination distribution is unavailable for this cargo" };
+                }
+                if (c.check == Check::cargoOnboardFor)
+                {
+                    return { true, compare(CargoDist::vehicleDestined(enumValue(head->id), c.cargo, enumValue(order->getStation())), c), {} };
+                }
+                if (head->stationId == StationId::null)
+                {
+                    return { false, false, "Waiting destinations need a current station" };
+                }
+                if (CargoDist::state().job)
+                {
+                    return { false, false, "Cargo routes are being calculated" };
+                }
+                const auto count = CargoDist::state().destined({ false, enumValue(head->stationId), c.cargo, 0 }, enumValue(order->getStation()));
+                return { true, compare(count, c), {} };
             }
             if (c.check == Check::cargoWaiting)
             {
@@ -1234,7 +1256,7 @@ namespace OpenLoco::Rules
     static bool readCondition(std::istream& in, Condition& c)
     {
         unsigned check, comparison, cargo;
-        if (!(in >> check >> comparison >> c.stop >> cargo >> c.platform >> c.platformAnchor >> c.value) || check > unsigned(Check::year) || comparison > 2 || cargo >= 32)
+        if (!(in >> check >> comparison >> c.stop >> cargo >> c.platform >> c.platformAnchor >> c.value) || check > unsigned(Check::cargoOnboardFor) || comparison > 2 || cargo >= 32)
         {
             return false;
         }

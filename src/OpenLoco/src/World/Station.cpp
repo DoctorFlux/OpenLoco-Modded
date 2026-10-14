@@ -1,4 +1,5 @@
 #include "World/Station.h"
+#include "CargoDist/Game.h"
 #include "Graphics/Gfx.h"
 #include "Graphics/ImageIds.h"
 #include "Graphics/RenderTarget.h"
@@ -228,6 +229,7 @@ namespace OpenLoco
 
         if (originallyAcceptedCargo != currentAcceptedCargo)
         {
+            CargoDist::syncStation(*this);
             if (owner == CompanyManager::getControllingId())
             {
                 alertCargoAcceptanceChange(originallyAcceptedCargo, currentAcceptedCargo);
@@ -633,6 +635,7 @@ namespace OpenLoco
         stationCargoStat.quantity = Math::Bound::add(stationCargoStat.quantity, cargoQuantity);
         stationCargoStat.enrouteAge = 0;
         stationCargoStat.origin = id();
+        CargoDist::syncStation(*this);
         updateCargoDistribution();
     }
 
@@ -730,6 +733,7 @@ namespace OpenLoco
             }
         }
 
+        CargoDist::ageStation(enumValue(id()));
         updateCargoDistribution();
 
         auto w = WindowManager::find(WindowType::station, enumValue(id()));

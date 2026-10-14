@@ -13,8 +13,8 @@
 | On-track uncouple | No | Shunting mod | Off |
 | Run-around | No | Shunting mod, real movement | Off |
 | Parked wagons | Not as a job | Persistent entities | n/a |
-| Passenger cargo | Anonymous quantity | Optional origin-destination groups | Classic |
-| Freight cargo | Anonymous quantity, origin station stored | Optional destinations and requests | Classic |
+| Passenger cargo | Anonymous quantity | Native CargoDist groups, transfers and destination views (TESTING) | Symmetric automatic; Manual available |
+| Freight cargo | Anonymous quantity, origin station stored | Native CargoDist station destinations and transfers (TESTING); industry markets/requests later | Asymmetric automatic; Manual available |
 | Map size | 384x384 | Candidates 512, 1024, 2048 after save work | 384 |
 | Object count | Fixed caps, 859 total | Dynamic after NOF-aligned format | Current caps |
 | Saves | SV5/SC5 exact version | Import SV5, write a new container | SV5 |
@@ -41,3 +41,7 @@ Block rules are implemented and accepted by the user and integrated into master 
 | Passenger destinations | Demand and transfer UI | Classic passengers |
 | Expanded objects | Richer object picker | Current picker |
 | Larger worlds | Generation size options | 384 map |
+
+## CargoDist (D62/D63, TESTING)
+
+Automatic passenger/mail/freight distribution works on private and shared orders through native cargo handling. Native settings, grouped Waiting/Planned and onboard views, line capacity, filtered cargo map links and destination Rules checks are implemented. Matching `.ocargodist` v1 preserves packets, allocation cursors, observations, credits and graph jobs. Old/native amounts migrate without packed changes; Manual delegates classic distribution. Focused Debug 58/58; final full suites and user acceptance are in development status. No consists/shunting/NSF/NOF milestone is included.

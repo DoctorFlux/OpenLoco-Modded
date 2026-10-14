@@ -1,9 +1,8 @@
-#include "Rules/Rules.h"
 #include "Vehicles/VehicleHead.h"
 #include "Audio/Audio.h"
+#include "CargoDist/Game.h"
 #include "Config.h"
 #include "Date.h"
-#include "Lines/Line.h"
 #include "Economy/Economy.h"
 #include "Effects/Effect.h"
 #include "Effects/SmokeEffect.h"
@@ -13,6 +12,7 @@
 #include "GameCommands/Vehicles/VehicleSell.h"
 #include "GameState.h"
 #include "Graphics/Gfx.h"
+#include "Lines/Line.h"
 #include "Localisation/FormatArguments.hpp"
 #include "Localisation/Formatting.h"
 #include "Localisation/StringIds.h"
@@ -35,6 +35,7 @@
 #include "Objects/TrackObject.h"
 #include "Objects/VehicleObject.h"
 #include "Random.h"
+#include "Rules/Rules.h"
 #include "Scenario/ScenarioManager.h"
 #include "SceneManager.h"
 #include "Signals/PathSignals.h"
@@ -394,6 +395,7 @@ namespace OpenLoco::Vehicles
         }
 
         Vehicle train(*this);
+        CargoDist::ageVehicle(*this);
         for (auto& car : train.cars)
         {
             // Bit of overkill iterating the whole car
@@ -2861,6 +2863,7 @@ namespace OpenLoco::Vehicles
     // 0x004B99E1
     void VehicleHead::beginUnloading()
     {
+        CargoDist::arrived(*this);
         // See note on flag
         breakdownFlags &= ~BreakdownFlags::awaitingCargoTransfer;
 
@@ -3211,6 +3214,24 @@ namespace OpenLoco::Vehicles
             return false;
         }
 
+        const auto before = cargo.qty;
+        if (const auto handled = CargoDist::unload(*this, cargo, *bogie, [&](const CargoDist::Packet& packet) {
+                auto batch = cargo;
+                batch.qty = static_cast<uint8_t>(packet.quantity);
+                batch.townFrom = static_cast<StationId>(packet.origin);
+                batch.numDays = packet.age;
+                updateUnloadCargoComponent(batch, bogie);
+            }))
+        {
+            if (*handled)
+            {
+                const auto* object = ObjectManager::get<CargoObject>(cargo.type);
+                cargoTransferTimeout = static_cast<uint16_t>(std::min<uint32_t>((object->cargoTransferTime * (before - cargo.qty) * getLoadingModifier(bogie)) / 256, UINT16_MAX));
+                updateTrainProperties();
+                Ui::WindowManager::invalidate(Ui::WindowType::vehicle, enumValue(id));
+            }
+            return *handled;
+        }
         auto* station = StationManager::get(stationId);
         auto& cargoStats = station->cargoStats[cargo.type];
         if (cargoStats.isAccepted())
@@ -3218,7 +3239,7 @@ namespace OpenLoco::Vehicles
             station->deliverCargoToTown(cargo.type, cargo.qty);
             auto* sourceStation = StationManager::get(cargo.townFrom);
             auto stationLoc = World::Pos2{ station->x, station->y };
-            auto sourceLoc = World::Pos2{ sourceStation->x, sourceStation->y };
+            auto sourceLoc = CargoDist::paymentOrigin(sourceStation && !sourceStation->empty() ? World::Pos2{ sourceStation->x, sourceStation->y } : stationLoc);
             auto tilesDistance = Math::Vector::distance2D(stationLoc, sourceLoc) / 32;
 
             Ui::WindowManager::invalidate(Ui::WindowType::company, enumValue(owner));
@@ -3231,7 +3252,7 @@ namespace OpenLoco::Vehicles
             auto cargoPayment = CompanyManager::calculateDeliveredCargoPayment(cargo.type, cargo.qty, tilesDistance, cargo.numDays);
             company->cargoDelivered[cargo.type] = Math::Bound::add(company->cargoDelivered[cargo.type], cargo.qty);
 
-            updateLastIncomeStats(cargo.type, cargo.qty, tilesDistance, cargo.numDays, cargoPayment);
+            updateLastIncomeStats(cargo.type, cargo.qty, tilesDistance, cargo.numDays, CargoDist::reportedPayment(cargoPayment));
 
             var_58 += cargoPayment;
             station->var_3B1 = 0;
@@ -3401,6 +3422,7 @@ namespace OpenLoco::Vehicles
             }
         }
 
+        train.veh2->curMonthRevenue += CargoDist::takeIncomeAdjustment(enumValue(id));
         currency32_t cargoProfit = var_58;
         var_58 = 0;
         if (cargoProfit != 0)
@@ -3495,9 +3517,9 @@ namespace OpenLoco::Vehicles
                 }
                 else
                 {
-                    if (highestQty < station->cargoStats[possibleCargo].quantity)
+                    if (highestQty < CargoDist::availableFor(*this, static_cast<uint8_t>(possibleCargo)))
                     {
-                        highestQty = station->cargoStats[possibleCargo].quantity;
+                        highestQty = static_cast<uint16_t>(CargoDist::availableFor(*this, static_cast<uint8_t>(possibleCargo)));
                         chosenCargo = possibleCargo;
                     }
                 }
@@ -3532,10 +3554,11 @@ namespace OpenLoco::Vehicles
 
         auto* cargoObj = ObjectManager::get<CargoObject>(cargo.type);
         auto& stationCargo = station->cargoStats[cargo.type];
-        auto qtyTransferred = std::min<uint16_t>(cargo.maxQty - cargo.qty, stationCargo.quantity);
+        const auto distributed = CargoDist::load(*this, cargo, *bogie);
+        auto qtyTransferred = distributed ? static_cast<uint16_t>(*distributed) : std::min<uint16_t>(cargo.maxQty - cargo.qty, stationCargo.quantity);
         cargoTransferTimeout = static_cast<uint16_t>(std::min<uint32_t>((cargoObj->cargoTransferTime * qtyTransferred * loadingModifier) / 256, std::numeric_limits<uint16_t>::max()));
 
-        if (stationCargo.quantity != 0)
+        if (!distributed && stationCargo.quantity != 0)
         {
             if (cargo.qty == 0)
             {
@@ -3562,9 +3585,15 @@ namespace OpenLoco::Vehicles
             }
         }
 
-        stationCargo.quantity -= qtyTransferred;
+        if (!distributed)
+        {
+            stationCargo.quantity -= qtyTransferred;
+        }
         station->updateCargoDistribution();
-        cargo.qty += qtyTransferred;
+        if (!distributed)
+        {
+            cargo.qty += qtyTransferred;
+        }
         const uint8_t typeAgeMap[] = { 0, 5, 3, 2, 0, 0 };
         stationCargo.age = std::min(stationCargo.age, typeAgeMap[static_cast<uint8_t>(vehicleType)]);
 
@@ -7141,6 +7170,7 @@ namespace OpenLoco::Vehicles
     // 0x004B7CC3
     void VehicleHead::updateTrainProperties()
     {
+        CargoDist::propertiesChanged(*this);
         Vehicle train(head);
         if (mode == TransportMode::road)
         {

@@ -1,5 +1,6 @@
 #include "Vehicles/Vehicle.h"
 #include "Audio/Audio.h"
+#include "CargoDist/Game.h"
 #include "Effects/ExplosionEffect.h"
 #include "Effects/VehicleCrashEffect.h"
 #include "Entities/EntityManager.h"
@@ -764,6 +765,9 @@ namespace OpenLoco::Vehicles
     // 0x004AF16A
     void removeAllCargo(CarComponent& carComponent)
     {
+        CargoDist::componentRemoved(enumValue(carComponent.front->id));
+        CargoDist::componentRemoved(enumValue(carComponent.back->id));
+        CargoDist::componentRemoved(enumValue(carComponent.body->id));
         carComponent.front->secondaryCargo.qty = 0;
         carComponent.back->secondaryCargo.qty = 0;
         carComponent.body->primaryCargo.qty = 0;
@@ -832,6 +836,8 @@ namespace OpenLoco::Vehicles
             }
         }
 
+        CargoDist::movedCargo(enumValue(oldFirstComponent.body->id), enumValue(newFirstComponent.body->id), 0);
+        CargoDist::movedCargo(enumValue(oldFirstComponent.front->id), enumValue(newFirstComponent.front->id), 1);
         newFirstComponent.body->primaryCargo = oldFirstComponent.body->primaryCargo;
         newFirstComponent.body->breakdownFlags = oldFirstComponent.body->breakdownFlags;
         newFirstComponent.body->breakdownTimeout = oldFirstComponent.body->breakdownTimeout;

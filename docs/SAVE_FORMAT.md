@@ -76,3 +76,9 @@ D48's required-waypoint search policy, waiting-owner sets and red display overri
 D49's edge incoming direction, search ancestry and junction-start decision are transient. No fields are added to Order, S5 or signal companions; existing versions remain. This fix changes how new reservations are selected and does not create a new save format.
 
 D57 editor sessions, selections, callbacks, normal-window sizes and captured scroll state are transient UI only. Expanding Ui::Window to three scroll areas and adding an opt-in WindowEventList flag changes no Order, S5::GameState or companion schema. Existing .orules v1/PHASES, .olines v5 and .osignals v3 load and run with the inline editor; no save conversion or migration is required.
+
+## CargoDist companion v1 (D62/D63, TESTING)
+
+The user deferred the save-container phase and approved `<save>.SV5.ocargodist`. It is a temporary subsystem companion; S5/SC5, Order, vehicle/station sizes, `.olines` v5 and `.osignals` v3 are unchanged. Cargo settings, identity-bound packets/quantities, origin history, allocation cursors, station/service observations, published routes, pending graph work, last visits and pending virtual income are persisted under `OCARGODIST 1`. The bounded text payload has a checksum and matching-save fingerprint. Malformed/mismatched data is rejected atomically with a named warning and native amounts reconstruct automatically. Writes use validated temporary replacement; failure fails the save.
+
+Old `.orules` files remain readable. Destination waiting/onboard checks append check values 8/9 to existing v1 definitions; older builds reject companions containing those checks. Keep both release-checkpoint saves separate. Copies/renames of new saves must preserve matching `.olines`, `.osignals`, `.orules` and `.ocargodist` names. Missing cargo companions enable automatic migration with no invented prior feeder credit. Full schema and limits are in `mods/CARGO_DISTRIBUTION.md`.

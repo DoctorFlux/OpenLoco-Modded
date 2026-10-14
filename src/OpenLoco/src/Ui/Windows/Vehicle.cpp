@@ -1,6 +1,6 @@
-#include "Rules/EditorSession.h"
 #include "Vehicles/Vehicle.h"
 #include "Audio/Audio.h"
+#include "CargoDist/View.h"
 #include "Config.h"
 #include "Entities/EntityManager.h"
 #include "GameCommands/GameCommands.h"
@@ -53,6 +53,7 @@
 #include "Objects/TrackExtraObject.h"
 #include "Objects/TrackObject.h"
 #include "Objects/WaterObject.h"
+#include "Rules/EditorSession.h"
 #include "SceneManager.h"
 #include "Signals/PathSignals.h"
 #include "Ui/Dropdown.h"
@@ -304,6 +305,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         {
             refit = 10,
             cargoList = 11,
+            distribution,
         };
 
         namespace Widx
@@ -317,7 +319,8 @@ namespace OpenLoco::Ui::Windows::Vehicle
         static constexpr auto widgets = makeWidgets(
             Common::makeCommonWidgets(265, 177, StringIds::title_vehicle_cargo),
             Widgets::ImageButton(Widx::kRefit, { 240, 44 }, { 24, 24 }, WindowColour::secondary, ImageIds::refit_cargo_button, StringIds::refit_vehicle_tip),
-            Widgets::ScrollView(Widx::kCargoList, { 3, 44 }, { 259, 120 }, WindowColour::secondary, Scrollbars::vertical)
+            Widgets::ScrollView(Widx::kCargoList, { 3, 44 }, { 259, 120 }, WindowColour::secondary, Scrollbars::vertical),
+            Widgets::Button(WidgetId{ "vehicleDistribution" }, { 3, 44 }, { 88, 16 }, WindowColour::secondary, StringIds::cargo_dist_destinations)
 
         );
     }
@@ -2367,6 +2370,7 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B3DDE
         static void prepareDraw(Window& self)
         {
+            self.widgets[widx::cargoList].top = 62;
             Common::setActiveTabs(self);
             Common::setCaptionEnableState(self);
 
@@ -2533,6 +2537,11 @@ namespace OpenLoco::Ui::Windows::Vehicle
         // 0x004B41BD
         static void onMouseUp(Window& self, const WidgetIndex_t i, const WidgetId id)
         {
+            if (id == WidgetId{ "vehicleDistribution" })
+            {
+                CargoDist::openView(CargoDist::ViewKind::vehicle, self.number, &self);
+                return;
+            }
             switch (id)
             {
                 case Common::Widx::kCloseButton:
