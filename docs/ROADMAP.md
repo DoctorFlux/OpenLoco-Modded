@@ -131,3 +131,5 @@ D58 native-order presentation follow-up is implemented at `be510fcb` on the same
 D59 supersedes the prior Phase 4 TESTING/merge gate: the user accepted the delivered step and explicitly requested master integration on 2026-10-14. Integrate the complete published logic branch without rewriting history and retain `v26.09-modded.1`. This merge does not implement Phase 5 or create a release.
 
 D59 integration result: normal merge `28e64e62` and accepted feature head `1371ff4d` were pushed to origin. No conflicts or source/build-input changes from tested `be510fcb`; rollback preserved. Next task is Phase 5 dependency review on a fresh feature branch.
+
+D60 prepares accepted Phase 4 for release `v26.09-modded.2` and removes merged local/origin feature branches at the user's request. Master remains the sole active branch; rollback tags retain historical checkpoints. Release preparation does not start Phase 5.
