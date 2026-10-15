@@ -1,5 +1,7 @@
 # Automatic cargo transfers (D65/D66)
 
+D69 (2026-10-15): accepted CargoDist is on master and ships in **26.09-modded.3**, the first consolidated modded edition. This supersedes statements below that the published download excludes CargoDist or that the two older tags remain available. Gameplay and `.ocargodist` v1 are unchanged. See [release notes](../releases/v26.09-modded.3.md) and [status](../DEVELOPMENT_STATUS.md) for actual verification/publication results.
+
 Status: **COMPLETED (user accepted D68, 2026-10-14)**. Developed on `codex/cargo-distribution`, integrated into master through normal merge `eea93c8d`. Tested source `2d3bb93c`: Debug/Release builds succeed and complete suites pass 566/566 each, including 113 CargoDist checks. Earlier checkpoint/baseline records remain historical. Both release tags are preserved; the existing modded.2 download is unchanged.
 
 D66 verifies complete multimodal journeys from the D65 checkpoint `0466592b` (542-test baseline). Source `fa6d60cc` adds 24 journey/accounting regressions and shares the native payment calculator between loaded-cargo and explicit-metadata callers. The existing automatic routing already supports these scenarios; this follow-up does not introduce a warehouse type or alter order execution. Complete build results are recorded in development status.

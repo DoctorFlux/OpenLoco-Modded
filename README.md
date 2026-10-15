@@ -1,5 +1,36 @@
-# OpenLoco
-An open source re-implementation of Chris Sawyer's Locomotion. A construction and management simulation video game that simulates running a transport company.
+# OpenLoco Modded
+
+**26.09-modded.3 — the first consolidated modded release (edition 1).**
+
+Build transport networks with automatic cargo and passenger transfers, shared lines, timetables, path/chain signals and visual block orders, using Locomotion's native windows, graphics and controls.
+
+[Download Windows x64](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.3) · [Release notes](docs/releases/v26.09-modded.3.md) · [Development status](docs/DEVELOPMENT_STATUS.md) · [Local build guide](README-LOCAL-SETUP.md)
+
+This is an independent fork of [OpenLoco](https://github.com/OpenLoco/OpenLoco), the open-source reimplementation of **Chris Sawyer's Locomotion**. The original game's assets are required and are not included. The `.3` identifier is retained for build continuity; it is the first consolidated modded edition. The earlier modded.1 and modded.2 releases/tags are retired; their commits remain in repository history.
+
+## What this modded edition adds
+
+The comparison below uses original Locomotion and this fork's **OpenLoco 26.09 baseline, [`e71abfb3`](https://github.com/OpenLoco/OpenLoco/commit/e71abfb3)**. OpenLoco provides the engine and its existing improvements; the additions listed here are this fork's work on top of that baseline. It is not a claim to include every later upstream change.
+
+| Area | Locomotion / upstream baseline | This modded edition |
+| --- | --- | --- |
+| Cargo and passengers | Native cargo quantities and classic loading | Destination-aware passengers, mail and freight, automatic multimodal transfers and linked feeder/final earnings |
+| Routes | Vehicle order lists | Shared lines alongside private orders; edit one line for all assigned vehicles |
+| Timetables | Ordinary orders and vehicle dispatch | Timetable targets, lateness information and automatic spacing |
+| Railway signals | Native block signals | Additional path, chain and combined signals, with track occupation/reservation checks and required-waypoint protection |
+| Orders | Stops, route-through orders, waypoints and cargo instructions | Optional visual If / Else if / Else, And/Or, Repeat/Forever, Break, Wait, Skip, Go to and Group blocks spanning multiple orders |
+| Editing and route display | Native order windows and numbering | Compact inline Rules editing, drag/drop, current-program/next-order markers and conditional shared-line Path/All previews |
+| Gameplay options | Existing game/OpenLoco options | Additional no-obsolescence, infinite-money and calendar-speed controls |
+
+**Automatic transfers:** make normal routes such as coal mine → truck → combined road/rail station → train → power plant. Cargo selects a reachable final destination and changes vehicles at the interchange without Transfer/Unload orders. A normal station with no nearby industry can be an interchange. Passengers/mail can take bus or tram feeders at both ends of a rail, ship or air journey, including return journeys and several destinations sharing one station. Facilities sharing a station ID share cargo; separate stations need a connecting service.
+
+Station and vehicle Cargo tabs show compact, expandable destination quantities. **Options → Miscellaneous → Cargo transfers** selects Automatic or Classic; automatic distribution is the default for new games and older saves, while explicit saved settings are retained. Feeder vehicles receive virtual transfer credit; company income is paid once on final delivery using the native payment formula.
+
+**Shared lines and rules:** use ordinary routes, or click **Rules** in Vehicle Route / shared-line Orders to edit blocks in that same window. Stops and waypoints keep their base-game appearance. Vehicles on a shared line share the program while keeping independent waits and loop counters. Rules do not bypass physical movement or signal safety.
+
+**Save compatibility:** packed SV5/SC5 files stay unchanged. Keep each save with its matching `.olines` v5, `.osignals` v3, `.orules` v1 and `.ocargodist` v1 companions. Missing CargoDist companions migrate native quantities automatically. Keep backups before moving saves between builds. The release does not add multiplayer, larger maps/object limits, NSF/NOF, coupling/shunting or a script/mod loader.
+
+Both Debug and Release complete suites passed **566/566** on the accepted CargoDist source, including **113 CargoDist checks**. Tagged-release verification is recorded in the [release notes](docs/releases/v26.09-modded.3.md). Only a Windows x64 package is published for this release; other platforms require source builds. Native game acceptance remains user-controlled.
 
 ---
 
@@ -24,7 +55,7 @@ An open source re-implementation of Chris Sawyer's Locomotion. A construction an
 
 ### Chat
 
-Feel free to join our Discord server to talk about developing the game, or for help getting it to run.
+The upstream OpenLoco community has a Discord server for discussion of that project. Please report fork-specific issues in [this repository](https://github.com/DoctorFlux/OpenLoco-Modded/issues).
 
 [![Discord](https://img.shields.io/discord/689445672390361176)](https://discord.gg/vEuNRHD)
 
@@ -35,14 +66,13 @@ Feel free to join our Discord server to talk about developing the game, or for h
 
 CSL was originally written in x86 assembly, building on top of the RollerCoaster Tycoon 2 engine. However, the engine has changed substantially enough that OpenLoco currently does not share its codebase with OpenRCT2.
 
-As of December 2025, we have completed reimplementing the game in C++. It is now our goal to get a solid multiplayer experience working in OpenLoco. It is also our goal to increase the map and vehicle limits. However, until creating a new save format (NSF), we are bound to the limits imposed by the CSL save format (SV5/SC5).
+Upstream reports its C++ reimplementation complete as of December 2025 and identifies multiplayer and increased limits as goals. This fork builds on that engine; it does not deliver multiplayer or a new save container. See the [upstream project](https://github.com/OpenLoco/OpenLoco) for its own current plans and releases.
 
 ---
 
 # 2 Downloading the game (pre-built)
 
-The latest releases can be [downloaded from GitHub](https://github.com/DoctorFlux/OpenLoco-Modded/releases). The current Windows build is 26.09-modded.1. Linux and macOS builds are produced by CI when that workflow succeeds.
-For BSD distributions, we currently do not provide any builds. Please refer to the next section to compile the game manually. For macOS the builds are unsigned and unnotarized. This means that Gatekeeper may block them.
+Download [26.09-modded.3 for Windows x64](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.3), with its SHA-256 checksum. Extract the ZIP into a separate folder, run `OpenLoco.exe`, and select your Locomotion installation when prompted. This release supersedes the retired modded.1 and modded.2 downloads. Linux, macOS and BSD users can build from source; no verified binaries for those platforms accompany this release.
 
 Please note that OpenLoco requires the asset files of the original Chris Sawyer's Locomotion to play the game.
 It can be bought at e.g. [Steam](https://store.steampowered.com/app/356430/) or [GOG.com](https://www.gog.com/game/chris_sawyers_locomotion).
@@ -63,8 +93,7 @@ You can use `clang-format` to apply these guidelines automatically.
 
 If you would like to contribute code to OpenLoco, please follow the instructions below to get started compiling the game.
 
-If you just want to play the game, you can just [download the latest release](https://github.com/OpenLoco/OpenLoco/releases) from GitHub.
-Releases are provided for Windows (64 & 32-bit) / Linux (64-bit only) / MacOS (arm64 only).
+If you just want to play this fork, [download its latest release](https://github.com/DoctorFlux/OpenLoco-Modded/releases/latest). The published modded.3 package is Windows x64. [Upstream OpenLoco releases](https://github.com/OpenLoco/OpenLoco/releases) have their own platform packages and feature set.
 
 ## 4.1 Building prerequisites
 
@@ -145,6 +174,8 @@ Note: Only arm64 builds have been tested.
 ---
 
 # 6 More information
+- [OpenLoco Modded releases](https://github.com/DoctorFlux/OpenLoco-Modded/releases)
+- [Modded feature matrix](docs/FEATURE_MATRIX.md)
 - [GitHub](https://github.com/OpenLoco/OpenLoco)
 - [TT-Forums](https://www.tt-forums.net)
 - [Locomotion subreddit](https://www.reddit.com/r/locomotion/)
