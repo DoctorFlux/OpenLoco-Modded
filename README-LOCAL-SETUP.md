@@ -1,5 +1,7 @@
 # Local Windows setup
 
+Current release preparation: **26.09-modded.3**, the first consolidated modded edition, includes CargoDist on master. Use [the new release](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.3) and [release notes](docs/releases/v26.09-modded.3.md); modded.1/modded.2 releases and tags are retired by D69 after verification. Earlier build stamps/release instructions below are historical. Fresh build/package results appear in `docs/DEVELOPMENT_STATUS.md`. Normal builds keep the existing user directory; optional isolated launches use `--user_path`. Keep SV5 and matching `.olines`, `.osignals`, `.orules`, `.ocargodist` companions together. Game control remains with the user.
+
 Branch `dev/local-baseline` tracks OpenLoco `e71abfb3` plus the local framework plan. Project rules are in `AGENTS.md` and `docs/MASTER_PLAN.md`. These notes are for this machine. They do not change the original Locomotion installation.
 
 ## Machine
@@ -164,7 +166,7 @@ Complete logic integration is now on local/remote `master` via merge `28e64e62`,
 
 D60 publishes the accepted master implementation as `v26.09-modded.2` with a Windows x64 Release ZIP. The prior modded.1 tag is retained; merged feature branches are removed as requested. Release notes and companion-save guidance: `docs/releases/v26.09-modded.2.md`. Future development creates a fresh branch from master.
 
-Current published release: [26.09-modded.2](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.2), tagged master `c1660c34`. Windows ZIP and SHA-256 are attached; its fresh Release suite passed 447/447. At D60, local `build/windows/Release/OpenLoco.exe` had the exact modded.2/master stamp; the current CargoDist builds replace local development executables only. Both local Debug and Release development binaries now use the verified CargoDist source stamp described below. The public release ZIP is unchanged; at D60 merged branches were removed, and the later CargoDist branch is retained.
+Historical D60 release (retired by D69): [26.09-modded.2](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.2), tagged master `c1660c34`. Windows ZIP and SHA-256 are attached; its fresh Release suite passed 447/447. At D60, local `build/windows/Release/OpenLoco.exe` had the exact modded.2/master stamp; the current CargoDist builds replace local development executables only. Both local Debug and Release development binaries now use the verified CargoDist source stamp described below. The public release ZIP is unchanged; at D60 merged branches were removed, and the later CargoDist branch is retained.
 
 ## Accepted CargoDist and isolated regression checks
 
