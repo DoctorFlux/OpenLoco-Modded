@@ -16,7 +16,11 @@ Changed files: front-page `README.md`, `README-LOCAL-SETUP.md`, `docs/releases/v
 
 Verification in progress: reconfigure from tagged master, build Debug and Release, run both complete suites against the accepted 566-test baseline; verify five test paths, exact executable stamps, copied data, x64 PE architecture, ZIP contents/CRC, checksums and published downloads. Record actual results below before marking publication complete. No automated game launch/input or new manual-check claim. Existing test-only symbol warnings and bounded routing caveats remain applicable unless fresh logs show otherwise.
 
-Next concrete task: finish tagged verification/publication and old-release/tag retirement; then await the next requested feature on a fresh branch. Save-container/NSF work, consists and shunting remain deferred.
+Fresh tagged-release verification (D69): both reconfigured Windows x64 game builds and all test targets succeed at **`ad45f1b3`**, with startup stamp **`v26.09-modded.3`, `master`, `ad45f1b3`**. Complete serial suites pass **566/566 each, zero failures**: Debug **68.59 seconds**, Release **17.85 seconds**, including **113 CargoDist checks**, 24 journey/accounting cases and 10 placement checks. All five test executable paths per configuration, exact binary stamps, x64 PE headers, en-GB copies and unchanged gameplay/source/build inputs versus accepted `2d3bb93c` are verified. Fresh compiler/linker warnings: Debug **0**, Release **7**; configure retains the pre-existing CMP0135 developer warning. Logs: `build/windows/modded-3-configure.log`, `modded-3-{debug,release}-{build,tests}.log`, discovery JSONs; machine-readable evidence: `build/modded-3/build-verification.json`. No game launch or new manual-check claim.
+
+The seven existing Release warnings are test-only LNK4020 PDB symbol warnings; the shipped game link is clean. The package excludes test binaries and PDBs. Full warning details remain in the build log/report.
+
+Next concrete task: finish package/publication and old-release/tag retirement; then await the next requested feature on a fresh branch. Save-container/NSF work, consists and shunting remain deferred.
 
 ## Current delivery snapshot — 2026-10-14
 

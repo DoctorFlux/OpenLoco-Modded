@@ -30,7 +30,7 @@ Station and vehicle Cargo tabs show compact, expandable destination quantities. 
 
 **Save compatibility:** packed SV5/SC5 files stay unchanged. Keep each save with its matching `.olines` v5, `.osignals` v3, `.orules` v1 and `.ocargodist` v1 companions. Missing CargoDist companions migrate native quantities automatically. Keep backups before moving saves between builds. The release does not add multiplayer, larger maps/object limits, NSF/NOF, coupling/shunting or a script/mod loader.
 
-Both Debug and Release complete suites passed **566/566** on the accepted CargoDist source, including **113 CargoDist checks**. Tagged-release verification is recorded in the [release notes](docs/releases/v26.09-modded.3.md). Only a Windows x64 package is published for this release; other platforms require source builds. Native game acceptance remains user-controlled.
+Fresh tagged Debug and Release builds succeed; both complete suites passed **566/566**, including **113 CargoDist checks**. Tagged-release verification is recorded in the [release notes](docs/releases/v26.09-modded.3.md). Only a Windows x64 package is published for this release; other platforms require source builds. Native game acceptance remains user-controlled.
 
 ---
 
