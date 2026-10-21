@@ -6,6 +6,14 @@ States: `DEFERRED`, `NOT STARTED`, `RESEARCHING`, `PLANNED`, `IN DEVELOPMENT`, `
 
 Baseline: OpenLoco `e71abfb3`, branch `dev/local-baseline`. Vanilla behaviour is the upstream game, not a framework feature.
 
+## D70 — CargoDist branch cleanup — 2026-10-21
+
+The user requested confirming CargoDist is merged into master and removing its feature branch. After fetching origin, local/origin master both resolved to `2c8969c4`, and local/origin `codex/cargo-distribution` both resolved to `2ecebc12`. Ancestry checks confirmed that the entire feature head is included in local master, origin/master and release tag `v26.09-modded.3` (`ad45f1b3`), through normal merge `eea93c8d`. There were no unmerged branch commits; no further gameplay merge was necessary.
+
+Deleted `codex/cargo-distribution` on origin, then locally with the merged-branch check (`git branch -d`). Origin and local branch listings now contain only master; cached upstream branches are outside this cleanup and were left alone. Full CargoDist history remains in master. D70 supersedes D68/D69 instructions to retain the feature branch. The published release/tag, gameplay, save formats and companions are unchanged.
+
+Verification: refreshed refs, verified all three ancestry relationships, checked the empty unmerged-commit list and unchanged source/data/CMake inputs against the tagged release, then confirmed local/origin branch deletion. This is branch/documentation maintenance; no builds, test suites or in-game checks were rerun. The recorded D69 Debug/Release results remain 566/566 per configuration on identical gameplay code. Changed files: this status, decisions, master plan, roadmap, feature matrix, dependencies, testing/save notes and CargoDist specification. Blockers: none. Next concrete task: the user's next requested nondeferred feature on a fresh branch from master; save-container work, consists and shunting remain deferred.
+
 ## Current release — 2026-10-15
 
 **D69: 26.09-modded.3 is published as the first consolidated modded edition (edition 1).** CargoDist is already integrated into local/origin master (`eea93c8d`, status `bc25dab5`). This release includes accepted shared lines, timetables, path/chain signals, visual orders and automatic cargo/passenger/mail transfers. The version stays `26.09-modded.3` / tag `v26.09-modded.3`; edition 1 describes the consolidated feature set rather than reusing a retired tag.

@@ -1,5 +1,7 @@
 # Automatic cargo transfers (D65/D66)
 
+D70 (2026-10-21): verified the full CargoDist branch head `2ecebc12` is already in local/origin master and `v26.09-modded.3`, then removed the merged feature branch locally and from origin at the user's request. All implementation history remains in master; gameplay, persistence and the published release are unchanged.
+
 D69 (2026-10-15): accepted CargoDist is on master and ships in **26.09-modded.3**, the first consolidated modded edition. This supersedes statements below that the published download excludes CargoDist or that the two older tags remain available. Gameplay and `.ocargodist` v1 are unchanged. See [release notes](../releases/v26.09-modded.3.md) and [status](../DEVELOPMENT_STATUS.md) for actual verification/publication results.
 
 Status: **COMPLETED (user accepted D68, 2026-10-14)**. Developed on `codex/cargo-distribution`, integrated into master through normal merge `eea93c8d`. Tested source `2d3bb93c`: Debug/Release builds succeed and complete suites pass 566/566 each, including 113 CargoDist checks. Earlier checkpoint/baseline records remain historical. Both release tags are preserved; the existing modded.2 download is unchanged.
