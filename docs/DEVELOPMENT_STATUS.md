@@ -12,9 +12,11 @@ The user requests a new ready-to-download release ZIP. Prepare `v26.09-modded.4`
 
 Changed files: front-page `README.md`, `README-LOCAL-SETUP.md`, `docs/releases/v26.09-modded.4.md`, development status, decisions, master plan, roadmap/feature matrix, testing and save notes. Source comparison against `4e1adff5`, fresh exact-tag Debug/Release game/all-test builds and both 670-test suites precede packaging. Package only the x64 Release executable, project languages, pinned CMake OpenGraphics objects, setup/release notes and project notices; include a SHA-256 asset and verify public downloaded bytes. No original game assets, player data, test binaries or debug symbols. Game control stays with the user.
 
-D78_BUILD_PENDING
+Fresh exact-tag **`v26.09-modded.4`**, master **`2d57120a2c91ba0c6d733a9f8147e35151a186ac`**, reconfigures and builds Debug/Release games and all test targets. Both complete suites pass **670/670, zero failures**: Debug **59.82 seconds**, Release **21.45 seconds**. Both x64 binaries carry .4/master/`2d57120a`; discovery verifies all five test executables per configuration and exact English data copies. Gameplay/source/data/cmake/build inputs match accepted `4e1adff5`, and frozen hashes remain unchanged throughout the build/test stages. No in-game test/control is claimed.
 
-D78_PACKAGE_PENDING
+Compiler warnings: **0**. Link notices: Debug **2 LNK4075**; Release **7 LNK4020** (existing test-symbol notices; inspect retained logs). Configure retains CMP0135. Evidence: `build/modded-4/build-verification.json`, `build-run.json`, `source-inputs.json`, configure/build/full-suite logs and both discovery JSONs. Published .3 remains preserved.
+
+Windows x64 archive **`OpenLoco-v26.09-modded.4-windows-x64.zip`** is **16313864 bytes**, with **224 entries** (20 languages, 198 pinned OpenGraphics files). SHA-256: **`2ff108601740bd01cab2a6246c73f38d6c2799c17667f49d7652f478722a139e`**. ZIP CRC, unique/safe entry paths, exact source/built asset bytes, every archived file, executable architecture/stamp/hash and system-only DLL imports are verified. Tests, PDBs, original assets and player profiles/saves are excluded. The checksum asset is `OpenLoco-v26.09-modded.4-windows-x64.zip.sha256`. Evidence: `build/modded-4/package-manifest.json` and `package-files.json`.
 
 D78_PUBLICATION_PENDING
 
