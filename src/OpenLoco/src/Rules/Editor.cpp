@@ -19,7 +19,7 @@ namespace OpenLoco::Rules
             return Feedback::idle;
         }
         const auto block = std::find_if(program.blocks.begin(), program.blocks.end(), [key](const Block& block) { return block.id == key; });
-        if (block != program.blocks.end() && (block->kind == Kind::skip || block->kind == Kind::goTo || block->kind == Kind::breakLoop))
+        if (block != program.blocks.end() && block->parent && (block->kind == Kind::skip || block->kind == Kind::goTo || block->kind == Kind::breakLoop))
         {
             key = block->parent;
         }
@@ -51,7 +51,13 @@ namespace OpenLoco::Rules
     }
     static std::string checkSentence(const Program& program, const Condition& condition)
     {
-        const char* compares[] = { "<", "=", ">" };
+        const char* compares[] = { "<", "=", ">", "!=", "<=", ">=", "is true", "is false" };
+        if (!numericCheck(condition.check) && condition.compare == Compare::isFalse)
+        {
+            auto positive = condition;
+            positive.compare = Compare::isTrue;
+            return "not (" + checkSentence(program, positive) + ")";
+        }
         switch (condition.check)
         {
             case Check::cargoWaiting:
@@ -74,13 +80,18 @@ namespace OpenLoco::Rules
             case Check::cargoWaitingFor: return "cargo waiting for stop " + std::to_string(condition.stop) + " " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
             case Check::cargoOnboardFor: return "cargo onboard for stop " + std::to_string(condition.stop) + " " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
             case Check::year: return "year " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
+            case Check::loadPercentage: return "load (%) " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
+            case Check::vehicleAge: return "age (years) " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
+            case Check::reliability: return "reliability (%) " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
+            case Check::maxSpeed: return "max speed (mph) " + std::string(compares[static_cast<unsigned>(condition.compare)]) + " " + std::to_string(condition.value);
+            case Check::always: return "always";
         }
         return {};
     }
     std::string blockSentence(const Program& program, const Block& block)
     {
         std::string sentence = kindName(block.kind);
-        if (block.kind == Kind::ifBlock || block.kind == Kind::elseIf || block.kind == Kind::waitUntil)
+        if (hasCondition(block))
         {
             sentence += " " + checkSentence(program, block.condition);
             if (block.join != Join::none)
@@ -147,7 +158,7 @@ namespace OpenLoco::Rules
             add(BlockField::when, timingOf(program, b) == Timing::onArrival ? "arrive" : "before");
         }
         auto condition = [&](const Condition& c, bool extra) {
-            constexpr const char* checks[] = { "cargo", "full", "empty", "space", "platform", "late", "on time", "year", "waiting for", "onboard for" };
+            constexpr const char* checks[] = { "cargo", "full", "empty", "space", "platform", "late", "on time", "year", "waiting for", "onboard for", "load %", "age (years)", "reliability %", "max mph", "always" };
             add(BlockField::check, checks[static_cast<unsigned>(c.check)], extra);
             if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::platformFree || c.check == Check::late || c.check == Check::onTime)
             {
@@ -168,15 +179,18 @@ namespace OpenLoco::Rules
             {
                 add(BlockField::cargo, "plat " + std::to_string(c.platform), extra);
             }
-            if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::year)
+            if (numericCheck(c.check))
             {
-                add(BlockField::compare, c.compare == Compare::less ? "<" : c.compare == Compare::greater ? ">"
-                                                                                                          : "=",
-                    extra);
+                constexpr const char* compares[] = { "<", "=", ">", "!=", "<=", ">=", "true", "false" };
+                add(BlockField::compare, compares[static_cast<unsigned>(c.compare)], extra);
                 add(BlockField::value, std::to_string(c.value), extra);
             }
+            else
+            {
+                add(BlockField::compare, c.compare == Compare::isFalse ? "is false" : "is true", extra);
+            }
         };
-        if (b.kind == Kind::ifBlock || b.kind == Kind::elseIf || b.kind == Kind::waitUntil)
+        if (hasCondition(b))
         {
             condition(b.condition, false);
             add(BlockField::join, b.join == Join::none ? "+" : b.join == Join::andCheck ? "and"
@@ -359,7 +373,7 @@ namespace OpenLoco::Rules
                 }
                 ProgramVisual v{ y, 0, row, block->id, depth, 0, {} };
                 const auto right = std::max<int>(34, width - visualIndent(v, width) - 11);
-                int16_t left = static_cast<int16_t>(std::min<int>(right, textWidth(kindName(block->kind), true) + 14));
+                int16_t left = static_cast<int16_t>(std::min<int>(right, textWidth(block->kind == Kind::goTo && !block->parent ? "Jump if" : kindName(block->kind), true) + 14));
                 int16_t top = 2;
                 v.fields = blockFields(program, *block);
                 for (auto& field : v.fields)
@@ -483,9 +497,9 @@ namespace OpenLoco::Rules
                 smallest = z - a;
             }
         }
-        return { hit->row, into };
+        return { hit->row + (y >= hit->top + hit->height / 2 ? 1 : 0), into };
     }
-    std::optional<Edit> blockDrop(const Program& program, Kind kind, size_t first, size_t last, Key hovered)
+    std::optional<Edit> blockDrop(const Program& program, Kind kind, size_t first, size_t last, Key hovered, bool conditionalJump)
     {
         if (first > last || last >= program.rows.size())
         {
@@ -514,7 +528,7 @@ namespace OpenLoco::Rules
         block.last = program.rows[last].key;
         block.number = kind == Kind::repeat ? 2 : 5;
         block.name = "My section";
-        if (kind == Kind::skip || kind == Kind::goTo || kind == Kind::breakLoop)
+        if (kind == Kind::skip || (kind == Kind::goTo && !conditionalJump) || kind == Kind::breakLoop)
         {
             size_t smallest = program.rows.size() + 1;
             for (const auto& parent : program.blocks)
@@ -562,7 +576,12 @@ namespace OpenLoco::Rules
         }
         if (kind == Kind::goTo)
         {
-            const auto row = std::find_if(program.rows.begin(), program.rows.end(), [](const Row& row) { return isRoutable(row.raw); });
+            if (!block.parent)
+            {
+                block.last = block.first;
+                block.condition.check = conditionalJump ? Check::full : Check::always;
+            }
+            const auto row = std::find_if(program.rows.begin(), program.rows.end(), [&](const Row& row) { return isRoutable(row.raw) && (block.parent || row.key != block.first); });
             if (row != program.rows.end())
             {
                 block.target = row->key;
@@ -584,7 +603,7 @@ namespace OpenLoco::Rules
         auto preview = program;
         return edit(preview, editCommand) ? std::optional<Edit>{ editCommand } : std::nullopt;
     }
-    std::optional<Edit> paletteDrop(const Program& program, const ProgramLayout& layout, Kind kind, int16_t y, std::optional<std::pair<size_t, size_t>> selection)
+    std::optional<Edit> paletteDrop(const Program& program, const ProgramLayout& layout, Kind kind, int16_t y, std::optional<std::pair<size_t, size_t>> selection, bool conditionalJump)
     {
         const auto* hit = programHit(layout, y);
         if (!hit || hit->row >= program.rows.size())
@@ -615,7 +634,7 @@ namespace OpenLoco::Rules
                 first = last = z;
             }
         }
-        return blockDrop(program, kind, first, last, hit->block);
+        return blockDrop(program, kind, first, last, hit->block, conditionalJump);
     }
     static Colour blockColour(Kind kind, Feedback feedback)
     {
@@ -743,7 +762,7 @@ namespace OpenLoco::Rules
             }
             if (labels)
             {
-                blockText(context, x + 9, visual.top + 3, static_cast<int16_t>(right - x - 15), kindName(b->kind), true);
+                blockText(context, x + 9, visual.top + 3, static_cast<int16_t>(right - x - 15), b->kind == Kind::goTo && !b->parent ? "Jump if" : kindName(b->kind), true);
             }
             if (bracket(*b))
             {
@@ -824,7 +843,7 @@ namespace OpenLoco::Rules
             {
                 feedback.sentence += " " + block.name;
             }
-            else if (block.kind == Kind::ifBlock || block.kind == Kind::elseIf || block.kind == Kind::waitUntil)
+            else if (hasCondition(block))
             {
                 feedback.sentence += " " + checkSentence(program, block.condition);
                 if (block.join != Join::none)

@@ -46,13 +46,23 @@ namespace OpenLoco::Rules
         onTime,
         year,
         cargoWaitingFor,
-        cargoOnboardFor
+        cargoOnboardFor,
+        loadPercentage,
+        vehicleAge,
+        reliability,
+        maxSpeed,
+        always
     };
     enum class Compare : uint8_t
     {
         less,
         equal,
-        greater
+        greater,
+        notEqual,
+        lessEqual,
+        greaterEqual,
+        isTrue,
+        isFalse
     };
     enum class Join : uint8_t
     {
@@ -100,6 +110,9 @@ namespace OpenLoco::Rules
         Timing when = Timing::automatic;
         bool operator==(const Block&) const = default;
     };
+    bool hasCondition(const Block& block);
+    bool numericCheck(Check check);
+    bool compareValue(int32_t value, const Condition& condition);
     struct Program
     {
         std::vector<Row> rows;

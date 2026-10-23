@@ -1,8 +1,8 @@
 #pragma once
 #include "Editor.h"
-#include "Ui/Window.h"
 #include "Ui/Widgets/ButtonWidget.h"
 #include "Ui/Widgets/ScrollViewWidget.h"
+#include "Ui/Window.h"
 #include <memory>
 
 namespace OpenLoco::Rules
@@ -72,7 +72,7 @@ namespace OpenLoco::Rules
         std::optional<std::pair<size_t, size_t>> selection() const;
         void selectRows(size_t first, size_t last);
         void selectBlock(Key block);
-        void startDrag(EditorDrag kind, size_t first, size_t last, Key block = 0, Kind paletteKind = Kind::group);
+        void startDrag(EditorDrag kind, size_t first, size_t last, Key block = 0, Kind paletteKind = Kind::group, bool conditionalJump = false);
         std::optional<Edit> dropProposal(int16_t y) const;
         void cancel();
         bool dragging() const;

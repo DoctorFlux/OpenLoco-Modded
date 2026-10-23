@@ -1,5 +1,7 @@
 # UI and UX
 
+D71: drag ordinary stop/waypoint captions to move them into blocks; Shift-drag selects a consecutive range. Row halves and thin interior append strips show validated insertion boundaries, with nested membership explicit. The native palette adds Jump if, editable through the same check/comparison/value/target sockets and Details controls in both hosts. Conditions include load %, age in years, reliability %, max mph and Always. Numeric sockets add !=/<=/>=; boolean sockets expose true/false. Native captions, number circles, progress and branch colors remain. No new window/tab or map tool is introduced; verification and user-only appearance acceptance are in development status.
+
 The accepted CargoDist UI is integrated into master through `eea93c8d` (D68): normal orders/shared lines/optional Rules, compact expandable station/vehicle destination summaries, Automatic/Classic in Options Misc and no automatic-origin wording. The D62/D63 standalone windows and congestion overlays remain superseded by D65/D67. No new layout or controls are added during integration; historical CargoDist TESTING gates are superseded.
 
 D67 automatic Cargo entries show native quantities followed by distribution/destination summaries; omit the legacy station "en-route from" line and vehicle "from [station]" suffix. Station base rows return to 12 pixels, with destination lines using the existing shared variable-row geometry. Vehicle image/compartment geometry and controls remain. Classic entries retain native presentation. Origin metadata is not changed by drawing.

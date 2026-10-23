@@ -4,6 +4,7 @@
 #include <OpenLoco/Graphics/Colour.h>
 #include <OpenLoco/Graphics/RenderTarget.h>
 #include <OpenLoco/Graphics/SoftwareDrawingContext.h>
+#include <OpenLoco/Input.h>
 #include <OpenLoco/Lines/Line.h>
 #include <OpenLoco/Map/MapSelection.h>
 #include <OpenLoco/Map/RoadElement.h>
@@ -12,11 +13,11 @@
 #include <OpenLoco/Map/TileManager.h>
 #include <OpenLoco/Map/TrackElement.h>
 #include <OpenLoco/Rules/EditorSession.h>
-#include <OpenLoco/Ui/ScrollView.h>
-#include <OpenLoco/Ui/WindowManager.h>
 #include <OpenLoco/Rules/Platforms.h>
 #include <OpenLoco/Rules/Rules.h>
 #include <OpenLoco/Scenario/ScenarioManager.h>
+#include <OpenLoco/Ui/ScrollView.h>
+#include <OpenLoco/Ui/WindowManager.h>
 #include <OpenLoco/Vehicles/OrderManager.h>
 #include <OpenLoco/Vehicles/Vehicle1.h>
 #include <OpenLoco/Vehicles/Vehicle2.h>
@@ -4719,8 +4720,6 @@ TEST_F(GameRulesFixture, nativeSharedInlineKeepsBrowserAndThirdScrollArea)
     w->callPrepareDraw();
     w->updateScrollWidgets();
     EXPECT_EQ(w->scrollAreas[2].contentOffsetY, 0);
-
-
 }
 TEST_F(GameRulesFixture, nativeInlineDropEditsOrdersAndBinRemovesOnlyBlock)
 {
@@ -4950,4 +4949,463 @@ TEST(RulesTests, scrollIndexLookupSupportsFirstAndAdjacentEditorPanes)
     EXPECT_EQ(w.getScrollDataIndex(0), 0);
     EXPECT_EQ(w.getScrollDataIndex(1), 1);
     EXPECT_EQ(w.getScrollDataIndex(2), 2);
+}
+
+TEST(RulesTests, conditionalJumpTakesTrueBranchAndFallsThroughOtherwise)
+{
+    auto p = route();
+    auto jump = section(p, Kind::goTo, 1, 1);
+    jump.target = p.rows[4].key;
+    ASSERT_TRUE(add(p, jump));
+    for (const auto pass : { false, true })
+    {
+        Runtime r;
+        const auto facts = pass ? yes : no;
+        EXPECT_EQ(next(p, r, 0, facts).order, p.rows[0].key);
+        EXPECT_EQ(next(p, r, 0, facts).order, p.rows[pass ? 4 : 1].key);
+        EXPECT_EQ(r.branches.at(p.blocks[0].id), pass);
+        EXPECT_TRUE(validRuntime(p, r));
+        EXPECT_EQ(blockFeedback(p, &r, p.blocks[0].id), pass ? Feedback::passed : Feedback::failed);
+    }
+    Runtime missing;
+    next(p, missing, 0, yes);
+    const auto result = next(p, missing, 0, [](const Condition&) { return CheckResult{ false, false, "Vehicle unavailable" }; });
+    EXPECT_EQ(result.order, p.rows[1].key);
+    EXPECT_EQ(missing.status, "Vehicle unavailable");
+}
+
+TEST(RulesTests, conditionalJumpSupportsJoinedChecksAndDeletionDisablesTarget)
+{
+    auto p = route();
+    auto jump = section(p, Kind::goTo, 1, 1);
+    jump.target = p.rows[4].key;
+    jump.join = Join::andCheck;
+    jump.condition.check = Check::full;
+    jump.extra.check = Check::empty;
+    ASSERT_TRUE(add(p, jump));
+    Runtime r;
+    auto fullOnly = [](const Condition& c) { return CheckResult{ true, c.check == Check::full, {} }; };
+    next(p, r, 0, fullOnly);
+    EXPECT_EQ(next(p, r, 0, fullOnly).order, p.rows[1].key);
+    Edit remove;
+    remove.kind = EditKind::deleteRow;
+    remove.first = 4;
+    ASSERT_TRUE(edit(p, remove));
+    EXPECT_FALSE(p.blocks[0].enabled);
+    r = {};
+    next(p, r, 0, yes);
+    EXPECT_EQ(next(p, r, 0, yes).order, p.rows[1].key);
+    EXPECT_EQ(r.status, "Go to destination is missing");
+}
+
+TEST(RulesTests, conditionalJumpCyclesYieldAndResumeWithoutChoosingPhysicalOrders)
+{
+    auto p = route();
+    auto jump = section(p, Kind::goTo, 0, 0);
+    jump.target = p.rows[0].key;
+    ASSERT_TRUE(add(p, jump));
+    Runtime r;
+    EXPECT_EQ(next(p, r, 10, yes).kind, RunKind::yielded);
+    EXPECT_EQ(r.steps, 256);
+    EXPECT_EQ(r.current, 0U);
+    EXPECT_EQ(next(p, r, 10, no).kind, RunKind::yielded);
+    EXPECT_TRUE(validRuntime(p, r));
+    EXPECT_EQ(next(p, r, 11, no).order, p.rows[0].key);
+}
+
+TEST(RulesTests, conditionalJumpConnectivityIncludesBothPossibleServices)
+{
+    auto p = makeProgram({ 1, 9, 17, 25 }, true);
+    auto jump = section(p, Kind::goTo, 1, 1);
+    jump.target = p.rows[3].key;
+    ASSERT_TRUE(add(p, jump));
+    const auto service = possibleService(p);
+    EXPECT_FALSE(service.limited);
+    EXPECT_TRUE(service.links.contains({ p.rows[0].key, p.rows[1].key }));
+    EXPECT_TRUE(service.links.contains({ p.rows[0].key, p.rows[3].key }));
+    Runtime r;
+    const auto preview = previewRoute(p, r, 0, 1, yes);
+    EXPECT_EQ(preview.orders, (std::vector<Key>{ p.rows[0].key, p.rows[3].key, p.rows[0].key }));
+}
+
+TEST(RulesTests, conditionalComparisonsHandleEqualBoundariesAndBooleanInversion)
+{
+    Condition c;
+    c.value = 50;
+    for (const auto value : { 49, 50, 51 })
+    {
+        const std::pair<Compare, bool> cases[] = { { Compare::less, value < 50 }, { Compare::equal, value == 50 }, { Compare::greater, value > 50 }, { Compare::notEqual, value != 50 }, { Compare::lessEqual, value <= 50 }, { Compare::greaterEqual, value >= 50 }, { Compare::isTrue, true }, { Compare::isFalse, false } };
+        for (auto [comparison, expected] : cases)
+        {
+            c.compare = comparison;
+            EXPECT_EQ(compareValue(value, c), expected);
+        }
+    }
+    c.compare = Compare::isFalse;
+    EXPECT_TRUE(compareValue(0, c));
+}
+
+TEST(RulesTests, conditionalJumpPaletteCanNestIndependentlyInsideIf)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 2)));
+    auto conditional = blockDrop(p, Kind::goTo, 1, 1, p.blocks[0].id, true);
+    ASSERT_TRUE(conditional);
+    EXPECT_EQ(conditional->block.parent, 0U);
+    ASSERT_TRUE(edit(p, *conditional));
+    const auto layout = programLayout(p, 240);
+    const auto header = std::find_if(layout.items.begin(), layout.items.end(), [&](const auto& v) { return v.block == p.blocks.back().id; });
+    ASSERT_NE(header, layout.items.end());
+    EXPECT_FALSE(header->closing);
+    EXPECT_TRUE(std::any_of(header->fields.begin(), header->fields.end(), [](const auto& f) { return f.field == BlockField::check; }));
+    EXPECT_TRUE(std::any_of(header->fields.begin(), header->fields.end(), [](const auto& f) { return f.field == BlockField::target; }));
+    auto action = blockDrop(p, Kind::goTo, 1, 1, p.blocks[0].id);
+    ASSERT_TRUE(action);
+    EXPECT_EQ(action->block.parent, p.blocks[0].id);
+}
+
+TEST(RulesTests, conditionalJumpValidationIsAtomicForBadTargetsAndPercentages)
+{
+    auto p = route();
+    const auto before = p;
+    auto jump = section(p, Kind::goTo, 1, 1);
+    jump.target = 99999;
+    EXPECT_FALSE(add(p, jump));
+    EXPECT_EQ(p, before);
+    jump.target = p.rows[4].key;
+    jump.condition.check = Check::loadPercentage;
+    jump.condition.value = 101;
+    EXPECT_FALSE(add(p, jump));
+    EXPECT_EQ(p, before);
+    jump.condition.value = 50;
+    jump.condition.compare = Compare::isFalse;
+    EXPECT_FALSE(add(p, jump));
+    EXPECT_EQ(p, before);
+}
+
+TEST(RulesTests, orderDropUsesBothHalvesOfRowsAndKeepsExplicitContainer)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    const auto layout = programLayout(p, 300);
+    const auto top = layout.orderTops[2];
+    EXPECT_EQ(programDrop(p, layout, top + 2).row, 2U);
+    EXPECT_EQ(programDrop(p, layout, top + 12).row, 3U);
+    EXPECT_EQ(programDrop(p, layout, top + 12).into, p.blocks[0].id);
+}
+
+TEST_F(GameRulesFixture, captionDraggingMovesStopsInsideNestedPrivateAndSharedBlocks)
+{
+    using namespace OpenLoco;
+    for (const bool shared : { false, true })
+    {
+        auto* head = vehicle();
+        const auto id = enumValue(head->id);
+        if (shared)
+        {
+            const auto line = Lines::createLine("Caption drag", TransportMode::rail, 0);
+            ASSERT_TRUE(line.ok);
+            for (auto stop : { 10, 20, 30 })
+            {
+                Lines::LineOrder order;
+                order.station = stop;
+                ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+            }
+            ASSERT_TRUE(Lines::assignVehicle(line.id, id, TransportMode::rail).ok);
+        }
+        const auto owner = ownerForVehicle(id);
+        auto p = snapshot(owner);
+        Edit e;
+        e.block = section(p, Kind::ifBlock, 0, 0);
+        ASSERT_TRUE(submit(owner, e));
+        p = snapshot(owner);
+        e.block = section(p, Kind::otherwise, 1, 1);
+        e.block.parent = p.blocks[0].id;
+        ASSERT_TRUE(submit(owner, e));
+        p = snapshot(owner);
+        e.block = section(p, Kind::repeat, 1, 1);
+        e.block.number = 2;
+        ASSERT_TRUE(submit(owner, e));
+        auto* window = inlineTestHost(owner, id, shared);
+        ASSERT_NE(window, nullptr);
+        CloseInlineHost close{ window };
+        auto& session = editorSession(*window);
+        session.toggle(*window, { 1024, 768 });
+        const auto original = snapshot(owner);
+        const auto scroll = shared ? 1 : 0;
+        const auto& canvas = window->widgets[shared ? 1 : 0];
+        ASSERT_TRUE(session.mouseDown(*window, 90, session.layout().orderTops[2] + 3, scroll));
+        const auto closing = std::find_if(session.layout().items.begin(), session.layout().items.end(), [&](const auto& v) { return v.closing && v.block == original.blocks[2].id; });
+        ASSERT_NE(closing, session.layout().items.end());
+        const int y = closing->top + 3;
+        ASSERT_TRUE(session.mouseDrag(*window, 90, y, scroll));
+        const auto proposal = session.dropProposal(y);
+        ASSERT_TRUE(proposal) << "Dragging the caption must move its row, rather than just select it";
+        EXPECT_EQ(proposal->into, original.blocks[2].id);
+        ASSERT_TRUE(session.mouseRelease(*window, window->x + canvas.left + 91, window->y + canvas.top + 1 + y, scroll));
+        const auto updated = snapshot(owner);
+        EXPECT_EQ(updated.blocks[1].last, original.rows[2].key);
+        EXPECT_EQ(updated.blocks[2].last, original.rows[2].key);
+        EXPECT_EQ(updated.rows, original.rows);
+    }
+}
+
+TEST_F(GameRulesFixture, nativeConditionalJumpChecksReliabilitySpeedAndAlways)
+{
+    using namespace OpenLoco;
+    for (auto check : { Check::reliability, Check::maxSpeed, Check::always })
+    {
+        auto* head = vehicle();
+        const auto id = enumValue(head->id);
+        Vehicles::Vehicle train(*head);
+        train.veh2->reliability = 75;
+        train.veh2->maxSpeed = Speed16{ 75 };
+        auto p = snapshot(ownerForVehicle(id));
+        Edit e;
+        e.block = section(p, Kind::goTo, 1, 1);
+        e.block.target = p.rows[2].key;
+        e.block.condition.check = check;
+        e.block.condition.value = 75;
+        ASSERT_TRUE(submit(ownerForVehicle(id), e));
+        reached(id);
+        ASSERT_TRUE(prepareVehicle(id));
+        EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+    }
+}
+
+TEST_F(GameRulesFixture, conditionalJumpAndExtendedChecksRoundTripInExistingCompanion)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const auto owner = ownerForVehicle(id);
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::goTo, 1, 1);
+    e.block.target = p.rows[2].key;
+    e.block.condition.check = Check::reliability;
+    e.block.condition.compare = Compare::greaterEqual;
+    e.block.condition.value = 70;
+    ASSERT_TRUE(submit(owner, e));
+    Vehicles::Vehicle(*head).veh2->reliability = 80;
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    p = snapshot(owner);
+    const auto expected = *runtimeForVehicle(id);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_conditional_rules.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(find(owner), nullptr);
+    EXPECT_EQ(snapshot(owner), p);
+    ASSERT_NE(runtimeForVehicle(id), nullptr);
+    EXPECT_EQ(runtimeForVehicle(id)->branches, expected.branches);
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[2].key);
+    std::filesystem::remove(companionPath(path));
+}
+
+TEST_F(GameRulesFixture, captionWaypointDropRefreshesWorldOrderNumbers)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    Vehicles::OrderRouteWaypoint waypoint({ 16, 20 }, 0, 0, 0);
+    Vehicles::OrderManager::insertOrder(head, head->sizeOfOrderTable - 1, &waypoint);
+    const auto owner = ownerForVehicle(enumValue(head->id));
+    auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::ifBlock, 0, 0);
+    ASSERT_TRUE(submit(owner, e));
+    auto* window = inlineTestHost(owner, enumValue(head->id));
+    ASSERT_NE(window, nullptr);
+    CloseInlineHost close{ window };
+    auto& session = editorSession(*window);
+    session.toggle(*window, { 1024, 768 });
+    Vehicles::OrderManager::generateNumDisplayFrames(head);
+    ASSERT_EQ(Vehicles::OrderManager::displayFrames().size(), 4U);
+    const auto originalWaypointFrame = Vehicles::OrderManager::displayFrames().back().frame.left[0];
+    const auto closeIt = std::find_if(session.layout().items.begin(), session.layout().items.end(), [](const auto& v) { return v.closing; });
+    ASSERT_NE(closeIt, session.layout().items.end());
+    const int y = closeIt->top + 3;
+    ASSERT_TRUE(session.mouseDown(*window, 80, session.layout().orderTops[3] + 3, 0));
+    ASSERT_TRUE(session.mouseDrag(*window, 80, y, 0));
+    const auto& canvas = window->widgets[0];
+    ASSERT_TRUE(session.mouseRelease(*window, window->x + canvas.left + 81, window->y + canvas.top + 1 + y, 0));
+    const auto updated = snapshot(owner);
+    EXPECT_EQ(updated.rows[1].key, p.rows[3].key);
+    EXPECT_EQ(updated.blocks[0].last, p.rows[3].key);
+    EXPECT_EQ(Vehicles::OrderManager::orders()[head->orderTableOffset + 2].getType(), Vehicles::OrderType::RouteWaypoint);
+    ASSERT_EQ(Vehicles::OrderManager::displayFrames().size(), 4U);
+    EXPECT_NE(Vehicles::OrderManager::displayFrames()[1].frame.left[0], originalWaypointFrame);
+    World::resetMapSelectionFlags();
+}
+
+namespace
+{
+    OpenLoco::Vehicles::VehicleBogie* conditionalCargoCar(OpenLoco::Vehicles::VehicleHead& head)
+    {
+        using namespace OpenLoco;
+        using namespace Vehicles;
+        Vehicle train(head);
+        const auto tail = train.veh2->nextCarId;
+        auto* front = reinterpret_cast<VehicleBogie*>(EntityManager::createEntityVehicle());
+        auto* back = reinterpret_cast<VehicleBogie*>(EntityManager::createEntityVehicle());
+        auto* body = reinterpret_cast<VehicleBody*>(EntityManager::createEntityVehicle());
+        for (auto* part : { static_cast<VehicleBase*>(front), static_cast<VehicleBase*>(back), static_cast<VehicleBase*>(body) })
+        {
+            part->baseType = EntityBaseType::vehicle;
+            part->head = head.id;
+            part->mode = head.mode;
+        }
+        front->subType = back->subType = VehicleEntityType::bogie;
+        body->subType = VehicleEntityType::body_start;
+        train.veh2->nextCarId = front->id;
+        front->nextCarId = back->id;
+        back->nextCarId = body->id;
+        body->nextCarId = tail;
+        front->secondaryCargo.type = body->primaryCargo.type = 0;
+        front->secondaryCargo.maxQty = 40;
+        body->primaryCargo.maxQty = 60;
+        return front;
+    }
+}
+
+TEST_F(GameRulesFixture, conditionalLoadPercentageCountsBothCargoCompartments)
+{
+    using namespace OpenLoco;
+    for (const auto quantity : { 49, 50, 51 })
+    {
+        auto* head = vehicle();
+        auto* front = conditionalCargoCar(*head);
+        Vehicles::Vehicle train(*head);
+        front->secondaryCargo.qty = quantity / 2;
+        train.cars.firstCar.body->primaryCargo.qty = quantity - quantity / 2;
+        const auto id = enumValue(head->id);
+        const auto owner = ownerForVehicle(id);
+        const auto p = snapshot(owner);
+        Edit e;
+        e.block = section(p, Kind::goTo, 1, 1);
+        e.block.target = p.rows[2].key;
+        e.block.condition.check = Check::loadPercentage;
+        e.block.condition.compare = Compare::greaterEqual;
+        e.block.condition.value = 50;
+        ASSERT_TRUE(submit(owner, e));
+        reached(id);
+        ASSERT_TRUE(prepareVehicle(id));
+        EXPECT_EQ(routeOrderForVehicle(id), p.rows[quantity >= 50 ? 2 : 1].key);
+    }
+}
+
+TEST_F(GameRulesFixture, conditionalAgeUsesCompletedYearsAndNoCapacityIsUnavailable)
+{
+    using namespace OpenLoco;
+    const auto savedDay = getCurrentDay();
+    struct RestoreDay
+    {
+        uint32_t day;
+        ~RestoreDay() { setCurrentDay(day); }
+    } restore{ savedDay };
+    setCurrentDay(calcDays({ 2040, MonthId::june, 1 }));
+    for (const auto beforeBirthday : { false, true })
+    {
+        auto* head = vehicle();
+        auto* front = conditionalCargoCar(*head);
+        front->creationDay = calcDays({ 2030, MonthId::june, beforeBirthday ? 2 : 1 });
+        const auto id = enumValue(head->id);
+        const auto owner = ownerForVehicle(id);
+        auto p = snapshot(owner);
+        Edit e;
+        e.block = section(p, Kind::goTo, 1, 1);
+        e.block.target = p.rows[2].key;
+        e.block.condition.check = Check::vehicleAge;
+        e.block.condition.compare = Compare::greaterEqual;
+        e.block.condition.value = 10;
+        ASSERT_TRUE(submit(owner, e));
+        reached(id);
+        ASSERT_TRUE(prepareVehicle(id));
+        EXPECT_EQ(routeOrderForVehicle(id), p.rows[beforeBirthday ? 1 : 2].key);
+    }
+    auto* empty = vehicle();
+    const auto id = enumValue(empty->id);
+    const auto p = snapshot(ownerForVehicle(id));
+    Edit e;
+    e.block = section(p, Kind::goTo, 1, 1);
+    e.block.target = p.rows[2].key;
+    e.block.condition.check = Check::loadPercentage;
+    ASSERT_TRUE(submit(ownerForVehicle(id), e));
+    reached(id);
+    ASSERT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[1].key);
+    EXPECT_NE(vehicleStatus(id).find("no usable cargo capacity"), std::string::npos);
+}
+
+TEST_F(GameRulesFixture, sharedConditionalJumpsUseEachVehicleAndBothPreviewModes)
+{
+    using namespace OpenLoco;
+    auto* a = vehicle();
+    auto* b = vehicle();
+    const auto ai = enumValue(a->id), bi = enumValue(b->id);
+    const auto line = Lines::createLine("Conditional shared", TransportMode::rail, 0);
+    ASSERT_TRUE(line.ok);
+    for (const auto stop : { 10, 20, 30 })
+    {
+        Lines::LineOrder order;
+        order.station = stop;
+        ASSERT_TRUE(Lines::addOrder(line.id, order).ok);
+    }
+    ASSERT_TRUE(Lines::assignVehicle(line.id, ai, TransportMode::rail).ok);
+    ASSERT_TRUE(Lines::assignVehicle(line.id, bi, TransportMode::rail).ok);
+    const Owner owner{ OwnerKind::line, line.id };
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::goTo, 1, 1);
+    e.block.target = p.rows[2].key;
+    e.block.condition.check = Check::reliability;
+    e.block.condition.compare = Compare::greater;
+    e.block.condition.value = 50;
+    ASSERT_TRUE(submit(owner, e));
+    Vehicles::Vehicle(*a).veh2->reliability = 75;
+    Vehicles::Vehicle(*b).veh2->reliability = 20;
+    reached(ai);
+    reached(bi);
+    ASSERT_TRUE(prepareVehicle(ai));
+    ASSERT_TRUE(prepareVehicle(bi));
+    EXPECT_EQ(routeOrderForVehicle(ai), p.rows[2].key);
+    EXPECT_EQ(routeOrderForVehicle(bi), p.rows[1].key);
+    const auto diagram = previewLineRoute(line.id, ai, RoutePreviewMode::currentConditions);
+    EXPECT_EQ(diagram.orders, (std::vector<Key>{ p.rows[0].key, p.rows[2].key, p.rows[0].key }));
+    EXPECT_EQ(previewLineRoute(line.id, bi).orders.front(), p.rows[1].key);
+}
+
+TEST_F(GameRulesFixture, pendingConditionalCycleSurvivesSaveAndKeepsReachedOrder)
+{
+    using namespace OpenLoco;
+    auto* head = vehicle();
+    const auto id = enumValue(head->id);
+    const auto owner = ownerForVehicle(id);
+    const auto p = snapshot(owner);
+    Edit e;
+    e.block = section(p, Kind::goTo, 1, 1);
+    e.block.target = p.rows[1].key;
+    e.block.condition.check = Check::reliability;
+    e.block.condition.compare = Compare::greater;
+    e.block.condition.value = 50;
+    ASSERT_TRUE(submit(owner, e));
+    Vehicles::Vehicle(*head).veh2->reliability = 75;
+    reached(id);
+    EXPECT_FALSE(prepareVehicle(id));
+    EXPECT_EQ(head->currentOrder, 0);
+    ASSERT_NE(runtimeForVehicle(id), nullptr);
+    EXPECT_EQ(runtimeForVehicle(id)->steps, 256);
+    const auto path = std::filesystem::temp_directory_path() / "openloco_pending_conditional.sv5";
+    ASSERT_TRUE(saveCompanion(path));
+    clear();
+    ASSERT_TRUE(loadCompanion(path));
+    ASSERT_NE(runtimeForVehicle(id), nullptr);
+    EXPECT_EQ(runtimeForVehicle(id)->steps, 256);
+    EXPECT_EQ(head->currentOrder, 0);
+    Vehicles::Vehicle(*head).veh2->reliability = 20;
+    ScenarioManager::setScenarioTicks(1);
+    EXPECT_TRUE(prepareVehicle(id));
+    EXPECT_EQ(routeOrderForVehicle(id), p.rows[1].key);
+    std::filesystem::remove(companionPath(path));
 }

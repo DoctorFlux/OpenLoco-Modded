@@ -183,17 +183,53 @@ namespace OpenLoco::Rules
         }
         bool compare(int32_t value, const Condition& c)
         {
-            return c.compare == Compare::less ? value < c.value : c.compare == Compare::greater ? value > c.value
-                                                                                                : value == c.value;
+            return compareValue(value, c);
         }
         CheckResult evaluate(const Program& p, const Vehicles::VehicleHead* head, const Condition& c)
         {
             using namespace Vehicles;
+            const auto boolean = [&](bool value) { return CheckResult{ true, c.compare == Compare::isFalse ? !value : value, {} }; };
+            if (c.check == Check::always)
+            {
+                return boolean(true);
+            }
             if (c.check == Check::year)
             {
                 return { true, compare(getCurrentYear(), c), {} };
             }
-            if (c.check == Check::full || c.check == Check::empty || c.check == Check::hasSpace)
+            if (c.check == Check::reliability || c.check == Check::maxSpeed || c.check == Check::vehicleAge)
+            {
+                if (!head)
+                {
+                    return { false, false, "No vehicle selected for this check" };
+                }
+                Vehicle train(*head);
+                if (c.check == Check::reliability)
+                {
+                    return { true, compare(train.veh2->reliability, c), {} };
+                }
+                if (c.check == Check::maxSpeed)
+                {
+                    if (train.veh2->maxSpeed == kSpeed16Null)
+                    {
+                        return { false, false, "Vehicle maximum speed is unavailable" };
+                    }
+                    return { true, compare(train.veh2->maxSpeed.getRaw(), c), {} };
+                }
+                if (train.cars.empty())
+                {
+                    return { false, false, "Vehicle age needs a vehicle component" };
+                }
+                auto oldest = getCurrentDay();
+                for (const auto& car : train.cars)
+                {
+                    oldest = std::min(oldest, car.front->creationDay);
+                }
+                const auto built = calcDate(oldest), today = calcDate(getCurrentDay());
+                const auto age = std::max(0, today.year - built.year - (today.dayOfYear < built.dayOfYear ? 1 : 0));
+                return { true, compare(age, c), {} };
+            }
+            if (c.check == Check::full || c.check == Check::empty || c.check == Check::hasSpace || c.check == Check::loadPercentage)
             {
                 if (!head)
                 {
@@ -219,9 +255,16 @@ namespace OpenLoco::Rules
                         }
                     }
                 }
-                return { true, c.check == Check::full ? capacity != 0 && allFull : c.check == Check::empty ? quantity == 0
-                                                                                                           : anySpace,
-                         {} };
+                if (c.check == Check::loadPercentage)
+                {
+                    if (!capacity)
+                    {
+                        return { false, false, "Vehicle has no usable cargo capacity" };
+                    }
+                    return { true, compare(static_cast<int32_t>(uint64_t(quantity) * 100 / capacity), c), {} };
+                }
+                return boolean(c.check == Check::full ? capacity != 0 && allFull : c.check == Check::empty ? quantity == 0
+                                                                                                           : anySpace);
             }
             const auto index = indexOf(p, c.stop);
             if (index >= p.rows.size())
@@ -276,7 +319,7 @@ namespace OpenLoco::Rules
                 {
                     return { false, false, "Platform no longer exists" };
                 }
-                return { true, platformIsFree(*chosen, head ? enumValue(head->id) : UINT16_MAX), {} };
+                return boolean(platformIsFree(*chosen, head ? enumValue(head->id) : UINT16_MAX));
             }
             const auto* line = head ? Lines::lineForVehicle(enumValue(head->id)) : nullptr;
             if (line == nullptr || index >= line->orders.size() || line->orders[index].slots.empty())
@@ -285,7 +328,7 @@ namespace OpenLoco::Rules
             }
             const auto now = Lines::timetableMinute(ScenarioManager::getScenarioTicks());
             const auto decision = Lines::decideDeparture(line->orders[index], now, 0xFFFF, 0, false, 0, 1);
-            return { true, c.check == Check::late ? decision.late : !decision.late, {} };
+            return boolean(c.check == Check::late ? decision.late : !decision.late);
         }
         void commitOrder(Vehicles::VehicleHead& head, const Program& p, const VehicleRun& run)
         {
@@ -1256,7 +1299,7 @@ namespace OpenLoco::Rules
     static bool readCondition(std::istream& in, Condition& c)
     {
         unsigned check, comparison, cargo;
-        if (!(in >> check >> comparison >> c.stop >> cargo >> c.platform >> c.platformAnchor >> c.value) || check > unsigned(Check::cargoOnboardFor) || comparison > 2 || cargo >= 32)
+        if (!(in >> check >> comparison >> c.stop >> cargo >> c.platform >> c.platformAnchor >> c.value) || check > unsigned(Check::always) || comparison > unsigned(Compare::isFalse) || cargo >= 32)
         {
             return false;
         }

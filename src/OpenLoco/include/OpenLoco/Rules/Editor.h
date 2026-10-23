@@ -90,8 +90,8 @@ namespace OpenLoco::Rules
     DropPosition programDrop(const Program& program, const ProgramLayout& layout, int16_t y);
     int16_t visualIndent(const ProgramVisual& visual, int16_t width);
     bool orderGripHit(const ProgramVisual& visual, int16_t x, int16_t origin, int16_t width);
-    std::optional<Edit> blockDrop(const Program& program, Kind kind, size_t first, size_t last, Key hovered = 0);
-    std::optional<Edit> paletteDrop(const Program& program, const ProgramLayout& layout, Kind kind, int16_t y, std::optional<std::pair<size_t, size_t>> selection = {});
+    std::optional<Edit> blockDrop(const Program& program, Kind kind, size_t first, size_t last, Key hovered = 0, bool conditionalJump = false);
+    std::optional<Edit> paletteDrop(const Program& program, const ProgramLayout& layout, Kind kind, int16_t y, std::optional<std::pair<size_t, size_t>> selection = {}, bool conditionalJump = false);
     void drawStackBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, Kind kind, Feedback feedback = Feedback::idle, bool selected = false);
     void drawOrderBlock(Gfx::DrawingContext& context, int16_t x, int16_t y, int16_t width, int16_t height, bool selected = false);
     void drawProgramBlocks(Gfx::DrawingContext& context, const Program& program, const Runtime* runtime, const ProgramLayout& layout, int16_t width, int16_t origin = 0, Key selected = 0, bool labels = true);

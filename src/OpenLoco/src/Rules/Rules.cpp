@@ -30,6 +30,30 @@ namespace OpenLoco::Rules
     }
     static bool action(Kind kind) { return kind == Kind::skip || kind == Kind::goTo || kind == Kind::breakLoop; }
     static bool control(Kind kind) { return kind == Kind::ifBlock || kind == Kind::otherwise || kind == Kind::elseIf || kind == Kind::repeat; }
+    bool hasCondition(const Block& b)
+    {
+        return b.kind == Kind::ifBlock || b.kind == Kind::elseIf || b.kind == Kind::waitUntil || (b.kind == Kind::goTo && !b.parent);
+    }
+    bool numericCheck(Check check)
+    {
+        return check == Check::cargoWaiting || check == Check::cargoWaitingFor || check == Check::cargoOnboardFor || check == Check::year
+            || check == Check::loadPercentage || check == Check::vehicleAge || check == Check::reliability || check == Check::maxSpeed;
+    }
+    bool compareValue(int32_t value, const Condition& c)
+    {
+        switch (c.compare)
+        {
+            case Compare::less: return value < c.value;
+            case Compare::equal: return value == c.value;
+            case Compare::greater: return value > c.value;
+            case Compare::notEqual: return value != c.value;
+            case Compare::lessEqual: return value <= c.value;
+            case Compare::greaterEqual: return value >= c.value;
+            case Compare::isTrue: return value != 0;
+            case Compare::isFalse: return value == 0;
+        }
+        return false;
+    }
     static const Block* blockById(const Program& p, Key id)
     {
         const auto it = std::find_if(p.blocks.begin(), p.blocks.end(), [id](const Block& b) { return b.id == id; });
@@ -127,7 +151,11 @@ namespace OpenLoco::Rules
             {
                 return { false, "Invalid joined check" };
             }
-            if (b.enabled && (b.kind == Kind::ifBlock || b.kind == Kind::elseIf || b.kind == Kind::waitUntil))
+            if (b.kind == Kind::goTo && !b.parent && b.first != b.last)
+            {
+                return { false, "A conditional jump belongs before one order" };
+            }
+            if (b.enabled && hasCondition(b))
             {
                 for (const auto* c : { &b.condition, &b.extra })
                 {
@@ -135,7 +163,9 @@ namespace OpenLoco::Rules
                     {
                         continue;
                     }
-                    if (static_cast<unsigned>(c->check) > static_cast<unsigned>(Check::cargoOnboardFor) || static_cast<unsigned>(c->compare) > 2 || c->cargo >= 32 || c->value < 0)
+                    if (static_cast<unsigned>(c->check) > static_cast<unsigned>(Check::always) || static_cast<unsigned>(c->compare) > static_cast<unsigned>(Compare::isFalse) || c->cargo >= 32 || c->value < 0
+                        || (numericCheck(c->check) && (c->compare == Compare::isTrue || c->compare == Compare::isFalse))
+                        || ((c->check == Check::loadPercentage || c->check == Check::reliability) && c->value > 100))
                     {
                         return { false, "Invalid check" };
                     }
@@ -154,7 +184,7 @@ namespace OpenLoco::Rules
                 }
             }
             const bool clause = b.kind == Kind::otherwise || b.kind == Kind::elseIf;
-            if (clause || (action(b.kind) && (b.kind != Kind::breakLoop || b.parent)))
+            if (clause || (action(b.kind) && (b.kind == Kind::skip || b.parent)))
             {
                 const auto* parent = blockById(p, b.parent);
                 if (!parent || (parent->kind != Kind::ifBlock && parent->kind != Kind::elseIf && !(action(b.kind) && parent->kind == Kind::otherwise)))
@@ -578,6 +608,14 @@ namespace OpenLoco::Rules
                 }
                 for (const auto& block : p.blocks)
                 {
+                    if (block.kind == Kind::goTo && !block.parent && indexOf(p, block.first) == i)
+                    {
+                        if (timingOf(p, block) == Timing::onArrival)
+                        {
+                            code.instructions.push_back({ Op::arrival, block.id });
+                        }
+                        code.instructions.push_back({ Op::goTo, block.id });
+                    }
                     if (block.kind == Kind::breakLoop && !block.parent && indexOf(p, block.first) == i)
                     {
                         if (timingOf(p, block) == Timing::onArrival)
@@ -859,7 +897,7 @@ namespace OpenLoco::Rules
             }
             const auto instruction = code.instructions[r.pc];
             const auto* b = instruction.op == Op::row ? nullptr : blockById(p, instruction.key);
-            if (arrivalOnly && b && (instruction.op == Op::check || instruction.op == Op::otherwise || instruction.op == Op::repeatStart || instruction.op == Op::wait)
+            if (arrivalOnly && b && (instruction.op == Op::check || instruction.op == Op::otherwise || instruction.op == Op::repeatStart || instruction.op == Op::wait || (instruction.op == Op::goTo && !b->parent))
                 && timingOf(p, *b) == Timing::beforeTravel && isRoutable(p.rows[indexOf(p, b->first)].raw) && r.arrived != b->first)
             {
                 return { RunKind::departure, r.current, b->id };
@@ -1047,6 +1085,20 @@ namespace OpenLoco::Rules
                         ++r.pc;
                         break;
                     }
+                    if (!b->parent)
+                    {
+                        const auto result = evaluateBranch(p, r, *b, evaluate);
+                        r.branches[b->id] = result.available && result.passed;
+                        if (!result.available)
+                        {
+                            r.status = result.reason;
+                        }
+                        if (!result.available || !result.passed)
+                        {
+                            ++r.pc;
+                            break;
+                        }
+                    }
                     auto target = code.entries.find(b->target);
                     if (target == code.entries.end())
                     {
@@ -1160,6 +1212,10 @@ namespace OpenLoco::Rules
                 case Op::goTo:
                     if (block->enabled)
                     {
+                        if (!block->parent)
+                        {
+                            pending.push_back(current); // The condition can also fall through to its anchored order.
+                        }
                         current.pc = code.entries.at(block->target);
                     }
                     break;
@@ -1295,7 +1351,7 @@ namespace OpenLoco::Rules
         for (auto [key, passed] : r.branches)
         {
             const auto* b = blockById(p, key);
-            if (!b || (b->kind != Kind::ifBlock && b->kind != Kind::otherwise && b->kind != Kind::elseIf && b->kind != Kind::waitUntil))
+            if (!b || (!hasCondition(*b) && b->kind != Kind::otherwise))
             {
                 return false;
             }

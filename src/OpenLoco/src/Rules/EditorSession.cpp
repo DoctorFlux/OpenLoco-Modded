@@ -108,6 +108,7 @@ namespace OpenLoco::Rules
         Key dropInto = 0;
         int16_t dragX = 0, dragY = 0;
         bool dragged = false;
+        bool draggedConditional = false;
         std::vector<int> choices;
         std::vector<Key> stopChoices;
         std::vector<Platform> platformChoices;
@@ -117,8 +118,8 @@ namespace OpenLoco::Rules
         EditorRect menuAnchor{};
         WidgetIndex_t menuWidget = 0;
         static constexpr const char* names[] = { "Group", "If", "Else", "Repeat", "Wait until", "Skip", "Go to", "Else if", "Break" };
-        static constexpr Kind paletteKinds[] = { Kind::group, Kind::ifBlock, Kind::elseIf, Kind::otherwise, Kind::repeat, Kind::waitUntil, Kind::skip, Kind::goTo, Kind::breakLoop };
-        static constexpr const char* checkNames[] = { "Cargo waiting", "This vehicle is full", "This vehicle is empty", "This vehicle has space", "Platform is free", "This vehicle is late", "This vehicle is on time", "The year", "Cargo waiting for a destination", "Cargo onboard for a destination" };
+        static constexpr Kind paletteKinds[] = { Kind::group, Kind::ifBlock, Kind::elseIf, Kind::otherwise, Kind::repeat, Kind::waitUntil, Kind::skip, Kind::goTo, Kind::breakLoop, Kind::goTo };
+        static constexpr const char* checkNames[] = { "Cargo waiting", "This vehicle is full", "This vehicle is empty", "This vehicle has space", "Platform is free", "This vehicle is late", "This vehicle is on time", "The year", "Cargo waiting for a destination", "Cargo onboard for a destination", "Vehicle load (%)", "Vehicle age (years)", "Vehicle reliability (%)", "Maximum speed (mph)", "Always" };
         int32_t layoutWidth = 200;
 
         WidgetIndex_t canvas = 0, palette = 0, check = 0, compare = 0, stop = 0, cargo = 0, number = 0, join = 0, extra = 0, target = 0, name = 0, limit = 0, firstRow = 0, lastRow = 0, bin = 0, details = 0, actions = 0;
@@ -311,7 +312,7 @@ namespace OpenLoco::Rules
             else if (previous == Drag::palette)
             {
                 const auto selection = firstSelected >= 0 ? std::optional<std::pair<size_t, size_t>>{ { firstSelected, lastSelected } } : std::nullopt;
-                auto proposal = paletteDrop(program, canvasLayout, draggedKind, static_cast<int16_t>(canvasY), selection);
+                auto proposal = paletteDrop(program, canvasLayout, draggedKind, static_cast<int16_t>(canvasY), selection, draggedConditional);
                 if (!proposal)
                 {
                     return {};
@@ -412,7 +413,7 @@ namespace OpenLoco::Rules
                 labels.push_back("This stop has cargo");
                 choices.push_back(257);
                 labels.push_back("This stop has no cargo");
-                for (unsigned i = 0; i <= unsigned(Check::cargoOnboardFor); ++i)
+                for (unsigned i = 0; i <= unsigned(Check::always); ++i)
                 {
                     if (i == unsigned(Check::platformFree) && !program.rail)
                     {
@@ -433,7 +434,15 @@ namespace OpenLoco::Rules
             }
             else if (id == compareId)
             {
-                labels = { "Less than", "The same as", "More than" };
+                if (numericCheck(c.check))
+                {
+                    labels = { "Less than", "The same as", "More than", "Not the same as", "Less than or equal", "More than or equal" };
+                }
+                else
+                {
+                    choices = { int(Compare::isTrue), int(Compare::isFalse) };
+                    labels = { "Is true", "Is false" };
+                }
             }
             else if (id == joinId)
             {
@@ -649,6 +658,18 @@ namespace OpenLoco::Rules
                 {
                     c.value = 2000;
                 }
+                if ((c.check == Check::loadPercentage || c.check == Check::reliability) && c.value > 100)
+                {
+                    c.value = 50;
+                }
+                if (numericCheck(c.check) && (c.compare == Compare::isTrue || c.compare == Compare::isFalse))
+                {
+                    c.compare = Compare::equal;
+                }
+                if (!numericCheck(c.check) && c.compare != Compare::isFalse)
+                {
+                    c.compare = Compare::isTrue;
+                }
             }
             else if (id == firstId)
             {
@@ -660,7 +681,7 @@ namespace OpenLoco::Rules
             }
             else if (id == compareId)
             {
-                c.compare = static_cast<Compare>(index);
+                c.compare = static_cast<Compare>(numericCheck(c.check) ? index : choices[index]);
             }
             else if (id == joinId)
             {
@@ -873,7 +894,7 @@ namespace OpenLoco::Rules
             {
                 enable(s.target);
             }
-            if (b->kind == Kind::ifBlock || b->kind == Kind::elseIf || b->kind == Kind::waitUntil)
+            if (hasCondition(*b))
             {
                 enable(s.check);
                 enable(s.join);
@@ -882,7 +903,8 @@ namespace OpenLoco::Rules
                     enable(s.extra);
                 }
                 const auto& c = s.editingExtra ? b->extra : b->condition;
-                if (c.check == Check::cargoWaiting || c.check == Check::cargoWaitingFor || c.check == Check::cargoOnboardFor || c.check == Check::year)
+                enable(s.compare);
+                if (numericCheck(c.check))
                 {
                     enable(s.compare);
                     enable(s.number);
@@ -975,7 +997,7 @@ namespace OpenLoco::Rules
         state->cancelMenu(window);
         state->cancel();
     }
-    void EditorSession::startDrag(EditorDrag kind, size_t first, size_t last, Key block, Kind paletteKind)
+    void EditorSession::startDrag(EditorDrag kind, size_t first, size_t last, Key block, Kind paletteKind, bool conditionalJump)
     {
         auto& s = *state;
         s.drag = kind;
@@ -983,6 +1005,7 @@ namespace OpenLoco::Rules
         s.dragLast = static_cast<int>(last);
         s.draggedBlock = block;
         s.draggedKind = paletteKind;
+        s.draggedConditional = conditionalJump;
         s.dragRevision = s.program.revision;
         s.dragOwner = s.selectedOwner;
         s.dragged = false;
@@ -996,7 +1019,7 @@ namespace OpenLoco::Rules
         width = 0;
         if (scroll == state->paletteScroll)
         {
-            height = state->expanded ? 164 : 0;
+            height = state->expanded ? 2 + std::size(State::paletteKinds) * 18 : 0;
             return true;
         }
         if (scroll == state->canvasScroll && showingProgram())
@@ -1018,7 +1041,7 @@ namespace OpenLoco::Rules
                 for (size_t i = 0; i < std::size(s.paletteKinds); ++i)
                 {
                     drawStackBlock(ctx, 2, static_cast<int16_t>(2 + i * 18), 70, 16, s.paletteKinds[i]);
-                    text(ctx, 6, static_cast<int16_t>(5 + i * 18), 62, s.names[static_cast<unsigned>(s.paletteKinds[i])], true);
+                    text(ctx, 6, static_cast<int16_t>(5 + i * 18), 62, i + 1 == std::size(s.paletteKinds) ? "Jump if" : s.names[static_cast<unsigned>(s.paletteKinds[i])], true);
                 }
             }
             return true;
@@ -1133,8 +1156,8 @@ namespace OpenLoco::Rules
             const int width = std::min<int>(260, window.width - 8);
             const auto x = static_cast<int16_t>(std::clamp<int>(mouse.x - window.x + 12, 4, window.width - width - 4));
             const auto y = static_cast<int16_t>(std::clamp<int>(mouse.y - window.y + 16, 16, window.height - 25));
-            std::string label = s.drag == EditorDrag::palette ? s.names[static_cast<unsigned>(s.draggedKind)] : s.draggedBlock && s.selected() ? blockSentence(s.program, *s.selected())
-                                                                                                                                               : (s.dragFirst == s.dragLast && s.dragFirst >= 0 && s.dragFirst < static_cast<int>(s.program.rows.size()) ? s.orderLabel(s.dragFirst) : "Move " + std::to_string(s.dragLast - s.dragFirst + 1) + " order rows");
+            std::string label = s.drag == EditorDrag::palette ? (s.draggedConditional ? "Jump if" : s.names[static_cast<unsigned>(s.draggedKind)]) : s.draggedBlock && s.selected() ? blockSentence(s.program, *s.selected())
+                                                                                                                                                                                    : (s.dragFirst == s.dragLast && s.dragFirst >= 0 && s.dragFirst < static_cast<int>(s.program.rows.size()) ? s.orderLabel(s.dragFirst) : "Move " + std::to_string(s.dragLast - s.dragFirst + 1) + " order rows");
             drawStackBlock(ctx, x, y, width, 20, s.drag == EditorDrag::palette ? s.draggedKind : Kind::group, Feedback::idle, true);
             text(ctx, x + 5, y + 4, width - 10, label, true);
         }
@@ -1147,7 +1170,7 @@ namespace OpenLoco::Rules
             const int item = (y - 2) / 18;
             if (s.writable && y >= 2 && item >= 0 && item < int(std::size(s.paletteKinds)))
             {
-                startDrag(EditorDrag::palette, 0, 0, 0, s.paletteKinds[item]);
+                startDrag(EditorDrag::palette, 0, 0, 0, s.paletteKinds[item], item + 1 == int(std::size(s.paletteKinds)));
             }
             s.dragX = x;
             s.dragY = y;
@@ -1200,13 +1223,19 @@ namespace OpenLoco::Rules
                 startDrag(EditorDrag::section, indexOf(s.program, b->first), indexOf(s.program, b->last), b->id);
             }
         }
-        else if (orderGripHit(*v, x, 0, static_cast<int16_t>(s.layoutWidth)))
+        else if (!Input::hasKeyModifier(Input::KeyModifier::shift))
         {
+            const bool hadBlockSelection = s.selectedBlock != 0;
+            s.selectedBlock = 0;
             size_t first = v->row, last = v->row;
-            if (s.firstSelected >= 0 && int(v->row) >= s.firstSelected && int(v->row) <= s.lastSelected)
+            if (!hadBlockSelection && s.firstSelected >= 0 && int(v->row) >= s.firstSelected && int(v->row) <= s.lastSelected)
             {
                 first = s.firstSelected;
                 last = s.lastSelected;
+            }
+            else
+            {
+                selectRows(first, last);
             }
             startDrag(EditorDrag::row, first, last);
         }
@@ -1286,7 +1315,7 @@ namespace OpenLoco::Rules
                                                                                              : 0;
             const auto last = s.lastSelected >= 0 ? size_t(s.lastSelected) : s.selected() ? indexOf(s.program, s.selected()->last)
                                                                                           : first;
-            if (const auto command = blockDrop(s.program, s.draggedKind, first, last, s.selectedBlock))
+            if (const auto command = blockDrop(s.program, s.draggedKind, first, last, s.selectedBlock, s.draggedConditional))
             {
                 const auto key = s.program.nextKey;
                 s.apply(window, *command);
@@ -1476,8 +1505,13 @@ namespace OpenLoco::Rules
         if (const auto* v = s.at(y); v && v->block)
         {
             const auto it = std::find_if(s.program.blocks.begin(), s.program.blocks.end(), [&](const Block& b) { return b.id == v->block; });
-            s.tooltipText = v->closing ? "Drop inside; drag the end grip to resize this section" : it != s.program.blocks.end() ? blockSentence(s.program, *it)
-                                                                                                                                : "";
+            s.tooltipText = v->closing ? "Drop an order here to add it inside; drag the end grip to resize" : it != s.program.blocks.end() ? blockSentence(s.program, *it)
+                                                                                                                                           : "";
+            return FormatArguments::common(StringIds::line_name_raw, s.tooltipText.c_str());
+        }
+        if (const auto* v = s.at(y); v && !v->block)
+        {
+            s.tooltipText = "Drag this order into a block; Shift-drag selects consecutive orders";
             return FormatArguments::common(StringIds::line_name_raw, s.tooltipText.c_str());
         }
         return {};
