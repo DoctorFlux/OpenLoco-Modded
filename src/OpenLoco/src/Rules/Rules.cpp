@@ -701,18 +701,25 @@ namespace OpenLoco::Rules
             {
                 return { false, false, "This block has a missing stop or destination" };
             }
-            auto first = evaluate(b.condition);
+            const auto check = [&](const Condition& c) {
+                return c.check == Check::always ? CheckResult{ true, c.compare != Compare::isFalse, {} } : evaluate(c);
+            };
+            auto first = check(b.condition);
             if (b.join == Join::none)
             {
                 return first;
             }
-            auto second = evaluate(b.extra);
+            auto second = check(b.extra);
             if (!first.available || !second.available)
             {
                 return { false, false, first.available ? second.reason : first.reason };
             }
             first.passed = b.join == Join::andCheck ? first.passed && second.passed : first.passed || second.passed;
             return first;
+        }
+        CheckResult constantBlock(const Block& b)
+        {
+            return evaluateBlock(b, [](const Condition& c) { return CheckResult{ c.check == Check::always, c.compare != Compare::isFalse, {} }; });
         }
     }
     const char* kindName(Kind kind)
@@ -1196,10 +1203,20 @@ namespace OpenLoco::Rules
                     {
                         if (instruction.op == Op::check)
                         {
-                            auto failure = current;
-                            failure.pc = instruction.jump;
-                            failure.branches[block->id] = false;
-                            pending.push_back(std::move(failure));
+                            const auto known = constantBlock(*block);
+                            if (known.available && !known.passed)
+                            {
+                                current.pc = instruction.jump;
+                                current.branches[block->id] = false;
+                                break;
+                            }
+                            if (!known.available)
+                            {
+                                auto failure = current;
+                                failure.pc = instruction.jump;
+                                failure.branches[block->id] = false;
+                                pending.push_back(std::move(failure));
+                            }
                         }
                         current.branches[block->id] = true;
                     }
@@ -1214,7 +1231,15 @@ namespace OpenLoco::Rules
                     {
                         if (!block->parent)
                         {
-                            pending.push_back(current); // The condition can also fall through to its anchored order.
+                            const auto known = constantBlock(*block);
+                            if (known.available && !known.passed)
+                            {
+                                break;
+                            }
+                            if (!known.available)
+                            {
+                                pending.push_back(current); // Dynamic checks can also fall through.
+                            }
                         }
                         current.pc = code.entries.at(block->target);
                     }

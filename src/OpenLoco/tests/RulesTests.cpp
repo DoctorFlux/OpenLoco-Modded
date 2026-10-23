@@ -4719,7 +4719,7 @@ TEST_F(GameRulesFixture, nativeSharedInlineKeepsBrowserAndThirdScrollArea)
     w->setSize({ 640, 320 });
     w->callPrepareDraw();
     w->updateScrollWidgets();
-    EXPECT_EQ(w->scrollAreas[2].contentOffsetY, 0);
+    EXPECT_EQ(w->scrollAreas[2].contentOffsetY, std::max<int>(0, w->scrollAreas[2].contentHeight - (w->widgets[2].height() - 2)));
 }
 TEST_F(GameRulesFixture, nativeInlineDropEditsOrdersAndBinRemovesOnlyBlock)
 {
@@ -5028,6 +5028,26 @@ TEST(RulesTests, conditionalJumpConnectivityIncludesBothPossibleServices)
     EXPECT_EQ(preview.orders, (std::vector<Key>{ p.rows[0].key, p.rows[3].key, p.rows[0].key }));
 }
 
+TEST(RulesTests, unconditionalJumpDoesNotAdvertiseImpossibleCargoServices)
+{
+    for (const bool jumpTaken : { false, true })
+    {
+        auto p = makeProgram({ 1, 9, 17, 25 }, true);
+        auto jump = section(p, Kind::goTo, 1, 1);
+        jump.target = p.rows[3].key;
+        jump.condition.check = Check::always;
+        jump.condition.compare = jumpTaken ? Compare::isTrue : Compare::isFalse;
+        ASSERT_TRUE(add(p, jump));
+        const auto service = possibleService(p);
+        EXPECT_FALSE(service.limited);
+        EXPECT_EQ(service.links.contains({ p.rows[0].key, p.rows[3].key }), jumpTaken);
+        EXPECT_EQ(service.links.contains({ p.rows[0].key, p.rows[1].key }), !jumpTaken);
+        Runtime runtime;
+        EXPECT_EQ(next(p, runtime, 0, no).order, p.rows[0].key);
+        EXPECT_EQ(next(p, runtime, 0, no).order, p.rows[jumpTaken ? 3 : 1].key); // Always does not depend on vehicle facts.
+    }
+}
+
 TEST(RulesTests, conditionalComparisonsHandleEqualBoundariesAndBooleanInversion)
 {
     Condition c;
@@ -5103,7 +5123,7 @@ TEST_F(GameRulesFixture, captionDraggingMovesStopsInsideNestedPrivateAndSharedBl
         const auto id = enumValue(head->id);
         if (shared)
         {
-            const auto line = Lines::createLine("Caption drag", TransportMode::rail, 0);
+            const auto line = Lines::createLine("Caption drag", TransportMode::rail, 2);
             ASSERT_TRUE(line.ok);
             for (auto stop : { 10, 20, 30 })
             {
@@ -5223,6 +5243,7 @@ TEST_F(GameRulesFixture, captionWaypointDropRefreshesWorldOrderNumbers)
     Vehicles::OrderManager::generateNumDisplayFrames(head);
     ASSERT_EQ(Vehicles::OrderManager::displayFrames().size(), 4U);
     const auto originalWaypointFrame = Vehicles::OrderManager::displayFrames().back().frame.left[0];
+    const auto originalWaypointOffset = Vehicles::OrderManager::displayFrames().back().orderOffset;
     const auto closeIt = std::find_if(session.layout().items.begin(), session.layout().items.end(), [](const auto& v) { return v.closing; });
     ASSERT_NE(closeIt, session.layout().items.end());
     const int y = closeIt->top + 3;
@@ -5235,7 +5256,9 @@ TEST_F(GameRulesFixture, captionWaypointDropRefreshesWorldOrderNumbers)
     EXPECT_EQ(updated.blocks[0].last, p.rows[3].key);
     EXPECT_EQ(Vehicles::OrderManager::orders()[head->orderTableOffset + 2].getType(), Vehicles::OrderType::RouteWaypoint);
     ASSERT_EQ(Vehicles::OrderManager::displayFrames().size(), 4U);
-    EXPECT_NE(Vehicles::OrderManager::displayFrames()[1].frame.left[0], originalWaypointFrame);
+    EXPECT_EQ(Vehicles::OrderManager::displayFrames()[1].orderOffset, head->orderTableOffset + 2);
+    EXPECT_NE(Vehicles::OrderManager::displayFrames()[1].orderOffset, originalWaypointOffset);
+    EXPECT_EQ(Vehicles::OrderManager::displayFrames()[1].frame.left[0], originalWaypointFrame); // The numbered waypoint remains at the same world position.
     World::resetMapSelectionFlags();
 }
 
@@ -5305,11 +5328,12 @@ TEST_F(GameRulesFixture, conditionalAgeUsesCompletedYearsAndNoCapacityIsUnavaila
         ~RestoreDay() { setCurrentDay(day); }
     } restore{ savedDay };
     setCurrentDay(calcDays({ 2040, MonthId::june, 1 }));
+    const auto today = calcDate(getCurrentDay());
     for (const auto beforeBirthday : { false, true })
     {
         auto* head = vehicle();
         auto* front = conditionalCargoCar(*head);
-        front->creationDay = calcDays({ 2030, MonthId::june, beforeBirthday ? 2 : 1 });
+        front->creationDay = calcDays({ 2030, today.month, today.day + (beforeBirthday ? 1 : 0) });
         const auto id = enumValue(head->id);
         const auto owner = ownerForVehicle(id);
         auto p = snapshot(owner);
@@ -5344,7 +5368,7 @@ TEST_F(GameRulesFixture, sharedConditionalJumpsUseEachVehicleAndBothPreviewModes
     auto* a = vehicle();
     auto* b = vehicle();
     const auto ai = enumValue(a->id), bi = enumValue(b->id);
-    const auto line = Lines::createLine("Conditional shared", TransportMode::rail, 0);
+    const auto line = Lines::createLine("Conditional shared", TransportMode::rail, 2);
     ASSERT_TRUE(line.ok);
     for (const auto stop : { 10, 20, 30 })
     {
