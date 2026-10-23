@@ -1,5 +1,16 @@
 # Block rules
 
+## D77 moving orders outside blocks (TESTING)
+
+Use the lower half of a closing arm to drop after that block; the upper half still appends inside. The top two pixels of a header insert before it. Nested outside positions belong to the enclosing block, while outermost positions belong to the main order list. Ordinary ungrouped rows and blank space after the list also accept orders outside containers. Valid positions show an insertion line. These positions work for stops, waypoints, selected consecutive rows and header-dragged sections in both native hosts.
+
+An exterior drop changes membership even when the order stays in the same list position. Source containers shrink, empty containers/dependent branches are removed, and stable destinations remain intact. Header drags preserve their whole nested section without taking an equal-span parent. A dragged action cannot erase its required branch; that drop rejects atomically. Impossible placements, stale owner/revision, read-only lists and drops outside the host still reject without mutation. Transient edit/drop flags are not saved; all execution and companion formats remain unchanged. Verification and manual acceptance are in development status.
+
+D74 signal-safety integration retains the existing read-only private/shared Rules route projection. Committed entrance and station-departure sections remain protected while pending execution is invalidated or recalculated; only a completely validated replacement releases unused protection. Loading/rule changes still revalidate actual continuation. `.orules` and Rules runtime formats do not change; priority/committed claims now persist in `.osignals` v4. No UI or logic execution behaviour is added by this follow-up; actual verification and TESTING acceptance are in development status.
+
+D72 signal integration: a read-only vehicle route projection supplies the current and subsequent private/shared destinations to station reservation planning. It copies latched branches, counters and waits, samples current facts, and leaves actual execution, order cursors and cargo unchanged. Departure rechecks the selected route after native cargo/rule/timetable holds. Future cargo quantities are never predicted. The signal cursor stops projecting new orders at the next waypoint: reaching it keeps the existing replan of the following leg, with occupied protection retained.
+
+
 The first block-rules delivery is **COMPLETED (user accepted D59/D61)** and included in release `v26.09-modded.3`. D71 (2026-10-23) adds the dragging/conditional-jump follow-up directly on master at the user's request; its current verification and TESTING gate are recorded in `DEVELOPMENT_STATUS.md`. Earlier branch/window/rollback descriptions below are historical; modded.1/.2 releases and tags were retired by D69.
 
 D71 automated verification: final source `04b8a699`, both game builds successful, **583/583 full tests per configuration**, including 199 Rules checks. Status **TESTING** for a short user-only caption-drop and conditional-route check. The published .3 executable is unchanged; use the rebuilt development executable.

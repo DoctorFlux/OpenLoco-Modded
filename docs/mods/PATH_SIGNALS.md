@@ -1,5 +1,45 @@
 # Path signals, chain signals, and reservations
 
+D77 changes only legend text: inherit the construction window secondary colour like native placement controls, removing forced black formatting. D76 arrow hues/layout and all signal safety decisions remain. Current verification is in development status.
+
+## D76 consistent arrow colours and compact key (TESTING)
+
+Supersedes the D75 directional colour table below: Block grey, Path yellow, Chain dark blue and Path+Chain orange in **both** directions. Each facing signal arrow independently uses its own type. The key has one sample per type in a two-row grid; the construction frame is 156x286 instead of 156x338, preserving all placement control positions and a separate cost footer. Arrow colours identify types; native aspects indicate clearance. No reservation, priority, tail-release or persistence change. Current verification and user-only visual acceptance are recorded in development status.
+
+## D75 whole-train clearance and arrow key (TESTING)
+
+A front/engine passing the exit never releases track still occupied by its rear wagons. The routing tail remains the reservation-release point. Native block recomputation additionally uses complete physical track footprints so a wagon on a remote part of a curve, or a detached/stationary wagon, keeps the conflicting block occupied. Ordinary handoffs inspect occupied protected holds even when no unused path claims remain. Occupied normal and standalone Chain posts show native red frame 0 throughout the wait; Path/combined retain the selected-path check so unrelated free paths remain usable.
+
+The construction tab now includes the eight type/direction arrow colours in a two-way/one-way table. Block: muted green/grey; Path: white/yellow; Chain: blue/dark blue; Path+Chain: green/orange. These arrows identify signal type/direction, not permission to proceed. Rendering and the menu share one mapping. Current automated results, remaining user-only tail/legend acceptance and the unchanged persistence versions are in development status.
+
+## D74 merge safety and persistent priority (TESTING)
+
+Standalone **Chain is block-based**: it needs a clear native whole block and the required exit lookahead. It cannot admit a second train merely because a different path through that occupied block is free. **Path+Chain** combines path protection with chain exit lookahead. Ordinary signals retain native whole-block admission. Conflict scheduling also compares ordinary-signal requests; unrelated vehicle slots remain unchanged.
+
+When planning commits the entrance, the complete reserved section becomes non-yieldable. Express and wait priority select among uncommitted requests; neither can steal an entered route. Invalidating pending execution retains the committed suffix. Replacing it requires successful validation of the complete replacement before releasing old unused pieces; occupied protection remains until the tail clears. The final physical entry guard checks every actual rail movement, including block-only games and stationary wagons.
+
+Waiting age, exact-tie draws and departure holds survive matching save/reload in `.osignals` v4 together with committed claims. Attachment checks the native save bytes/tick and vehicle identity; older v1-v3 companions remain readable. Other companions and packed saves do not change. This supersedes D73's load-reset/block-only-scheduling statements and earlier v3-writer descriptions. Detailed wire/rollback notes are in `../SAVE_FORMAT.md`; actual tests and manual acceptance are in `../DEVELOPMENT_STATUS.md`.
+
+## D73 reservation priority (TESTING)
+
+Before vehicle updates, preview eligible rail requests using current orders and Rules choices. Only trains with overlapping directed-route footprints contend; unrelated vehicle slots stay in their existing order. Use this order of precedence:
+
+1. The native **Express** vehicle setting precedes Local, including when the Local has waited longer.
+2. Within the same class, an actual stopped signal waiter precedes a moving train with unused reserved lookahead.
+3. Among waiting peers, prefer the longer continuous simulation-tick wait. Blocked station departures count even without a nearby display post.
+4. For equal waits, prefer shorter remaining directed track cost to the next ordered stop/waypoint, or to the protected exit when it is earlier. Include front-piece progress.
+5. For exact conflicts with equal keys, draw from the simulation PRNG in stable owner order. Cache the result through retries; drawing/querying the map never rolls a winner.
+
+This permits a waiting train to take a distant equal-class train's **unused** lookahead. It does not revoke occupied track, committed routing-ring pieces, physical wagon protection or an unknown owner's claim. Express cannot override these checks. Revalidate the complete new path before yielding any claim, and retain all occupied holds until normal tail release. A displaced owner uses existing red signal feedback and normal safe planning/braking. Signal entry and station departure share this validation; station-through protection from D72 remains required.
+
+Keep a stopped granted train's queue position until movement/commitment begins, avoiding alternating unused grants. Priority ranks belong to one current conflict component; a changed route cannot borrow a rank from an unrelated component. Existing pending paths provide only comparison footprints and target/cost metadata, avoiding repeated A* and physical-occupation scans for those paths every tick. Fresh requests and departures still search within 4096-expansion/64-piece bounds, use cheap footprint bounds for pair rejection and the tile index to locate conflicting pending owners. Reusing a footprint never grants movement or replaces the fresh safety check. This changes scheduling only where Path/Chain reservations are active; block-only gameplay retains native order.
+
+Priority state is transient and rebuilt after pickup/reversal/load/reset. Signal waiting age and cached tie draws restart after loading; `.osignals` remains v3 and other saves/companions are unchanged. Automated results and the small user-only acceptance check are in development status.
+
+
+D72 (2026-10-23), **TESTING**: station arrival is no longer a reservation endpoint; departure also requires safe protection before movement. This supersedes earlier platform-boundary, station-fallback and reservation-cap-as-endpoint statements in historical entries below. Current verification is in development status.
+
+
 Implemented in the engine. Block signals stay the default, and a save with no companion file behaves as before.
 
 ## Signal types
@@ -8,12 +48,12 @@ The Signal tab keeps the normal signal object and the existing both-directions a
 
 - **Neither checkbox**: a block signal. One direction places one side; both directions place both sides.
 - **Path**: uses the native clear/block post states. A train arriving at it reserves a path to the next safe waiting point. Its reservation must respect the current waypoint's track piece, direction and height. If the required route is unavailable, the train waits at red and retries every 16 ticks; an unrelated free branch is not a substitute.
-- **Chain**: uses the same reservation, but keeps looking through chain signals, including a signal that has both checkboxes, and through the exit signal. Through a path exit it reserves to that signal's next safe waiting point. Through a block exit it reserves that whole block, and refuses an exit block that is already occupied. The train's required exit must lead to its ordered waypoint. A free exit that cannot reach that waypoint does not allow it to proceed. Posts use native block-signal states; a failed reservation displays red while the train waits and retries.
+- **Chain**: requires native whole-block clearance, then reserves the selected continuation while looking through chain signals, including a signal that has both checkboxes, and through the exit signal. Through a path exit it reserves to that signal's next safe waiting point. Through a block exit it reserves that whole block, and refuses an exit block that is already occupied. The train's required exit must lead to its ordered waypoint. A free exit that cannot reach that waypoint does not allow it to proceed. Posts use native block-signal states; a failed reservation displays red while the train waits and retries.
 - **Both checkboxes**: a path signal that also looks ahead. Facing one starts a chain search. Native approach/passing aspects remain when the required route is available; the blocked-route override uses danger frame 0.
 
 One direction is the single-direction button. A train that meets the back of a signal is blocked. Both directions places a signal facing each way, so each direction meets the front of its own signal.
 
-A safe waiting point is the next path, chain, or block signal facing the train, the end of the destination platform, a dead end, or 64 pieces of unsignalled track.
+A safe waiting point is a real facing signal boundary (with Chain lookahead through its exit) or a physical track end. Station/platform edges and waypoints are route targets, not safe endpoints. The 64-piece reservation cap and 4096-expansion search cap never authorize a partial unsafe route; exhaustion waits safely. Add signals to long unsignalled sections where necessary.
 
 ## Reservations
 
@@ -31,11 +71,11 @@ A safe waiting point is the next path, chain, or block signal facing the train, 
 
 `PathSearch` is an A* over an abstract track graph. The game adapter uses `getTrackConnections`, the signal types, the holds, and a vehicle scan of the piece's tiles.
 
-- The target is the current order: any piece reporting the order's station, or the exact encoded waypoint piece/direction and height (including the existing equivalent reverse traversal). A same-position piece with another orientation does not satisfy it. Waypoint orders require explicit reachability; station orders retain their existing fallback policy (D48).
+- The cursor follows current and subsequent private/shared orders and a bounded read-only projection of actual Rules execution/current facts. Station membership comes from each actual track piece, not the junction-wide station ID. Waypoints retain exact piece/direction/height matching and the equivalent reverse traversal. Required station/waypoint destinations cannot be replaced by unrelated free branches. Beyond the protected boundary, only connectivity to the next destination is proved. No orders retain nearest-safe-point selection.
 - Cost is `unkWeighting` per piece. The heuristic is the vanilla distance metric.
 - Before the reservation end, held or occupied pieces are impassable. After it, they only add a penalty.
-- The search stops after 4096 expansions. A waypoint that cannot be proved reachable produces no reservation: the train stays on the required order and waits, rather than taking an unrelated free dead end or exit. A genuine alternate route is allowed when it reaches that same waypoint. Station orders retain the closest-free-safe-point fallback; a train with no orders retains the nearest-free-safe-point behavior.
-- Reachability can be proved beyond the next signal or 64-piece reservation horizon without claiming track there. Occupancy inside the reservation remains impassable; beyond its end it affects only look-ahead cost. The train can approach the next safe signal on the required route, then wait there for the remaining occupied section. This does not reserve through another train.
+- The search stops after 4096 expansions. A waypoint that cannot be proved reachable produces no reservation: the train stays on the required order and waits, rather than taking an unrelated free dead end or exit. A genuine alternate route is allowed when it reaches that same waypoint. Required station orders now also require route proof; a train with no orders retains the nearest-free-safe-point behavior.
+- Reachability can be proved beyond a real signal boundary without claiming track there. The 64-piece reservation horizon alone is not a safe boundary. Occupancy inside the reservation remains impassable; beyond its end it affects only look-ahead cost. The train can approach the next safe signal on the required route, then wait there for the remaining occupied section. This does not reserve through another train.
 
 ## Train integration
 
@@ -140,3 +180,13 @@ D56 (`cf47b6db`) treats a route-through waypoint as direction proof, not a safe 
 When the native planner advances the waypoint order, it releases unused pending continuation claims and evaluates the next order afresh at its next decision, retaining already occupied/protected holds. This prevents a safety proof beyond one waypoint from committing later junctions against the following order. Refusal retains the waypoint and uses the same actual danger-frame-0 approach/wait display and retry. Physical entry protection, placement isolation and packed/companion versions remain unchanged. Signals stay TESTING pending the user's manual acceptance; no automated game control is performed.
 
 D56 validation: two native reproductions failed on D55, then nine added regressions passed with the fix. Focused Debug checks passed 87/87 (46 model/display/search, 37 native-map, four placement). Full Debug/Release suites each passed 427/427 after reconfiguration and both game builds; all five configuration-specific test executable paths were checked. Evidence: `build/windows/waypoint-boundary-{debug,release}-{build,tests}.log`, focused/before logs and discovery JSONs. No compiler/linker warnings; native acceptance remains user-run.
+
+## Station departure safety (D72)
+
+An incoming train reserves through its stopping station to a real safe boundary. If the required exit is occupied/reserved before that boundary, the entrance stays red. A station with a genuine departure signal can be entered with protection up to that post; Chain still requires its usual continuation.
+
+Before rail departure from loading, timetable/rule holds or a stopped restart, a local unsignalled-section walk checks whether Path/Chain protection applies. It stops at boundary posts, so unrelated special signals do not change block-only stations. The departure proof covers the physical front through already committed routing to a safe continuation. Physical stationary trains, wagon overhangs and conflicting foreign holds prevent departure; self and separate parallel track remain clear. Both movement components remain held and retry after 16 ticks. Native cargo handling continues. Reversal rebuilds protection for the new front before departure.
+
+Successful replacements validate all pieces before releasing unused old claims. Occupied holds survive failures and release as the tail leaves. Current order/progress and Rules runtime remain intact; projections use current facts without predicting post-loading cargo. Real departure evaluates the resolved outgoing orders again. Transient waits are cleared with owner/world lifecycle and rebuilt after loading; `.osignals` stays version 3.
+
+Final D72 automated checks: Debug/Release **603/603** each; focused signals **103/103**. The station cursor projects through stops to its next waypoint; passing that waypoint replans the next leg while retaining occupied protection. A terminal station can request reversal after reverse-route proof, and the new front is gated again. Verification uses an unchanged source-hash manifest; see development status for actual times, warnings and the outstanding user-only manual gate.

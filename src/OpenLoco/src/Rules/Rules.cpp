@@ -292,7 +292,8 @@ namespace OpenLoco::Rules
         const auto* target = blockById(before, into);
         for (const auto& old : before.blocks)
         {
-            if (action(old.kind) || indexOf(before, old.first) > indexOf(before, target->first) || indexOf(before, old.last) < indexOf(before, target->last))
+            if (action(old.kind) || indexOf(before, old.first) > indexOf(before, target->first) || indexOf(before, old.last) < indexOf(before, target->last)
+                || (old.first == target->first && old.last == target->last && old.id > target->id))
             {
                 continue;
             }
@@ -305,6 +306,10 @@ namespace OpenLoco::Rules
     Result edit(Program& original, const Edit& command)
     {
         Program p = original;
+        if (command.detach && command.kind != EditKind::moveRows)
+        {
+            return { false, "Exterior placement requires an order move" };
+        }
         if (command.into)
         {
             const auto* target = blockById(p, command.into);
@@ -314,7 +319,7 @@ namespace OpenLoco::Rules
             {
                 return { false, "Choose a drop position inside this block" };
             }
-            if (command.kind == EditKind::moveRows && command.first <= indexOf(p, target->first) && indexOf(p, target->last) <= command.last)
+            if (command.kind == EditKind::moveRows && (!command.detach || command.block.id) && command.first <= indexOf(p, target->first) && indexOf(p, target->last) <= command.last)
             {
                 return { false, "A section cannot be dropped into itself" };
             }
@@ -429,7 +434,8 @@ namespace OpenLoco::Rules
                 {
                     return { false, "Invalid section move" };
                 }
-                if (command.destination >= command.first && command.destination <= command.last + 1)
+                const bool samePosition = command.destination >= command.first && command.destination <= command.last + 1;
+                if (samePosition && !command.detach)
                 {
                     if (!command.into)
                     {
@@ -438,36 +444,128 @@ namespace OpenLoco::Rules
                     growInto(p, original, command.into, p.rows[command.first].key, p.rows[command.last].key);
                     break;
                 }
-                std::vector<Row> section(p.rows.begin() + command.first, p.rows.begin() + command.last + 1);
-                // Moving a row out shrinks its original brackets; moving a complete bracket keeps it intact.
-                for (auto& b : p.blocks)
+                const std::vector<Row> section(p.rows.begin() + command.first, p.rows.begin() + command.last + 1);
+                std::set<Key> retained;
+                if (command.detach)
                 {
-                    auto a = indexOf(p, b.first), z = indexOf(p, b.last);
-                    if (command.first <= a && z <= command.last)
+                    std::set<Key> removed;
+                    const auto* target = blockById(original, command.into);
+                    const auto* movedBlock = blockById(original, command.block.id);
+                    if (command.block.id && (!movedBlock || indexOf(original, movedBlock->first) != command.first || indexOf(original, movedBlock->last) != command.last))
                     {
-                        continue;
+                        return { false, "Choose the complete block section" };
                     }
-                    if (command.first <= a && a <= command.last)
+                    for (const auto& old : original.blocks)
                     {
-                        b.first = p.rows[command.last + 1].key;
+                        if (action(old.kind))
+                        {
+                            continue;
+                        }
+                        const auto a = indexOf(original, old.first), z = indexOf(original, old.last);
+                        const bool entireSection = movedBlock && command.first <= a && z <= command.last
+                            && (old.first != movedBlock->first || old.last != movedBlock->last || old.id >= movedBlock->id);
+                        const bool ancestor = target && a <= indexOf(original, target->first) && indexOf(original, target->last) <= z
+                            && (old.first != target->first || old.last != target->last || old.id <= target->id);
+                        if (entireSection || ancestor)
+                        {
+                            retained.insert(old.id);
+                            continue;
+                        }
+                        Key first = 0, last = 0;
+                        for (size_t row = a; row <= z; ++row)
+                        {
+                            if (row < command.first || row > command.last)
+                            {
+                                if (!first)
+                                {
+                                    first = original.rows[row].key;
+                                }
+                                last = original.rows[row].key;
+                            }
+                        }
+                        if (first)
+                        {
+                            resizeAttached(p, old, first, last);
+                        }
+                        else
+                        {
+                            removed.insert(old.id);
+                        }
                     }
-                    if (command.first <= z && z <= command.last)
+                    bool changed = true;
+                    while (changed)
                     {
-                        b.last = p.rows[command.first - 1].key;
+                        changed = false;
+                        for (const auto& b : p.blocks)
+                        {
+                            if ((removed.contains(b.parent) || (b.kind == Kind::breakLoop && removed.contains(b.target))) && removed.insert(b.id).second)
+                            {
+                                changed = true;
+                            }
+                        }
+                    }
+                    if (movedBlock && removed.contains(movedBlock->id))
+                    {
+                        return { false, "This action needs its parent block" };
+                    }
+                    std::erase_if(p.blocks, [&](const Block& b) { return removed.contains(b.id); });
+                    if (command.into && !blockById(p, command.into))
+                    {
+                        return { false, "Cannot remove the destination's parent block" };
                     }
                 }
-                p.rows.erase(p.rows.begin() + command.first, p.rows.begin() + command.last + 1);
-                auto dest = command.destination;
-                if (dest > command.last)
+                else
                 {
-                    dest -= section.size();
+                    // Moving a complete bracket by its header keeps the section intact.
+                    for (auto& b : p.blocks)
+                    {
+                        const auto a = indexOf(p, b.first), z = indexOf(p, b.last);
+                        if (command.first <= a && z <= command.last)
+                        {
+                            continue;
+                        }
+                        if (command.first <= a && a <= command.last)
+                        {
+                            b.first = p.rows[command.last + 1].key;
+                        }
+                        if (command.first <= z && z <= command.last)
+                        {
+                            b.last = p.rows[command.first - 1].key;
+                        }
+                    }
                 }
-                p.rows.insert(p.rows.begin() + dest, section.begin(), section.end());
+                if (!samePosition)
+                {
+                    p.rows.erase(p.rows.begin() + command.first, p.rows.begin() + command.last + 1);
+                    auto dest = command.destination;
+                    if (dest > command.last)
+                    {
+                        dest -= section.size();
+                    }
+                    p.rows.insert(p.rows.begin() + dest, section.begin(), section.end());
+                }
                 if (command.into)
                 {
                     growInto(p, original, command.into, section.front().key, section.back().key);
                 }
-                if (command.first == command.last && command.block.id == 0)
+                if (command.detach)
+                {
+                    for (const auto& b : p.blocks)
+                    {
+                        if (!action(b.kind) && !retained.contains(b.id))
+                        {
+                            for (const auto& row : section)
+                            {
+                                const auto at = indexOf(p, row.key);
+                                if (indexOf(p, b.first) <= at && at <= indexOf(p, b.last))
+                                {
+                                    return { false, "Choose a drop position outside this block" };
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (command.first == command.last && command.block.id == 0)
                 {
                     std::erase_if(p.blocks, [&](const Block& b) { return b.kind == Kind::group && b.first == section.front().key && b.last == section.front().key; });
                 }

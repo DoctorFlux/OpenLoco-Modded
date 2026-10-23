@@ -39,7 +39,13 @@ namespace OpenLoco::VehicleManager
         if (Game::hasFlags(GameStateFlags::tileManagerLoaded) && !SceneManager::isEditorMode())
         {
             CargoDist::tick();
+            std::vector<Vehicles::VehicleHead*> vehicles;
             for (auto* v : VehicleList())
+            {
+                vehicles.push_back(v);
+            }
+            Signals::prioritiseReservations(vehicles);
+            for (auto* v : vehicles)
             {
                 v->updateVehicle();
             }

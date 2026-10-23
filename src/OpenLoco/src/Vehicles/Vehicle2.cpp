@@ -4,6 +4,7 @@
 #include "Objects/RoadObject.h"
 #include "Objects/TrackObject.h"
 #include "Random.h"
+#include "Signals/PathSignals.h"
 #include "Tutorial.h"
 #include "Vehicles/Vehicle1.h"
 #include "Vehicles/VehicleBody.h"
@@ -125,6 +126,13 @@ namespace OpenLoco::Vehicles
     // 0x004A9B0B
     bool Vehicle2::update()
     {
+        if (mode == TransportMode::rail && Signals::isStationDepartureWaiting(enumValue(head)))
+        {
+            // Only armed while stopped at a physical station. Do not accelerate
+            // or consume committed movement samples while departure is refused.
+            motorState = MotorState::stopped;
+            return true;
+        }
         if (mode == TransportMode::air || mode == TransportMode::water)
         {
             return true;

@@ -86,6 +86,7 @@ namespace OpenLoco::Rules
     {
         size_t row;
         Key into = 0;
+        bool outside = false;
     };
     DropPosition programDrop(const Program& program, const ProgramLayout& layout, int16_t y);
     int16_t visualIndent(const ProgramVisual& visual, int16_t width);

@@ -142,7 +142,9 @@ namespace OpenLoco::Signals
     // Logical colours are not the native object state numbers: native 0 is red.
     uint8_t postStateFor(DisplayState state, uint8_t stateCount);
     // Waiting at a special signal displays red without changing packed occupancy.
-    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount);
+    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount, bool blockOccupied = false);
+    // Shared by the map arrows and the signal-menu legend.
+    Colour signalArrowColour(SignalKind kind, bool bothDirections);
 
     struct SignalClaim
     {
@@ -156,6 +158,11 @@ namespace OpenLoco::Signals
     void setHoldValidator(HoldValidator validator);
     std::optional<Hold> holdAt(const PieceKey& piece);
     bool canHold(const PieceKey& piece, uint16_t owner);
+    // Priority previews may ignore unused claims, never occupied/committed track.
+    bool canHoldIgnoringPending(const PieceKey& piece, uint16_t owner);
+    bool isCommittedRoutePiece(uint16_t owner, const PieceKey& piece);
+    bool hasCommittedRoutes();
+    std::vector<uint16_t> conflictingPendingOwners(uint16_t owner, const std::vector<ReservedStep>& steps);
     bool isHeldByProtectedOther(const PieceKey& piece, uint16_t owner);
     void holdOccupied(uint16_t owner, const PieceKey& piece, bool isProtected);
     void releaseHold(uint16_t owner, const PieceKey& piece);
@@ -168,6 +175,8 @@ namespace OpenLoco::Signals
     bool reservePath(uint16_t owner, const std::vector<ReservedStep>& steps);
     std::vector<ReservedStep> dropPendingPath(uint16_t owner);
     const std::deque<ReservedStep>* pendingPath(uint16_t owner);
+    // Lock a departure continuation before the planning head resumes.
+    void commitPendingSection(uint16_t owner);
     bool consumePendingFront(uint16_t owner, const World::Pos3& entrance, uint16_t connection);
     bool isInPathMode(uint16_t owner);
     void setPathMode(uint16_t owner, bool enabled);
@@ -230,11 +239,18 @@ namespace OpenLoco::Signals
     bool isRailLogicActive();
     bool isSpecialFacingSide(const World::Pos3& entrance, uint16_t trackAndDirection);
     // Recheck physical occupation and holds before consuming an existing path.
-    // A rejected path is released and the train enters a normal path wait.
+    // Invalid execution is dropped; committed section protection survives the wait.
     bool validatePendingPath(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
-    // With rail logic active, the physical front checks foreign occupation
+    // On every actual rail movement, the physical front checks foreign occupation
     // even after a block-signal handoff, before changing piece/routing handle.
+    // Includes every real rail component, including detached and partial wagons.
+    bool isRailPieceOccupied(const PieceKey& piece);
     bool physicalEntryIsClear(Vehicles::VehicleHead& head, const World::Pos3& nextPos, uint16_t connection, const World::Track::TrackConnections& tc);
+    // Gate departure at a physical station, including already committed lookahead.
+    bool ensureStationDeparture(Vehicles::VehicleHead& head);
+    bool stationDepartureNeedsReverse(Vehicles::VehicleHead& head);
+    bool isStationDepartureWaiting(uint16_t owner);
+    void setStationDepartureWaiting(uint16_t owner, bool waiting);
     std::optional<uint16_t> reservedConnectionAt(Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
     std::optional<ReserveStart> reservationStartAtJunction(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
     void onPathWait(const Vehicles::VehicleHead& head, const World::Pos3& nextPos, const World::Track::TrackConnections& tc);
@@ -254,5 +270,24 @@ namespace OpenLoco::Signals
     void reset();
     void onGameLoaded();
     void prepareForSave();
+    // Called before any vehicle moves. Only conflicting rail contenders change
+    // update order; ordinary vehicles and unrelated services retain their slots.
+    void prioritiseReservations(std::vector<Vehicles::VehicleHead*>& vehicles);
+    void clearTrainPriority(uint16_t owner);
+    void clearReservationPriorities();
+    struct SavedPriority
+    {
+        uint16_t owner = 0;
+        uint64_t identity = 0;
+        bool waiting = false;
+        uint32_t waitedTicks = 0;
+        bool hasLottery = false;
+        uint32_t lottery = 0;
+        bool departureWaiting = false;
+    };
+    std::optional<uint64_t> trainPriorityIdentity(uint16_t owner);
+    std::vector<SavedPriority> capturePriorities();
+    bool restorePriorities(const std::vector<SavedPriority>& records);
+    uint32_t priorityTick();
     void tick();
 }

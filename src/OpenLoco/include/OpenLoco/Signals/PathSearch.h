@@ -40,6 +40,7 @@ namespace OpenLoco::Signals
         bool isTarget = false;
         uint32_t distanceToTarget = 0;
         uint8_t entryDirection = 0; // Incoming graph junction, independent of the outgoing piece.
+        uint16_t station = UINT16_MAX;
     };
 
     class TrackGraph
@@ -47,6 +48,10 @@ namespace OpenLoco::Signals
     public:
         virtual ~TrackGraph() = default;
         virtual void successors(const TrackStep& from, std::vector<StepEdge>& out) = 0;
+        virtual uint16_t targetCount() const { return 1; }
+        virtual bool matchesTarget(const StepEdge& edge, uint16_t target) const { return target == 0 && edge.isTarget; }
+        virtual uint32_t targetDistance(const StepEdge& edge, uint16_t target) const { return target == 0 ? edge.distanceToTarget : 0; }
+        virtual bool sameTarget(uint16_t, uint16_t) const { return false; }
     };
 
     enum class SearchMode : uint8_t
@@ -61,7 +66,7 @@ namespace OpenLoco::Signals
         std::vector<StepEdge> starts;
         SearchMode mode = SearchMode::pathSignal;
         bool hasTarget = false;
-        bool requireTarget = false; // A waypoint proves direction; protection continues to a safe waiting point.
+        bool requireTarget = false; // Prove ordered destinations; protect to a real safe waiting point.
         uint32_t maxExpansions = 4096;
         uint32_t maxReservedPieces = 64;
     };
@@ -70,6 +75,7 @@ namespace OpenLoco::Signals
     {
         bool found = false;
         bool reachedTarget = false;
+        bool safeEndpoint = false; // A real signal boundary or track end, never a search limit/platform edge.
         std::vector<StepEdge> reservation;
     };
 

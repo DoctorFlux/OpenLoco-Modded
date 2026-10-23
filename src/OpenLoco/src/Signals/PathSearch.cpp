@@ -27,6 +27,7 @@ namespace OpenLoco::Signals
             uint32_t reservedPieces = 0;
             std::array<uint64_t, 4> visited{};
             bool reachedTarget = false;
+            uint16_t target = 0;
         };
 
         struct StateKey
@@ -36,15 +37,15 @@ namespace OpenLoco::Signals
             int16_t z;
             uint16_t tad;
             uint8_t stage;
+            uint16_t target;
 
             bool operator<(const StateKey& rhs) const
             {
-                return std::tie(x, y, z, tad, stage) < std::tie(rhs.x, rhs.y, rhs.z, rhs.tad, rhs.stage);
+                return std::tie(x, y, z, tad, stage, target) < std::tie(rhs.x, rhs.y, rhs.z, rhs.tad, rhs.stage, rhs.target);
             }
         };
 
         constexpr uint32_t kBlockedPenalty = 2000;
-        constexpr uint32_t kMaxPlatformPieces = 32;
 
         uint8_t junctionHash(const StepEdge& edge)
         {
@@ -77,7 +78,7 @@ namespace OpenLoco::Signals
 
         StateKey keyOf(const Node& node)
         {
-            return StateKey{ node.edge.step.pos.x, node.edge.step.pos.y, node.edge.step.pos.z, node.edge.step.tad, static_cast<uint8_t>(node.stage) };
+            return StateKey{ node.edge.step.pos.x, node.edge.step.pos.y, node.edge.step.pos.z, node.edge.step.tad, static_cast<uint8_t>(node.stage), node.target };
         }
 
         Stage nextStage(Stage current, const StepEdge& edge, bool& allowed)
@@ -145,7 +146,8 @@ namespace OpenLoco::Signals
         Candidate best;
 
         const auto complete = [&](int32_t index) {
-            result.reachedTarget = true;
+            result.reachedTarget = nodes[index].reachedTarget;
+            result.safeEndpoint = true;
             result.reservation = buildReservation(nodes, index);
             result.found = !result.reservation.empty();
         };
@@ -160,7 +162,15 @@ namespace OpenLoco::Signals
         };
 
         auto push = [&](Node node) {
-            node.reachedTarget = node.edge.isTarget || (node.parent >= 0 && nodes[node.parent].reachedTarget);
+            node.target = node.parent >= 0 ? nodes[node.parent].target : 0;
+            // Repeated visits to one station require leaving its platform first.
+            const bool stillAtPrevious = node.target > 0 && node.parent >= 0 && graph.sameTarget(node.target - 1, node.target)
+                && graph.matchesTarget(nodes[node.parent].edge, node.target);
+            if (request.hasTarget && node.target < graph.targetCount() && !stillAtPrevious && graph.matchesTarget(node.edge, node.target))
+            {
+                ++node.target;
+            }
+            node.reachedTarget = node.target != 0;
             if (request.requireTarget)
             {
                 if (node.parent >= 0 && revisitsJunction(nodes, node.parent, node.edge))
@@ -187,7 +197,7 @@ namespace OpenLoco::Signals
                 bestCost[key] = node.cost;
             }
             nodes.push_back(node);
-            const uint64_t priority = static_cast<uint64_t>(node.cost) + (request.hasTarget ? node.edge.distanceToTarget : 0);
+            const uint64_t priority = static_cast<uint64_t>(node.cost) + (request.hasTarget ? graph.targetDistance(node.edge, node.target) : 0);
             open.push({ priority, static_cast<int32_t>(nodes.size() - 1) });
         };
 
@@ -215,36 +225,12 @@ namespace OpenLoco::Signals
             }
             ++expansions;
 
-            // A route-through waypoint proves the requested direction, but is
-            // not a place to stop safely. Keep checking to the signal boundary
-            // even when another train stands just beyond the waypoint.
-            if (node.edge.isTarget && (!request.requireTarget || node.stage == Stage::released))
+            // Beyond the safe boundary only prove the next ordered destination.
+            // Neither a waypoint nor a platform edge ends the protected prefix.
+            if (node.stage == Stage::released && node.reachedTarget
+                && (node.target == graph.targetCount() || (node.parent >= 0 && node.target > nodes[node.parent].target)))
             {
-                int32_t end = index;
-                if (node.stage != Stage::released)
-                {
-                    for (uint32_t i = 0; i < kMaxPlatformPieces; ++i)
-                    {
-                        successors.clear();
-                        graph.successors(nodes[end].edge.step, successors);
-                        const StepEdge* platform = nullptr;
-                        for (const auto& edge : successors)
-                        {
-                            if (edge.isTarget && !edge.blocked && edge.signal == EntrySignal::none)
-                            {
-                                platform = &edge;
-                                break;
-                            }
-                        }
-                        if (platform == nullptr)
-                        {
-                            break;
-                        }
-                        nodes.push_back(Node{ *platform, end, nodes[end].stage, nodes[end].cost + platform->cost, nodes[end].reservedPieces + 1 });
-                        end = static_cast<int32_t>(nodes.size() - 1);
-                    }
-                }
-                complete(end);
+                complete(index);
                 return result;
             }
 
@@ -255,14 +241,18 @@ namespace OpenLoco::Signals
             if (node.stage != Stage::released)
             {
                 const bool deadEnd = std::none_of(successors.begin(), successors.end(), [](const StepEdge& edge) { return edge.signal != EntrySignal::blockedFromBehind; });
-                if (node.reachedTarget && request.requireTarget && (deadEnd || reserveLimit))
+                const bool terminalTarget = node.target > 0 && graph.matchesTarget(node.edge, node.target - 1);
+                if (deadEnd && node.reachedTarget && (node.target == graph.targetCount() || terminalTarget))
                 {
                     complete(index);
                     return result;
                 }
-                if (deadEnd || (reserveLimit && !request.requireTarget))
+                if (deadEnd)
                 {
-                    considerCandidate(index);
+                    if (!request.requireTarget && !node.reachedTarget)
+                    {
+                        considerCandidate(index);
+                    }
                     continue;
                 }
             }
@@ -274,10 +264,8 @@ namespace OpenLoco::Signals
                     continue;
                 }
                 bool allowed = true;
-                // A required waypoint can lie beyond the bounded reservation.
-                // Prove connectivity there without adding more occupied pieces.
-                const auto stage = reserveLimit ? Stage::released : nextStage(node.stage, edge, allowed);
-                if (!allowed)
+                const auto stage = nextStage(node.stage, edge, allowed);
+                if (!allowed || (reserveLimit && stage != Stage::released))
                 {
                     continue;
                 }
@@ -296,12 +284,15 @@ namespace OpenLoco::Signals
 
                 if (node.stage != Stage::released && stage == Stage::released)
                 {
-                    if (node.reachedTarget && request.requireTarget)
+                    if (node.reachedTarget && node.target == graph.targetCount())
                     {
                         complete(index);
                         return result;
                     }
-                    considerCandidate(index);
+                    if (!node.reachedTarget && !request.requireTarget)
+                    {
+                        considerCandidate(index);
+                    }
                 }
 
                 const uint32_t reserved = stage == Stage::released ? node.reservedPieces : node.reservedPieces + 1;
@@ -313,6 +304,7 @@ namespace OpenLoco::Signals
         {
             result.reservation = buildReservation(nodes, best.node);
             result.found = !result.reservation.empty();
+            result.safeEndpoint = result.found;
         }
         return result;
     }

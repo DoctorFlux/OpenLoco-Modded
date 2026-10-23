@@ -32,7 +32,7 @@ using namespace OpenLoco::World::TileManager;
 namespace OpenLoco::Ui::Windows::Construction::Signal
 {
     constexpr int32_t kWidth = 156;
-    constexpr int32_t kHeight = 238;
+    constexpr int32_t kHeight = 286;
     constexpr int32_t kSpacing = 4;
     constexpr int32_t kImageButtonSize = 40;
     constexpr int32_t kStepperWidth = 48;
@@ -465,6 +465,37 @@ namespace OpenLoco::Ui::Windows::Construction::Signal
 
         drawSeparator(self.widgets[widx::single_direction].bottom + 9);
         drawSeparator(kHeight - 12 - 9);
+        drawSeparator(214);
+        const auto legendTextColour = self.getColour(WindowColour::secondary).opaque();
+        tr.drawStringLeft({ 4, 218 }, legendTextColour, StringIds::signal_arrows_title);
+        const std::pair<Signals::SignalKind, StringId> legend[]{
+            { Signals::SignalKind::none, StringIds::signal_arrows_block },
+            { Signals::SignalKind::path, StringIds::signal_arrows_path },
+            { Signals::SignalKind::chain, StringIds::signal_arrows_chain },
+            { Signals::SignalKind::path | Signals::SignalKind::chain, StringIds::signal_arrows_combined }
+        };
+        size_t index = 0;
+        for (const auto& [kind, label] : legend)
+        {
+            const int16_t x = index % 2 == 0 ? 11 : 86;
+            const int16_t y = 230 + static_cast<int16_t>(index / 2) * 12;
+            const auto colour = Colours::getShade(Signals::signalArrowColour(kind, false), 5);
+            const auto outline = Colours::getShade(Colour::black, 0);
+            drawingCtx.drawRect(x - 7, y + 3, 6, 5, outline, Gfx::RectFlags::none);
+            for (int i = 0; i < 5; ++i)
+            {
+                drawingCtx.drawRect(x + 3 - i, y + 5 - i, 1, 2 * i + 1, outline, Gfx::RectFlags::none);
+            }
+            drawingCtx.drawRect(x - 6, y + 4, 6, 3, colour, Gfx::RectFlags::none);
+            for (int i = 0; i < 3; ++i)
+            {
+                drawingCtx.drawRect(x + 2 - i, y + 5 - i, 1, 2 * i + 1, colour, Gfx::RectFlags::none);
+            }
+            tr.drawStringLeftClipped({ x + 11, y }, 55, legendTextColour, label);
+            ++index;
+        }
+        tr.drawStringLeftClipped({ 4, 254 }, 148, legendTextColour, StringIds::signal_arrows_note);
+        tr.setCurrentFont(Gfx::Font::medium_bold);
 
         if (cState.signalCost != GameCommands::kFailure && cState.signalCost != 0)
         {

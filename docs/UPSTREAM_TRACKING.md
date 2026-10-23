@@ -1,5 +1,7 @@
 # Upstream tracking
 
+Signal-safety reference check, 2026-10-23 (D74): inspected the pinned `e71abfb3` native admission code and the [public upstream vehicle-head implementation](https://github.com/OpenLoco/OpenLoco/blob/master/src/OpenLoco/src/Vehicles/VehicleHead.cpp). Ordinary signal admission continues to use native block occupancy; standalone Chain layers exit lookahead onto that block rule. This is a local safety follow-up, not an upstream merge or baseline change. Read existing save/object tracking below before further format work.
+
 Release documentation check, 2026-10-15 (D69): reread the [public upstream repository/README](https://github.com/OpenLoco/OpenLoco). It describes the open-source Locomotion engine, original-asset requirement, completed C++ reimplementation and multiplayer/increased-limits goals. Modded.3 credits that engine and compares fork additions against pinned 26.09 baseline `e71abfb3`; no claim of all current upstream changes or fresh code/API audit is made. No upstream merge is part of this release. The detailed code audit below remains dated 2026-10-10.
 
 Checked 2026-10-10 against local commit `e71abfb3` and public OpenLoco sources.

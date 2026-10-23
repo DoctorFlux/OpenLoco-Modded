@@ -456,7 +456,11 @@ namespace OpenLoco::S5
         {
             Lines::saveCompanion(path);
             Signals::prepareForSave();
-            Signals::saveCompanion(path);
+            if (!Signals::saveCompanion(path))
+            {
+                Logging::error("Unable to write signal companion {}", Signals::companionPath(path).string());
+                return false;
+            }
             if (!Rules::saveCompanion(path))
             {
                 Logging::error("Unable to write rules companion for {}", path.string());
@@ -735,7 +739,10 @@ namespace OpenLoco::S5
         if (loaded)
         {
             Lines::loadCompanion(path);
-            Signals::loadCompanion(path);
+            if (!Signals::loadCompanion(path))
+            {
+                Logging::warn("Signal companion {} is invalid or mismatched; saved priorities and paths were not attached", Signals::companionPath(path).string());
+            }
             if (!Rules::loadCompanion(path))
             {
                 Logging::warn("Rules companion {} is invalid or does not match this save; orders remain unchanged", Rules::companionPath(path).string());

@@ -10,6 +10,7 @@
 #include "Objects/RoadObject.h"
 #include "Objects/TrackObject.h"
 #include "Random.h"
+#include "Signals/PathSignals.h"
 #include "Vehicles/RoutingManager.h"
 #include "Vehicles/Vehicle2.h"
 #include "Vehicles/VehicleBogie.h"
@@ -154,6 +155,11 @@ namespace OpenLoco::Vehicles
     bool Vehicle1::updateRail()
     {
         Vehicle train{ head };
+        if (Signals::isStationDepartureWaiting(enumValue(head)))
+        {
+            targetSpeed = 0_mph;
+            return true;
+        }
         uint16_t curveSpeedFraction = std::numeric_limits<uint16_t>::max();
         Speed16 newTargetSpeed = kSpeed16Max;
         bool isOnRackRail = false;

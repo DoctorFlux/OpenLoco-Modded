@@ -1169,6 +1169,41 @@ namespace OpenLoco::Rules
             return result;
         });
     }
+    RoutePreview previewVehicleRoute(uint16_t vehicle)
+    {
+        const auto owner = ownerForVehicle(vehicle);
+        const auto* p = find(owner);
+        const auto* head = EntityManager::get<Vehicles::VehicleHead>(static_cast<EntityId>(vehicle));
+        if (!p || p->blocks.empty() || !head || p->rows.empty())
+        {
+            return {};
+        }
+        Runtime runtime;
+        Key committed = 0;
+        if (const auto it = vehicles.find(vehicle); it != vehicles.end() && it->second.owner == owner && it->second.runtime.revision == p->revision && it->second.hasOrder)
+        {
+            runtime = it->second.runtime;
+            const auto row = indexOf(*p, runtime.current);
+            committed = it->second.ready && row < p->rows.size() && isRoutable(p->rows[row].raw) ? runtime.current : routeOrderForVehicle(vehicle);
+        }
+        else
+        {
+            const auto row = rowAtOffset(*p, head->currentOrder);
+            runtime.revision = p->revision - 1;
+            runtime.current = p->rows[row < p->rows.size() ? row : 0].key;
+        }
+        std::vector<std::pair<Condition, CheckResult>> facts;
+        return previewRoute(*p, std::move(runtime), committed, ScenarioManager::getScenarioTicks(), [&](const Condition& check) {
+            const auto found = std::find_if(facts.begin(), facts.end(), [&](const auto& fact) { return fact.first == check; });
+            if (found != facts.end())
+            {
+                return found->second;
+            }
+            auto result = evaluate(*p, head, check);
+            facts.emplace_back(check, result);
+            return result;
+        });
+    }
     std::string vehicleStatus(uint16_t vehicle)
     {
         const auto* program = find(ownerForVehicle(vehicle));

@@ -4482,7 +4482,7 @@ TEST(RulesTests, compactNativeFieldsUseMeasuredMediumFontGeometry)
     const auto closing = std::find_if(l.items.begin(), l.items.end(), [](const auto& v) { return v.closing; });
     ASSERT_NE(closing, l.items.end());
     EXPECT_EQ(closing->height, 8);
-    EXPECT_EQ(programDrop(p, l, closing->top + 4).into, p.blocks.front().id);
+    EXPECT_EQ(programDrop(p, l, closing->top + 3).into, p.blocks.front().id);
 }
 TEST(RulesTests, compactIfElseRouteFitsWithoutTinyConditionText)
 {
@@ -5432,4 +5432,251 @@ TEST_F(GameRulesFixture, pendingConditionalCycleSurvivesSaveAndKeepsReachedOrder
     EXPECT_TRUE(prepareVehicle(id));
     EXPECT_EQ(routeOrderForVehicle(id), p.rows[1].key);
     std::filesystem::remove(companionPath(path));
+}
+
+TEST(RulesTests, exteriorDropEdgesSelectRootOrEnclosingBlock)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    const auto layout = programLayout(p, 300);
+    for (const auto& v : layout.items)
+    {
+        if (!v.block)
+        {
+            continue;
+        }
+        const auto outside = programDrop(p, layout, v.top + (v.closing ? 7 : 0));
+        EXPECT_TRUE(outside.outside);
+        EXPECT_EQ(outside.into, v.depth ? p.blocks[0].id : 0);
+        const auto inside = programDrop(p, layout, v.top + 3);
+        EXPECT_FALSE(inside.outside);
+        EXPECT_EQ(inside.into, v.block);
+    }
+}
+TEST(RulesTests, adjacentExteriorDropsShrinkEitherEndWithoutReordering)
+{
+    for (auto kind : { Kind::ifBlock, Kind::repeat, Kind::group })
+    {
+        for (const bool first : { false, true })
+        {
+            auto p = route();
+            ASSERT_TRUE(add(p, section(p, kind, 1, 3)));
+            const auto before = p;
+            Edit e;
+            e.kind = EditKind::moveRows;
+            e.first = e.last = first ? 1 : 3;
+            e.destination = first ? 1 : 4;
+            e.detach = true;
+            ASSERT_TRUE(edit(p, e));
+            EXPECT_EQ(p.rows, before.rows);
+            EXPECT_EQ(p.blocks[0].first, before.rows[first ? 2 : 1].key);
+            EXPECT_EQ(p.blocks[0].last, before.rows[first ? 3 : 2].key);
+            EXPECT_GT(p.revision, before.revision);
+        }
+    }
+}
+TEST(RulesTests, extractingLastOrderRemovesEmptyBranchAndDependentBlocks)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 1)));
+    auto skip = section(p, Kind::skip, 1, 1);
+    skip.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, skip));
+    auto otherwise = section(p, Kind::otherwise, 2, 2);
+    otherwise.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, otherwise));
+    const auto rows = p.rows;
+    Edit e;
+    e.kind = EditKind::moveRows;
+    e.first = e.last = e.destination = 1;
+    e.detach = true;
+    ASSERT_TRUE(edit(p, e));
+    EXPECT_TRUE(p.blocks.empty());
+    EXPECT_EQ(p.rows, rows);
+}
+TEST(RulesTests, nestedExteriorDropRetainsEqualSpanParentOnly)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 1, 1)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 1)));
+    const auto before = p;
+    EditorSession session;
+    session.bind({ OwnerKind::vehicle, 1 }, p);
+    session.startDrag(EditorDrag::row, 1, 1);
+    const auto close = std::find_if(session.layout().items.begin(), session.layout().items.end(), [&](const auto& v) { return v.closing && v.block == p.blocks[1].id; });
+    ASSERT_NE(close, session.layout().items.end());
+    const auto command = session.dropProposal(close->top + 7);
+    ASSERT_TRUE(command);
+    EXPECT_TRUE(command->detach);
+    EXPECT_EQ(command->into, p.blocks[0].id);
+    ASSERT_TRUE(edit(p, *command));
+    ASSERT_EQ(p.blocks.size(), 1U);
+    EXPECT_EQ(p.blocks[0].id, before.blocks[0].id);
+    EXPECT_EQ(p.rows, before.rows);
+}
+TEST(RulesTests, exteriorSelectionKeepsStableReferencesAndRemainingOrders)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 0, 3)));
+    auto jump = section(p, Kind::goTo, 4, 4);
+    jump.target = p.rows[2].key;
+    ASSERT_TRUE(add(p, jump));
+    const auto before = p;
+    Edit e;
+    e.kind = EditKind::moveRows;
+    e.first = 1;
+    e.last = 2;
+    e.destination = p.rows.size();
+    e.detach = true;
+    ASSERT_TRUE(edit(p, e));
+    EXPECT_EQ(p.rows[3].key, before.rows[1].key);
+    EXPECT_EQ(p.rows[4].key, before.rows[2].key);
+    EXPECT_EQ(p.blocks[0].first, before.rows[0].key);
+    EXPECT_EQ(p.blocks[0].last, before.rows[3].key);
+    EXPECT_EQ(p.blocks[1].target, before.rows[2].key);
+    EXPECT_TRUE(p.blocks[1].enabled);
+}
+TEST(RulesTests, exteriorHeaderDropKeepsItsWholeNestedSection)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 0, 3)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    ASSERT_TRUE(add(p, section(p, Kind::repeat, 1, 1)));
+    const auto before = p;
+    Edit e;
+    e.kind = EditKind::moveRows;
+    e.first = 1;
+    e.last = 2;
+    e.destination = 4;
+    e.detach = true;
+    e.block.id = p.blocks[1].id;
+    ASSERT_TRUE(edit(p, e));
+    EXPECT_EQ(p.blocks[0].last, before.rows[3].key);
+    EXPECT_EQ(p.rows[2].key, before.rows[1].key);
+    EXPECT_EQ(p.rows[3].key, before.rows[2].key);
+    EXPECT_EQ(p.blocks[1].first, before.blocks[1].first);
+    EXPECT_EQ(p.blocks[1].last, before.blocks[1].last);
+    EXPECT_EQ(p.blocks[2].first, before.blocks[2].first);
+}
+TEST(RulesTests, impossibleExteriorPlacementRejectsAtomically)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 1, 3)));
+    const auto before = p;
+    Edit e;
+    e.kind = EditKind::moveRows;
+    e.first = e.last = 0;
+    e.destination = 2; // A root drop cannot be placed between remaining interior rows.
+    e.detach = true;
+    EXPECT_FALSE(edit(p, e));
+    EXPECT_EQ(p, before);
+    e.destination = p.rows.size() + 1;
+    EXPECT_FALSE(edit(p, e));
+    EXPECT_EQ(p, before);
+}
+TEST_F(GameRulesFixture, captionOutsideDropsExtractStopsAndWaypointsOnPrivateAndSharedRoutes)
+{
+    using namespace OpenLoco;
+    for (const bool shared : { false, true })
+    {
+        for (const bool waypoint : { false, true })
+        {
+            auto* head = vehicle();
+            const auto id = enumValue(head->id);
+            if (waypoint)
+            {
+                Vehicles::OrderRouteWaypoint order({ 16, 20 }, 0, 0, 0);
+                Vehicles::OrderManager::insertOrder(head, head->sizeOfOrderTable - 1, &order);
+            }
+            if (shared)
+            {
+                const auto line = Lines::createLine("Outside drag", TransportMode::rail, 2);
+                ASSERT_TRUE(line.ok);
+                const auto privateOrders = snapshot(ownerForVehicle(id)).rows;
+                for (const auto& row : privateOrders)
+                {
+                    const auto decoded = Lines::fromVehicleOrder(*reinterpret_cast<const Vehicles::Order*>(&row.raw));
+                    ASSERT_TRUE(Lines::addOrder(line.id, decoded).ok);
+                }
+                ASSERT_TRUE(Lines::assignVehicle(line.id, id, TransportMode::rail).ok);
+            }
+            const auto owner = ownerForVehicle(id);
+            auto p = snapshot(owner);
+            const auto row = waypoint ? p.rows.size() - 1 : 0;
+            Edit e;
+            e.block = section(p, Kind::ifBlock, waypoint ? 1 : 0, waypoint ? row : 1);
+            ASSERT_TRUE(submit(owner, e));
+            auto* window = inlineTestHost(owner, id, shared);
+            ASSERT_NE(window, nullptr);
+            CloseInlineHost close{ window };
+            auto& session = editorSession(*window);
+            session.toggle(*window, { 1024, 768 });
+            const auto before = snapshot(owner);
+            const auto scroll = shared ? 1 : 0;
+            const auto& canvas = window->widgets[shared ? 1 : 0];
+            const auto closing = std::find_if(session.layout().items.begin(), session.layout().items.end(), [](const auto& v) { return v.closing; });
+            ASSERT_NE(closing, session.layout().items.end());
+            const auto y = closing->top + 7;
+            ASSERT_TRUE(session.mouseDown(*window, 90, session.layout().orderTops[row] + 3, scroll));
+            ASSERT_TRUE(session.mouseDrag(*window, 90, y, scroll));
+            const auto proposal = session.dropProposal(y);
+            ASSERT_TRUE(proposal);
+            EXPECT_TRUE(proposal->detach);
+            EXPECT_EQ(proposal->into, 0U);
+            ASSERT_TRUE(session.mouseRelease(*window, window->x + canvas.left + 91, window->y + canvas.top + 1 + y, scroll));
+            const auto after = snapshot(owner);
+            ASSERT_EQ(after.blocks.size(), 1U);
+            EXPECT_NE(after.blocks[0].last, before.rows[row].key);
+            EXPECT_NE(after.blocks[0].first, before.rows[row].key);
+            EXPECT_EQ(after.rows.size(), before.rows.size());
+            EXPECT_TRUE(validate(after));
+            EXPECT_EQ(after.rows[indexOf(after, before.rows[row].key)].raw, before.rows[row].raw);
+        }
+    }
+}
+
+TEST(RulesTests, exteriorInnerHeaderDoesNotCarryItsEqualSpanParent)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::group, 1, 2)));
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    ASSERT_TRUE(add(p, section(p, Kind::repeat, 2, 2)));
+    const auto before = p;
+    Edit e;
+    e.kind = EditKind::moveRows;
+    e.first = 1;
+    e.last = 2;
+    e.destination = 3;
+    e.detach = true;
+    e.block.id = p.blocks[1].id;
+    ASSERT_TRUE(edit(p, e));
+    EXPECT_EQ(p.rows, before.rows);
+    ASSERT_EQ(p.blocks.size(), 2U);
+    EXPECT_EQ(p.blocks[0].id, before.blocks[1].id);
+    EXPECT_EQ(p.blocks[1].id, before.blocks[2].id);
+    EXPECT_EQ(p.blocks[1].first, before.rows[2].key);
+    const auto updated = p;
+    e.block.id = 99999;
+    EXPECT_FALSE(edit(p, e));
+    EXPECT_EQ(p, updated);
+}
+
+TEST(RulesTests, exteriorActionDropCannotDeleteItsRequiredBranch)
+{
+    auto p = route();
+    ASSERT_TRUE(add(p, section(p, Kind::ifBlock, 1, 2)));
+    auto skip = section(p, Kind::skip, 1, 2);
+    skip.parent = p.blocks[0].id;
+    ASSERT_TRUE(add(p, skip));
+    const auto before = p;
+    Edit e;
+    e.kind = EditKind::moveRows;
+    e.first = 1;
+    e.last = 2;
+    e.destination = 3;
+    e.detach = true;
+    e.block.id = p.blocks[1].id;
+    EXPECT_FALSE(edit(p, e));
+    EXPECT_EQ(p, before);
 }

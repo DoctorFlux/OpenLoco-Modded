@@ -1,5 +1,28 @@
 # UI and UX
 
+D77 uses the native secondary window text colour for the compact signal key, matching its checkbox/placement controls. The four arrow samples and 156x286 layout remain as D76.
+
+The inline Rules canvas now distinguishes inside (upper half) and outside (lower half) on each closing arm; the top two pixels of a header insert before the block. Nested outside drops use the parent cavity. Highlighted lines/hover text explain the positions. Ordinary root rows and space after the list accept exterior moves. Row selection extracts orders; header dragging preserves whole sections. Adjacent membership-only moves are validated commands. No new window, tool, save state or unrelated control is added. Manual appearance/drop acceptance remains user-only.
+
+D76 supersedes D75's two-way/one-way colour table. Each facing arrow uses its signal type's colour regardless of one-way/two-way placement. The native construction tab is **156x286** (52 pixels shorter): existing controls end at y=210, the two-row grid and heading occupy y=218-251, the small note is y=254, and cost begins below the y=265 separator. Duplicate directional columns are removed.
+
+| Arrow type | Colour, either direction |
+| --- | --- |
+| Block | Grey |
+| Path | Yellow |
+| Chain | Dark blue |
+| Path+Chain | Orange |
+
+The map and legend share `Signals::signalArrowColour`. Arrow orientation retains facing direction; the colour identifies the type. Native signal red/proceed aspects retain D75's clearance behaviour. The key uses native palette pixels, fonts and clipped labels; no drawing-time simulation changes or extra window. The English Chain tooltip still explains native block occupancy and usable exits. Visual acceptance remains user-controlled.
+
+D74 adds no UI controls. Standalone Chain remains block-based with exit lookahead; Path+Chain retains path selection and chain lookahead. Conflicting entrants remain at red once another train commits the section, including parallel merges. Wait age and cached tie choices survive matching save/reload; no redraw or dropdown consumes random priority. Ordinary signal admission remains native, with the shared physical guard as final protection.
+
+D73 adds no controls or windows. The existing Local/Express route buttons select reservation class. Losing/displaced requests use existing red signal feedback and ordinary safe braking; map/UI queries never draw random priorities. Normal route orders, compact Rules editing and cargo summaries keep their layouts.
+
+
+D72 station safety adds no window, button or setting. Existing native signal aspects and the blocked-route red override use the same route search as movement. Platform departures can wait without a departure post; existing cargo/timetable/rule controls remain. A successful reservation clears that train's wait and approach-red markers.
+
+
 D71: drag ordinary stop/waypoint captions to move them into blocks; Shift-drag selects a consecutive range. Row halves and thin interior append strips show validated insertion boundaries, with nested membership explicit. The native palette adds Jump if, editable through the same check/comparison/value/target sockets and Details controls in both hosts. Conditions include load %, age in years, reliability %, max mph and Always. Numeric sockets add !=/<=/>=; boolean sockets expose true/false. Native captions, number circles, progress and branch colors remain. No new window/tab or map tool is introduced; verification and user-only appearance acceptance are in development status.
 
 The accepted CargoDist UI is integrated into master through `eea93c8d` (D68): normal orders/shared lines/optional Rules, compact expandable station/vehicle destination summaries, Automatic/Classic in Options Misc and no automatic-origin wording. The D62/D63 standalone windows and congestion overlays remain superseded by D65/D67. No new layout or controls are added during integration; historical CargoDist TESTING gates are superseded.

@@ -143,32 +143,13 @@ namespace OpenLoco::Paint
         }
     }
 
-    static Colour markerColour(const Signals::SignalKind kind, const bool bothDirections)
-    {
-        const bool path = Signals::isPathSignal(kind);
-        const bool chain = Signals::isChainSignal(kind);
-        if (path && chain)
-        {
-            return bothDirections ? Colour::green : Colour::orange;
-        }
-        if (path)
-        {
-            return bothDirections ? Colour::white : Colour::yellow;
-        }
-        if (chain)
-        {
-            return bothDirections ? Colour::blue : Colour::darkBlue;
-        }
-        return bothDirections ? Colour::mutedAvocadoGreen : Colour::grey;
-    }
-
     static void paintSignalSide(PaintSession& session, const World::SignalElement::Side& side, const bool isRight, const bool isGhost, const uint8_t trackId, const uint8_t rotation, const coord_t height, const Signals::SignalKind kind, const bool bothDirections, const Signals::SignalKind otherKind, const bool waiting)
     {
         const bool showArrows = (session.getViewFlags() & Ui::ViewportFlags::one_way_direction_arrows) != Ui::ViewportFlags::none && session.getZoom() <= ZoomLevel::full;
         if (side.hasSignal() && showArrows)
         {
             session.setItemType(InteractionItem::noInteraction);
-            const auto markerId = ImageId{ getOneWayArrowImage(isRight, trackId, rotation), markerColour(kind, bothDirections) };
+            const auto markerId = ImageId{ getOneWayArrowImage(isRight, trackId, rotation), Signals::signalArrowColour(kind, bothDirections) };
             const World::Pos3 markerOffset(0, 0, height + getTrackDecorationHeightOffset(!isRight, trackId) + 2);
             const World::Pos3 markerBbOffset(15, 15, markerOffset.z + 16);
             const World::Pos3 markerBbSize(1, 1, 0);
@@ -184,7 +165,7 @@ namespace OpenLoco::Paint
             const auto& offsetAndBBoffsetArr = signalObj->hasFlags(TrainSignalObjectFlags::isLeft) ? _4FE870 : _4FE830;
             const auto& offsetAndBBoffset = offsetAndBBoffsetArr[trackRotation];
             const auto imageRotationOffset = ((trackRotation & 0x3) << 1) | (trackRotation >= 12 ? 1 : 0);
-            const auto frame = Signals::postFrameForDisplay(kind, waiting && !isGhost, side.frame(), signalObj->numFrames);
+            const auto frame = Signals::postFrameForDisplay(kind, waiting && !isGhost, side.frame(), signalObj->numFrames, side.isOccupied() && !isGhost);
             const auto imageOffset = imageRotationOffset + signalObj->image + (frame << 3);
 
             ImageId imageId{ imageOffset };
@@ -232,7 +213,7 @@ namespace OpenLoco::Paint
             if (showArrows)
             {
                 session.setItemType(InteractionItem::noInteraction);
-                const auto imageId = ImageId{ getOneWayArrowImage(!isRight, trackId, rotation), markerColour(otherKind, false) };
+                const auto imageId = ImageId{ getOneWayArrowImage(!isRight, trackId, rotation), Signals::signalArrowColour(otherKind, false) };
                 const World::Pos3 offset(0, 0, height + getTrackDecorationHeightOffset(!isRight, trackId) + 2);
                 const World::Pos3 bbOffset(15, 15, offset.z + 16);
                 const World::Pos3 bbSize(1, 1, 0);

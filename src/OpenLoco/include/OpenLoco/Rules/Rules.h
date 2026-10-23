@@ -147,7 +147,8 @@ namespace OpenLoco::Rules
         size_t last = 0;
         size_t destination = 0; // insertion boundary in the original list
         uint64_t raw = 0;
-        Key into = 0; // Explicit destination bracket for a row insertion/move; not persisted.
+        Key into = 0;        // Explicit destination bracket for a row insertion/move; not persisted.
+        bool detach = false; // Exterior drop: remove moved orders from their old brackets; not persisted.
     };
     Result validate(const Program& program);
     Result edit(Program& program, const Edit& command); // validate a copy, then atomically commit
@@ -226,6 +227,8 @@ namespace OpenLoco::Rules
     // Whole-line diagrams evaluate from the beginning with fresh control state.
     // The vehicle supplies facts only; its committed destination/branch stays separate.
     RoutePreview previewLineRoute(uint16_t line, uint16_t vehicle = UINT16_MAX, RoutePreviewMode mode = RoutePreviewMode::vehicleProgress);
+    // Read-only projection from this vehicle's actual private/shared execution.
+    RoutePreview previewVehicleRoute(uint16_t vehicle);
     void markArrived(const Program& program, Runtime& runtime, Key order);
     bool requiresArrivalStop(const Program& program, const Runtime& runtime);
     Key executingBlock(const Program& program, const Runtime& runtime);

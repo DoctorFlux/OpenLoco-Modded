@@ -475,7 +475,7 @@ namespace OpenLoco::Rules
         const auto* hit = programHit(layout, y);
         if (!hit)
         {
-            return { programRowAt(layout, y), 0 };
+            return { programRowAt(layout, y), 0, true };
         }
         if (hit->block)
         {
@@ -484,7 +484,27 @@ namespace OpenLoco::Rules
             {
                 return { hit->row, block->parent };
             }
-            return { hit->row + (hit->closing ? 1 : 0), hit->block };
+            const bool outside = hit->closing ? y >= hit->top + hit->height / 2 : y < hit->top + 2;
+            Key into = hit->block;
+            if (outside)
+            {
+                into = 0;
+                uint8_t depth = 0;
+                for (const auto& outer : layout.items)
+                {
+                    if (outer.block && !outer.closing && outer.depth < hit->depth && outer.depth >= depth
+                        && outer.top < hit->top && hit->top < outer.bottom)
+                    {
+                        const auto candidate = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == outer.block; });
+                        if (candidate != program.blocks.end() && bracket(*candidate))
+                        {
+                            into = outer.block;
+                            depth = outer.depth;
+                        }
+                    }
+                }
+            }
+            return { hit->row + (hit->closing ? 1 : 0), into, outside };
         }
         Key into = 0;
         size_t smallest = program.rows.size() + 1;
@@ -497,7 +517,7 @@ namespace OpenLoco::Rules
                 smallest = z - a;
             }
         }
-        return { hit->row + (y >= hit->top + hit->height / 2 ? 1 : 0), into };
+        return { hit->row + (y >= hit->top + hit->height / 2 ? 1 : 0), into, into == 0 };
     }
     std::optional<Edit> blockDrop(const Program& program, Kind kind, size_t first, size_t last, Key hovered, bool conditionalJump)
     {

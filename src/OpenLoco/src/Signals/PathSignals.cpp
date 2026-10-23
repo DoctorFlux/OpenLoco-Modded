@@ -1,16 +1,27 @@
 #include "Signals/PathSignals.h"
 
+#include "Graphics/Colour.h"
 #include "Map/QuarterTile.h"
 #include "Map/Tile.h"
 #include "Map/Track/Track.h"
 #include "Map/Track/TrackData.h"
 #include <OpenLoco/Math/Vector.hpp>
 #include <algorithm>
+#include <array>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <set>
 #include <string>
 #include <system_error>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 namespace OpenLoco::Signals
 {
@@ -36,7 +47,11 @@ namespace OpenLoco::Signals
         struct TrainState
         {
             std::deque<ReservedStep> pending;
+            // The whole section becomes non-yieldable when planning commits
+            // its entrance. Keep protection even when execution is replanned.
+            std::set<PieceKey> committed;
             bool pathMode = false;
+            bool departureWaiting = false; // Saved with priority; revalidated before movement.
         };
 
         constexpr uint8_t kTrackIdCount = 44;
@@ -166,7 +181,7 @@ namespace OpenLoco::Signals
             }
         }
 
-        bool isFreeFor(const PieceKey& piece, uint16_t owner, bool protectedOnly)
+        bool isFreeFor(const PieceKey& piece, uint16_t owner, bool protectedOnly, bool ignorePending = false)
         {
             std::vector<PieceKey> candidates;
             for (const auto& tile : tilesOf(piece))
@@ -208,6 +223,10 @@ namespace OpenLoco::Signals
                     eraseHold(candidate);
                     continue;
                 }
+                if (ignorePending && hold.kind == HoldKind::path && !isCommittedRoutePiece(hold.owner, candidate))
+                {
+                    continue;
+                }
                 return false;
             }
             return true;
@@ -225,7 +244,7 @@ namespace OpenLoco::Signals
             {
                 const auto piece = canonicalPiece(step.pos, step.connection);
                 const auto hold = _holds.find(piece);
-                if (hold != _holds.end() && hold->second.owner == owner && hold->second.kind == HoldKind::path)
+                if (hold != _holds.end() && hold->second.owner == owner && hold->second.kind == HoldKind::path && !found->second.committed.contains(piece))
                 {
                     eraseHold(piece);
                 }
@@ -404,15 +423,33 @@ namespace OpenLoco::Signals
         return std::min<uint8_t>(3, stateCount - 1);
     }
 
-    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount)
+    uint8_t postFrameForDisplay(SignalKind kind, bool waiting, uint8_t vanillaFrame, uint8_t frameCount, bool blockOccupied)
     {
-        if (kind == SignalKind::none || !waiting || frameCount == 0)
+        const bool blocked = (kind != SignalKind::none && waiting) || (!isPathSignal(kind) && blockOccupied);
+        if (!blocked || frameCount == 0)
         {
             return vanillaFrame;
         }
         // Native posts start at danger. In particular SIGC3 frame 3 is yellow;
         // its red frame is 0, as for the other native signal families.
         return 0;
+    }
+
+    Colour signalArrowColour(SignalKind kind, bool /*bothDirections*/)
+    {
+        if (isPathSignal(kind) && isChainSignal(kind))
+        {
+            return Colour::orange;
+        }
+        if (isPathSignal(kind))
+        {
+            return Colour::yellow;
+        }
+        if (isChainSignal(kind))
+        {
+            return Colour::darkBlue;
+        }
+        return Colour::grey;
     }
 
     std::map<SideKey, SignalClaim> buildSignalClaims(const std::vector<std::pair<uint16_t, std::vector<SideKey>>>& routes)
@@ -448,6 +485,57 @@ namespace OpenLoco::Signals
         return isFreeFor(piece, owner, false);
     }
 
+    bool hasCommittedRoutes()
+    {
+        return std::any_of(_trains.begin(), _trains.end(), [](const auto& entry) { return !entry.second.committed.empty(); });
+    }
+
+    bool isCommittedRoutePiece(uint16_t owner, const PieceKey& piece)
+    {
+        const auto found = _trains.find(owner);
+        return found != _trains.end() && found->second.committed.contains(piece);
+    }
+
+    bool canHoldIgnoringPending(const PieceKey& piece, uint16_t owner)
+    {
+        return isFreeFor(piece, owner, false, true);
+    }
+
+    std::vector<uint16_t> conflictingPendingOwners(uint16_t owner, const std::vector<ReservedStep>& steps)
+    {
+        std::set<uint16_t> owners;
+        for (const auto& step : steps)
+        {
+            const auto piece = canonicalPiece(step.pos, step.connection);
+            if (piece.trackId >= kTrackIdCount)
+            {
+                continue;
+            }
+            for (const auto& tile : tilesOf(piece))
+            {
+                const auto found = _tiles.find(tileKey(tile.x, tile.y));
+                if (found == _tiles.end())
+                {
+                    continue;
+                }
+                for (const auto& ref : found->second)
+                {
+                    if (ref.piece != piece && !overlaps(tile, ref))
+                    {
+                        continue;
+                    }
+                    const auto held = _holds.find(ref.piece);
+                    if (held != _holds.end() && held->second.owner != owner && held->second.kind == HoldKind::path
+                        && (!_validator || _validator(ref.piece, held->second)))
+                    {
+                        owners.insert(held->second.owner);
+                    }
+                }
+            }
+        }
+        return { owners.begin(), owners.end() };
+    }
+
     bool isHeldByProtectedOther(const PieceKey& piece, uint16_t owner)
     {
         if (_holds.empty())
@@ -477,11 +565,19 @@ namespace OpenLoco::Signals
             return;
         }
         eraseHold(piece);
+        if (auto state = _trains.find(owner); state != _trains.end())
+        {
+            state->second.committed.erase(piece);
+        }
         refreshViewedReservation();
     }
 
     void releaseAllHolds(uint16_t owner)
     {
+        if (auto state = _trains.find(owner); state != _trains.end())
+        {
+            state->second.committed.clear();
+        }
         std::vector<PieceKey> owned;
         for (const auto& [piece, hold] : _holds)
         {
@@ -502,6 +598,10 @@ namespace OpenLoco::Signals
 
     void releaseHoldsAt(const PieceKey& piece)
     {
+        for (auto& [owner, state] : _trains)
+        {
+            state.committed.erase(piece);
+        }
         eraseHold(piece);
         refreshViewedReservation();
     }
@@ -534,6 +634,8 @@ namespace OpenLoco::Signals
 
     bool reservePath(uint16_t owner, const std::vector<ReservedStep>& steps)
     {
+        // The old reservation remains intact throughout validation. There is
+        // no simulation callback or failure path after the complete preflight.
         for (const auto& step : steps)
         {
             if (((step.connection >> 3) & 0x3F) >= kTrackIdCount)
@@ -545,7 +647,27 @@ namespace OpenLoco::Signals
                 return false;
             }
         }
+        // All replacement pieces passed preflight. Occupied holds are retained
+        // by dropPendingInternal; only unused pending claims are replaced.
+        dropPendingInternal(owner);
         auto& state = _trains[owner];
+        const bool committed = !state.committed.empty();
+        // A complete safe replacement is ready. Only now release the old
+        // unused suffix; occupied/ring protection survives the replacement.
+        std::vector<PieceKey> replaced;
+        for (const auto& piece : state.committed)
+        {
+            const auto held = _holds.find(piece);
+            if (held != _holds.end() && held->second.owner == owner && held->second.kind == HoldKind::path)
+            {
+                replaced.push_back(piece);
+            }
+        }
+        for (const auto& piece : replaced)
+        {
+            eraseHold(piece);
+            state.committed.erase(piece);
+        }
         for (const auto& step : steps)
         {
             const auto piece = canonicalPiece(step.pos, step.connection);
@@ -558,8 +680,13 @@ namespace OpenLoco::Signals
             else
             {
                 found->second.side = facing.side;
+                found->second.isProtected = true;
             }
             state.pending.push_back(step);
+            if (committed)
+            {
+                state.committed.insert(piece);
+            }
         }
         state.pathMode = true;
         refreshViewedReservation();
@@ -581,6 +708,19 @@ namespace OpenLoco::Signals
         return &found->second.pending;
     }
 
+    void commitPendingSection(uint16_t owner)
+    {
+        const auto found = _trains.find(owner);
+        if (found == _trains.end())
+        {
+            return;
+        }
+        for (const auto& step : found->second.pending)
+        {
+            found->second.committed.insert(canonicalPiece(step.pos, step.connection));
+        }
+    }
+
     bool consumePendingFront(uint16_t owner, const World::Pos3& entrance, uint16_t connection)
     {
         const auto found = _trains.find(owner);
@@ -593,6 +733,7 @@ namespace OpenLoco::Signals
         {
             return false;
         }
+        commitPendingSection(owner);
         found->second.pending.pop_front();
         const auto piece = canonicalPiece(entrance, connection);
         const auto facing = facingSide(entrance, connection);
@@ -625,8 +766,27 @@ namespace OpenLoco::Signals
         _trains[owner].pathMode = true;
     }
 
+    bool isStationDepartureWaiting(uint16_t owner)
+    {
+        const auto found = _trains.find(owner);
+        return found != _trains.end() && found->second.departureWaiting;
+    }
+
+    void setStationDepartureWaiting(uint16_t owner, bool waiting)
+    {
+        if (waiting)
+        {
+            _trains[owner].departureWaiting = true;
+        }
+        else if (const auto found = _trains.find(owner); found != _trains.end())
+        {
+            found->second.departureWaiting = false;
+        }
+    }
+
     void forgetTrain(uint16_t owner)
     {
+        clearTrainPriority(owner);
         dropPendingInternal(owner);
         releaseAllHolds(owner);
         _trains.erase(owner);
@@ -904,6 +1064,7 @@ namespace OpenLoco::Signals
 
     void clearAll()
     {
+        clearReservationPriorities();
         _viewedOwner = kNoReservationView;
         if (_viewDirty != nullptr)
         {
@@ -947,114 +1108,221 @@ namespace OpenLoco::Signals
         _lightRepairPending = false;
     }
 
+    namespace
+    {
+        std::optional<uint64_t> saveFingerprint(const std::filesystem::path& path)
+        {
+            std::error_code error;
+            if (!std::filesystem::exists(path, error) && !error)
+            {
+                return uint64_t{ 0 }; // Model-only callers have no SV5.
+            }
+            std::ifstream input(path, std::ios::binary);
+            if (!input)
+            {
+                return std::nullopt;
+            }
+            uint64_t hash = 14695981039346656037ULL;
+            std::array<char, 65536> buffer;
+            while (input)
+            {
+                input.read(buffer.data(), buffer.size());
+                for (std::streamsize i = 0; i < input.gcount(); ++i)
+                {
+                    hash ^= static_cast<uint8_t>(buffer[i]);
+                    hash *= 1099511628211ULL;
+                }
+            }
+            return input.bad() ? std::nullopt : std::optional{ hash };
+        }
+
+        struct SavedTrain
+        {
+            uint16_t owner;
+            uint64_t identity;
+            bool pathMode;
+            std::vector<ReservedStep> pending;
+            std::vector<std::pair<PieceKey, uint8_t>> committed;
+        };
+    }
+
     bool saveCompanion(const std::filesystem::path& savePath)
     {
         const auto path = companionPath(savePath);
-        size_t trainCount = 0;
+        const auto priorities = capturePriorities();
+        std::error_code fileError;
+        const bool nativeSave = std::filesystem::exists(savePath, fileError);
+        if (fileError)
+        {
+            return false;
+        }
+        std::map<uint16_t, uint64_t> identities;
         for (const auto& [owner, state] : _trains)
         {
-            if (state.pathMode || !state.pending.empty())
+            if (!state.pathMode && state.pending.empty() && state.committed.empty())
             {
-                trainCount++;
+                continue;
             }
+            const auto identity = trainPriorityIdentity(owner);
+            // Picked-up/deleted owners have no placed route to restore. Model
+            // tests without a native save may use synthetic reservation owners.
+            if (nativeSave && !identity)
+            {
+                continue;
+            }
+            identities.emplace(owner, identity.value_or(0));
         }
-        if (_kinds.empty() && trainCount == 0)
+        const auto trainCount = identities.size();
+        if (_kinds.empty() && trainCount == 0 && priorities.empty())
         {
-            std::error_code ec;
-            std::filesystem::remove(path, ec);
-            return true;
+            std::error_code error;
+            std::filesystem::remove(path, error);
+            return !error;
         }
-
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+        const auto fingerprint = saveFingerprint(savePath);
+        if (!fingerprint)
+        {
+            return false;
+        }
+        auto temporary = path;
+        temporary += ".tmp";
+        std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
         if (!stream)
         {
             return false;
         }
-        stream << "OSIGNALS 3\n";
-        stream << "KINDS " << _kinds.size() << "\n";
+        stream << "OSIGNALS 4\nSAVE " << priorityTick() << ' ' << *fingerprint << "\nKINDS " << _kinds.size() << '\n';
         for (const auto& [side, kind] : _kinds)
         {
-            stream << side.piece.x << ' ' << side.piece.y << ' ' << side.piece.z << ' ' << static_cast<int>(side.piece.rotation) << ' '
-                   << static_cast<int>(side.piece.trackId) << ' ' << static_cast<int>(side.side) << ' ' << static_cast<int>(kind) << "\n";
+            stream << side.piece.x << ' ' << side.piece.y << ' ' << side.piece.z << ' ' << int(side.piece.rotation) << ' ' << int(side.piece.trackId) << ' ' << int(side.side) << ' ' << int(kind) << '\n';
         }
-        stream << "TRAINS " << trainCount << "\n";
+        stream << "TRAINS " << trainCount << '\n';
         for (const auto& [owner, state] : _trains)
         {
-            if (!state.pathMode && state.pending.empty())
+            const auto identity = identities.find(owner);
+            if (identity == identities.end())
             {
                 continue;
             }
-            stream << owner << ' ' << (state.pathMode ? 1 : 0) << ' ' << state.pending.size() << "\n";
+            stream << owner << ' ' << identity->second << ' ' << int(state.pathMode) << ' ' << state.pending.size() << ' ' << state.committed.size() << '\n';
             for (const auto& step : state.pending)
             {
-                stream << step.pos.x << ' ' << step.pos.y << ' ' << step.pos.z << ' ' << step.connection << "\n";
+                stream << step.pos.x << ' ' << step.pos.y << ' ' << step.pos.z << ' ' << step.connection << '\n';
+            }
+            for (const auto& piece : state.committed)
+            {
+                const auto held = _holds.find(piece);
+                const auto side = held == _holds.end() ? 0 : held->second.side;
+                stream << piece.x << ' ' << piece.y << ' ' << piece.z << ' ' << int(piece.rotation) << ' ' << int(piece.trackId) << ' ' << int(side) << '\n';
             }
         }
-        return static_cast<bool>(stream);
+        stream << "PRIORITIES " << priorities.size() << '\n';
+        for (const auto& entry : priorities)
+        {
+            stream << entry.owner << ' ' << entry.identity << ' ' << entry.waiting << ' ' << entry.waitedTicks << ' ' << entry.hasLottery << ' ' << entry.lottery << ' ' << entry.departureWaiting << '\n';
+        }
+        stream.flush();
+        const bool success = bool(stream);
+        stream.close();
+        if (!success || stream.fail())
+        {
+            std::error_code error;
+            std::filesystem::remove(temporary, error);
+            return false;
+        }
+#ifdef _WIN32
+        return MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+        std::error_code error;
+        std::filesystem::rename(temporary, path, error);
+        return !error;
+#endif
     }
 
     bool loadCompanion(const std::filesystem::path& savePath)
     {
-        std::vector<uint16_t> owners;
-        for (const auto& [owner, state] : _trains)
+        clearReservationPriorities();
+        std::vector<PieceKey> stale;
+        for (const auto& [piece, hold] : _holds)
         {
-            owners.push_back(owner);
+            if (hold.kind == HoldKind::path)
+            {
+                stale.push_back(piece);
+            }
         }
-        for (const auto owner : owners)
+        for (const auto& piece : stale)
         {
-            dropPendingInternal(owner);
+            eraseHold(piece);
         }
         _trains.clear();
         _kinds.clear();
         _chainAspects.clear();
         _lightRepairPending = false;
-
+        _waitingSignals.clear();
+        _approachingSignals.clear();
+        _approachProbeTicks.clear();
         const auto path = companionPath(savePath);
-        std::error_code ec;
-        if (!std::filesystem::is_regular_file(path, ec))
+        std::error_code error;
+        if (!std::filesystem::is_regular_file(path, error))
         {
-            return true;
+            return !error || !std::filesystem::exists(path);
+        }
+        if (std::filesystem::file_size(path, error) > 32 * 1024 * 1024 || error)
+        {
+            return false;
         }
         std::ifstream stream(path, std::ios::binary);
         if (!stream)
         {
             return false;
         }
-
-        std::string magic;
+        std::string tag;
         int version = 0;
-        stream >> magic >> version;
-        if (magic != "OSIGNALS" || version < 1 || version > 3)
+        size_t count = 0, total = 0;
+        if (!(stream >> tag >> version) || tag != "OSIGNALS" || version < 1 || version > 4)
         {
             return false;
         }
-        _lightRepairPending = version == 2;
-
-        std::string tag;
-        size_t count = 0;
-        stream >> tag >> count;
-        if (!stream || tag != "KINDS" || count > kMaxCompanionEntries)
+        if (version == 4)
         {
-            _kinds.clear();
+            uint64_t tick = 0, hash = 0;
+            if (!(stream >> tag >> tick >> hash) || tag != "SAVE" || tick != priorityTick())
+            {
+                return false;
+            }
+            const auto fingerprint = saveFingerprint(savePath);
+            if (!fingerprint || hash != *fingerprint)
+            {
+                return false;
+            }
+        }
+        const bool nativeSave = std::filesystem::exists(savePath, error);
+        if (error)
+        {
+            return false;
+        }
+        std::map<SideKey, SignalKind> kinds;
+        std::vector<SavedTrain> trains;
+        std::vector<SavedPriority> priorities;
+        std::set<uint16_t> owners;
+        const auto coord = [](int value) { return value >= INT16_MIN && value <= INT16_MAX; };
+        if (!(stream >> tag >> count) || tag != "KINDS" || count > kMaxCompanionEntries)
+        {
             return false;
         }
         for (size_t i = 0; i < count; ++i)
         {
-            int x = 0;
-            int y = 0;
-            int z = 0;
-            int rotation = 0;
-            int trackId = 0;
-            int side = 0;
-            int kind = 0;
-            stream >> x >> y >> z >> rotation >> trackId >> side >> kind;
-            if (!stream)
+            int x, y, z, rotation, trackId, side, kind;
+            if (!(stream >> x >> y >> z >> rotation >> trackId >> side >> kind) || !coord(x) || !coord(y) || !coord(z))
             {
-                _kinds.clear();
                 return false;
             }
             if (side < 0 || side > 1 || rotation < 0 || rotation > 3 || trackId < 0 || trackId >= kTrackIdCount)
             {
+                if (version == 4)
+                {
+                    return false;
+                }
                 continue;
             }
             SignalKind flags = SignalKind::none;
@@ -1069,55 +1337,153 @@ namespace OpenLoco::Signals
                     flags = SignalKind::chain;
                 }
             }
-            else if ((kind & ~0x3) == 0)
+            else if ((kind & ~3) == 0)
             {
-                flags = static_cast<SignalKind>(kind) & (SignalKind::path | SignalKind::chain);
+                flags = static_cast<SignalKind>(kind);
             }
-            if (flags == SignalKind::none)
+            else if (version == 4)
             {
-                continue;
+                return false;
             }
-            const PieceKey piece{ static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), static_cast<uint8_t>(rotation), static_cast<uint8_t>(trackId) };
-            _kinds[SideKey{ piece, static_cast<uint8_t>(side) }] = flags;
+            if (flags != SignalKind::none)
+            {
+                kinds[{ PieceKey{ int16_t(x), int16_t(y), int16_t(z), uint8_t(rotation), uint8_t(trackId) }, uint8_t(side) }] = flags;
+            }
         }
-
-        stream >> tag >> count;
-        if (!stream || tag != "TRAINS" || count > kMaxCompanionEntries)
+        if (!(stream >> tag >> count) || tag != "TRAINS" || count > kMaxCompanionEntries)
         {
             return false;
         }
         for (size_t i = 0; i < count; ++i)
         {
-            unsigned int owner = 0;
-            int pathMode = 0;
-            size_t stepCount = 0;
-            stream >> owner >> pathMode >> stepCount;
-            if (!stream || stepCount > kMaxCompanionSteps)
+            uint64_t owner = 0, identity = 0;
+            int mode = 0;
+            size_t steps = 0, committed = 0;
+            if (!(stream >> owner) || owner > UINT16_MAX)
             {
                 return false;
             }
-            std::vector<ReservedStep> steps;
-            for (size_t j = 0; j < stepCount; ++j)
+            if (version == 4 && !(stream >> identity))
             {
-                int x = 0;
-                int y = 0;
-                int z = 0;
-                unsigned int connection = 0;
-                stream >> x >> y >> z >> connection;
-                if (!stream)
+                return false;
+            }
+            if (!(stream >> mode >> steps) || mode < 0 || mode > 1 || steps > kMaxCompanionSteps)
+            {
+                return false;
+            }
+            if (version == 4 && (!(stream >> committed) || committed > kMaxCompanionSteps))
+            {
+                return false;
+            }
+            if (!owners.insert(uint16_t(owner)).second || (total += steps + committed) > kMaxCompanionEntries)
+            {
+                return false;
+            }
+            if (version == 4 && nativeSave && identity == 0)
+            {
+                return false;
+            }
+            if (identity && trainPriorityIdentity(uint16_t(owner)) != std::optional<uint64_t>{ identity })
+            {
+                return false;
+            }
+            SavedTrain train{ uint16_t(owner), identity, mode != 0, {}, {} };
+            for (size_t j = 0; j < steps; ++j)
+            {
+                int x, y, z;
+                uint64_t connection;
+                if (!(stream >> x >> y >> z >> connection) || !coord(x) || !coord(y) || !coord(z) || connection > UINT16_MAX || ((connection >> 3) & 63) >= kTrackIdCount)
                 {
                     return false;
                 }
-                steps.push_back(ReservedStep{ World::Pos3{ static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z) }, static_cast<uint16_t>(connection) });
+                train.pending.push_back({ { int16_t(x), int16_t(y), int16_t(z) }, uint16_t(connection) });
             }
-            const auto id = static_cast<uint16_t>(owner);
-            if (!steps.empty())
+            for (size_t j = 0; j < committed; ++j)
             {
-                reservePath(id, steps);
+                int x, y, z, rotation, id, side;
+                if (!(stream >> x >> y >> z >> rotation >> id >> side) || !coord(x) || !coord(y) || !coord(z) || rotation < 0 || rotation > 3 || id < 0 || id >= kTrackIdCount || side < 0 || side > 1)
+                {
+                    return false;
+                }
+                train.committed.push_back({ { int16_t(x), int16_t(y), int16_t(z), uint8_t(rotation), uint8_t(id) }, uint8_t(side) });
             }
-            setPathMode(id, pathMode != 0);
+            trains.push_back(std::move(train));
         }
-
+        if (version == 4)
+        {
+            if (!(stream >> tag >> count) || tag != "PRIORITIES" || count > kMaxCompanionEntries)
+            {
+                return false;
+            }
+            owners.clear();
+            for (size_t i = 0; i < count; ++i)
+            {
+                uint64_t owner, identity, age, lottery;
+                int waiting, hasLottery, departing;
+                if (!(stream >> owner >> identity >> waiting >> age >> hasLottery >> lottery >> departing) || owner > UINT16_MAX || age > UINT32_MAX || lottery > UINT32_MAX || waiting < 0 || waiting > 1 || hasLottery < 0 || hasLottery > 1 || departing < 0 || departing > 1 || !owners.insert(uint16_t(owner)).second)
+                {
+                    return false;
+                }
+                if (trainPriorityIdentity(uint16_t(owner)) != std::optional<uint64_t>{ identity })
+                {
+                    return false;
+                }
+                priorities.push_back({ uint16_t(owner), identity, waiting != 0, uint32_t(age), hasLottery != 0, uint32_t(lottery), departing != 0 });
+            }
+            stream >> std::ws;
+            if (!stream.eof())
+            {
+                return false;
+            }
+        }
+        // Parse and identity checks are complete. Roll back every attached path
+        // on conflict, retaining native reconstructed occupied protection.
+        const auto oldHolds = _holds;
+        const auto oldTiles = _tiles;
+        const auto oldPathCount = _pathHolds;
+        const auto refuse = [&] { _holds=oldHolds;_tiles=oldTiles;_pathHolds=oldPathCount;_trains.clear();_kinds.clear();clearReservationPriorities();return false; };
+        for (const auto& train : trains)
+        {
+            if (!reservePath(train.owner, train.pending))
+            {
+                return refuse();
+            }
+            auto& state = _trains[train.owner];
+            state.pathMode = train.pathMode;
+            // Older companions cannot distinguish an unused plan from a route
+            // already entered. Keep their pending section non-yieldable until
+            // normal progress or a fully validated replacement resolves it.
+            if (version < 4 && train.pathMode)
+            {
+                for (const auto& step : train.pending)
+                {
+                    state.committed.insert(canonicalPiece(step.pos, step.connection));
+                }
+            }
+            for (const auto& [piece, side] : train.committed)
+            {
+                if (!canHold(piece, train.owner))
+                {
+                    return refuse();
+                }
+                const auto held = _holds.find(piece);
+                if (held == _holds.end() || held->second.kind != HoldKind::occupied)
+                {
+                    setHold(piece, { train.owner, HoldKind::path, true, side });
+                }
+                else
+                {
+                    held->second.isProtected = true;
+                }
+                state.committed.insert(piece);
+            }
+        }
+        _kinds = std::move(kinds);
+        if (!restorePriorities(priorities))
+        {
+            return refuse();
+        }
+        _lightRepairPending = version == 2;
         for (auto& [piece, hold] : _holds)
         {
             if (hold.kind == HoldKind::occupied && isInPathMode(hold.owner))
@@ -1125,6 +1491,7 @@ namespace OpenLoco::Signals
                 hold.isProtected = true;
             }
         }
+        refreshViewedReservation();
         return true;
     }
 }

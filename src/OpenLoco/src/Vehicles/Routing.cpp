@@ -17,6 +17,7 @@
 #include "Objects/TrackExtraObject.h"
 #include "Objects/TrackObject.h"
 #include "Vehicles/Vehicle.h"
+#include "Signals/PathSignals.h"
 #include "ViewportManager.h"
 #include "World/CompanyManager.h"
 #include <OpenLoco/Engine/World.hpp>
@@ -468,6 +469,12 @@ namespace OpenLoco::Vehicles
                     break;
                 }
             }
+        }
+        // A wagon on a remote tile of a curve/switch can still foul this
+        // block. Use the same complete physical footprint as path admission.
+        if ((routingTransformData & 1) == 0 && Signals::isRailPieceOccupied(Signals::canonicalPiece(interest.loc, interest.trackAndDirection)))
+        {
+            routingTransformData |= 1;
         }
         return interest.trackAndDirection & World::Track::AdditionalTaDFlags::hasSignal;
     }

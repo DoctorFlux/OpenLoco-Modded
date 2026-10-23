@@ -1589,6 +1589,25 @@ namespace OpenLoco::Vehicles
             return true;
         }
 
+        // A terminal station can change the direction of departure. Reverse
+        // within the occupied footprint first; the new front is gated next tick.
+        const bool pathEndReverse = mode == TransportMode::rail && !hasVehicleFlags(VehicleFlags::manualControl) && Signals::stationDepartureNeedsReverse(*this);
+        if (mode == TransportMode::rail && !hasVehicleFlags(VehicleFlags::manualControl) && (pathEndReverse || pathingShouldReverse()))
+        {
+            if (pathEndReverse)
+            {
+                Signals::setPathMode(enumValue(id), true);
+            }
+            beginNewJourney();
+            status = Status::stopped;
+            advanceToNextRoutableOrder();
+            return tryReverse();
+        }
+        if (mode == TransportMode::rail && !Signals::ensureStationDeparture(*this))
+        {
+            return true;
+        }
+
         beginNewJourney();
         status = Status::stopped;
         advanceToNextRoutableOrder();
@@ -1598,7 +1617,7 @@ namespace OpenLoco::Vehicles
             return true;
         }
 
-        if (pathingShouldReverse())
+        if (mode != TransportMode::rail && pathingShouldReverse())
         {
             return tryReverse();
         }
@@ -1609,6 +1628,17 @@ namespace OpenLoco::Vehicles
     // 0x004A8D48
     bool VehicleHead::landNormalMovementUpdate()
     {
+        if (mode == TransportMode::rail && Vehicle(*this).veh2->currentSpeed == 0.0_mph && !hasVehicleFlags(VehicleFlags::manualControl) && Signals::stationDepartureNeedsReverse(*this))
+        {
+            Signals::setPathMode(enumValue(id), true);
+            return tryReverse();
+        }
+        // Also covers restart/placement and saves already stopped at a platform.
+        if (mode == TransportMode::rail && Vehicle(*this).veh2->currentSpeed == 0.0_mph && !Signals::ensureStationDeparture(*this))
+        {
+            status = Status::waitingAtSignal;
+            return true;
+        }
         advanceToNextRoutableOrder();
         if (mode == TransportMode::rail)
         {
@@ -3312,7 +3342,10 @@ namespace OpenLoco::Vehicles
                 {
                     return false;
                 }
-                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset)))
+                {
+                    continue;
+                }
                 auto* unloadOrder = order.as<OrderUnloadAll>();
                 if (unloadOrder == nullptr)
                 {
@@ -3475,7 +3508,10 @@ namespace OpenLoco::Vehicles
             uint32_t cargoToWaitFor = 0;
             for (auto& order : orders)
             {
-                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset)))
+                {
+                    continue;
+                }
                 auto* waitFor = order.as<OrderWaitFor>();
                 if (waitFor != nullptr)
                 {
@@ -3490,7 +3526,10 @@ namespace OpenLoco::Vehicles
             uint32_t allPossibleCargoToWaitFor = 0;
             for (auto& order : orders)
             {
-                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
+                if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset)))
+                {
+                    continue;
+                }
                 auto* waitFor = order.as<OrderWaitFor>();
                 if (waitFor != nullptr)
                 {
@@ -3540,8 +3579,11 @@ namespace OpenLoco::Vehicles
             {
                 break;
             }
-            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
-                auto* unloadAll = order.as<OrderUnloadAll>();
+            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset)))
+            {
+                continue;
+            }
+            auto* unloadAll = order.as<OrderUnloadAll>();
             if (unloadAll != nullptr)
             {
                 if (unloadAll->getCargo() == cargo.type)
@@ -3681,8 +3723,11 @@ namespace OpenLoco::Vehicles
                 Ui::WindowManager::invalidateOrderPageByVehicleNumber(enumValue(id));
                 break;
             }
-            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset))) continue;
-                auto* waitFor = order.as<OrderWaitFor>();
+            if (!Rules::cargoOrderEnabled(enumValue(id), static_cast<uint16_t>(order.getOffset() - orderTableOffset)))
+            {
+                continue;
+            }
+            auto* waitFor = order.as<OrderWaitFor>();
             if (waitFor == nullptr)
             {
                 continue;
@@ -3730,7 +3775,10 @@ namespace OpenLoco::Vehicles
                 }
             }
         }
-        if (Rules::holdAtStation(enumValue(id))) return true;
+        if (Rules::holdAtStation(enumValue(id)))
+        {
+            return true;
+        }
         if (Lines::holdForTimetable(enumValue(id), Rules::timetableOrder(enumValue(id), currentOrder), enumValue(stationId)))
         {
             return true;
@@ -4854,6 +4902,19 @@ namespace OpenLoco::Vehicles
 
             if (pathLogic && specialFacing)
             {
+                if (Signals::isChainSignal(entry.kind) && !Signals::isPathSignal(entry.kind))
+                {
+                    TrackAndDirection::_TrackAndDirection chainTad{ 0, 0 };
+                    chainTad._data = connection & World::Track::AdditionalTaDFlags::basicTaDMask;
+                    const auto busy = getSignalState(nextPos, chainTad, head.trackType, 0U)
+                        & (SignalStateFlags::occupied | SignalStateFlags::blockedNoRoute);
+                    if (busy != SignalStateFlags::none)
+                    {
+                        train.veh1->var_48 &= ~Flags48::passSignal;
+                        Signals::onPathWait(head, nextPos, tc);
+                        return Sub4ACEE7Result{ 3, Signals::kPathWaitFlag, StationId::null };
+                    }
+                }
                 if (!reservedConnection)
                 {
                     // A pass override cannot substitute for a safe waypoint

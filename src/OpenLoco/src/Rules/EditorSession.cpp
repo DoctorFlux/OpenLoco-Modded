@@ -300,10 +300,11 @@ namespace OpenLoco::Rules
                 command.last = dragLast;
                 command.destination = position.row;
                 command.block.id = draggedBlock;
+                command.detach = position.outside;
                 if (position.into)
                 {
                     const auto it = std::find_if(program.blocks.begin(), program.blocks.end(), [&](const Block& b) { return b.id == position.into; });
-                    if (it != program.blocks.end() && !(command.first <= indexOf(program, it->first) && indexOf(program, it->last) <= command.last))
+                    if (it != program.blocks.end() && ((command.detach && !command.block.id) || !(command.first <= indexOf(program, it->first) && indexOf(program, it->last) <= command.last)))
                     {
                         command.into = position.into;
                     }
@@ -1065,9 +1066,15 @@ namespace OpenLoco::Rules
                 {
                     text(ctx, width - 12, v.top - 1, 12, "=");
                 }
-                if (v.closing && s.dragged && s.dropInto == v.block && s.dropRow == int(v.row + 1))
+                if (s.dragged && s.dropRow == int(v.row + (v.closing ? 1 : 0)))
                 {
-                    ctx.fillRect(x + 8, v.top + 3, width - 3, v.top + 4, Colours::getShade(Colour::yellow, 9), Gfx::RectFlags::none);
+                    const auto position = programDrop(s.program, s.canvasLayout, static_cast<int16_t>(v.top + (v.closing ? v.height - 1 : 0)));
+                    if (s.dropInto == position.into || (v.closing && s.dropInto == v.block))
+                    {
+                        const auto lineY = static_cast<int16_t>(v.top + (v.closing ? (s.dropInto == v.block ? 2 : v.height - 1) : 0));
+                        const auto lineX = s.dropInto == v.block ? x + 8 : std::max<int>(4, x - 8);
+                        ctx.fillRect(lineX, lineY, width - 3, lineY + 1, Colours::getShade(Colour::yellow, 9), Gfx::RectFlags::none);
+                    }
                 }
                 continue;
             }
@@ -1281,7 +1288,7 @@ namespace OpenLoco::Rules
             const auto row = std::min<size_t>(programRowAt(s.canvasLayout, localY), s.program.rows.size() - 1);
             selectRows(std::min<size_t>(row, s.dragFirst), std::max<size_t>(row, s.dragFirst));
         }
-        else if (!inside || !dropProposal(localY))
+        else if (!inside || !dropProposal(static_cast<int16_t>(std::min<int>(localY, s.canvasLayout.height))))
         {
             s.dropRow = -1;
         }
@@ -1505,8 +1512,8 @@ namespace OpenLoco::Rules
         if (const auto* v = s.at(y); v && v->block)
         {
             const auto it = std::find_if(s.program.blocks.begin(), s.program.blocks.end(), [&](const Block& b) { return b.id == v->block; });
-            s.tooltipText = v->closing ? "Drop an order here to add it inside; drag the end grip to resize" : it != s.program.blocks.end() ? blockSentence(s.program, *it)
-                                                                                                                                           : "";
+            s.tooltipText = v->closing ? "Drop above the arm to add inside, below to move outside; drag the end grip to resize" : it != s.program.blocks.end() ? blockSentence(s.program, *it)
+                                                                                                                                                               : "";
             return FormatArguments::common(StringIds::line_name_raw, s.tooltipText.c_str());
         }
         if (const auto* v = s.at(y); v && !v->block)

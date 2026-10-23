@@ -1,5 +1,30 @@
 # Roadmap
 
+D77 final automated result: **670/670 Debug and Release**, **10 added regressions**, zero failures. Manual appearance/drop acceptance remains **TESTING**; actual times, evidence and publication are in development status.
+
+D77 delivers the two requested UI fixes on master: native-colour legend text and validated dragging out of logic blocks, including adjacent and nested moves. Ten regressions extend 660 to 670 tests; actual results and GitHub publication are recorded in development status. Visual/drop acceptance stays **TESTING**; deferred phases remain unchanged.
+
+D76 final automated result: **660/660 Debug and Release**, **160 signal checks**, zero failures. Existing colour/geometry checks are updated; no new tests or save changes. Manual appearance acceptance remains **TESTING**; evidence is in development status.
+
+D76 refines the signal arrow key on master: Block grey, Path yellow, Chain dark blue, combined orange in either direction; one sample per type in a two-row 156x286 layout. D75 safety remains intact. This replaces its directional colour table. Verification is recorded in development status; visual acceptance remains **TESTING**.
+
+D75 final automated result: **660/660 Debug and Release**, **160 signal checks**, **10 added regressions**, zero failures. Exact evidence is in development status; keep whole-train clearance and legend **TESTING** pending the user-only check.
+
+D75 whole-train clearance/arrow legend follow-up is TESTING locally on master. Occupied-only block handoffs, full wagon footprints during native block clearing, red occupied block/Chain sprites and a shared map/menu arrow key are verified as recorded in development status. Keep .3 and deferred phases unchanged.
+
+D74 final automated result: **650/650 Debug and Release**, including **150 signal checks** and **24 added regressions**, zero failures. Frozen source and exact times/warnings are recorded in development status. Keep the merge/priority follow-up **TESTING** for the user-only check.
+
+D74 merge/priority follow-up - **TESTING**, locally on master: keep standalone Chain block-based with exit lookahead; retain complete committed entrance/departure protection at parallel merges; save FIFO ages, cached ties and departure waits in backward-reading `.osignals` v4. Ordinary admission remains native, with conflict arbitration and the final physical guard. Packed saves and other companion versions stay unchanged; .3 remains protected. Actual automated results and the user-only merge/reload acceptance gate are in development status. Save containers, consists and shunting remain deferred. D74 supersedes the D73 transient-priority/block-only-scheduling notes below.
+
+D73 rail-priority follow-up - **TESTING**, on master: Express first; same-class stopped waiters can receive distant moving trains' unused lookahead; then longest wait, remaining directed route cost and a cached simulation-random exact tie. Occupied and committed track remain nonpreemptible. D72 station-through safety remains. Final Debug and Release suites each pass **626/626**, including **126 signal checks** and **23 added priority regressions**; exact results and the user-only acceptance gate are in development status. Save-container changes, consists and shunting stay deferred.
+
+
+D72 final automated verification: **603/603 Debug and Release**, zero failures, including **103 signal, 199 Rules and 113 CargoDist checks**; **20 regressions added** to the 583 baseline. Focused signals pass 103/103. Exact times, source-hash evidence, the unrelated timer retry and build warnings are in development status. Keep this follow-up **TESTING** until user manual acceptance.
+
+
+D72 follow-up — **TESTING**: reserve through stations to a real safe boundary and gate departure/restart, including committed lookahead, foreign wagons/claims, reversal and save reconstruction. Work stays on master, preserving the published .3 checkpoint. No deferred phase is resumed. Current results and the short user check are in development status.
+
+
 D71 automated verification: source `04b8a699` builds both games; full Debug/Release suites each pass **583/583** (199 Rules, 113 CargoDist), zero failures. Follow-up remains **TESTING** for the user's short caption-drop/Jump-if check in both native order windows. Work stays directly on master; the .3 release checkpoint and deferred phases are unchanged. Actual times, initial corrections, warnings and evidence are in development status.
 
 D71 (2026-10-23): the user selects order-block dragging and OpenTTD-style conditional jumps as the next follow-up, directly on master rather than a new branch. Caption drags move orders into multi-row/nested private/shared containers; Shift-drag selects ranges. Jump if and native vehicle comparisons extend the same Rules interpreter/palette, previews and CargoDist connectivity. Verification/results and the short user-only acceptance gate are in development status. This does not resume deferred save-container, consist or shunting phases.

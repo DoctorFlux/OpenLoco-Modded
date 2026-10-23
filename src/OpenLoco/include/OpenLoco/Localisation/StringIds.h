@@ -2288,6 +2288,15 @@ namespace OpenLoco::StringIds
     constexpr StringId cargo_transfer_limited = 2575;
     constexpr StringId cargo_transfer_tip = 2576;
 
+    constexpr StringId signal_arrows_title = 2577;
+    constexpr StringId signal_arrows_both = 2578;
+    constexpr StringId signal_arrows_one = 2579;
+    constexpr StringId signal_arrows_block = 2580;
+    constexpr StringId signal_arrows_path = 2581;
+    constexpr StringId signal_arrows_chain = 2582;
+    constexpr StringId signal_arrows_combined = 2583;
+    constexpr StringId signal_arrows_note = 2584;
+
     constexpr StringId temporary_object_load_str_0 = 8192;
     constexpr StringId temporary_object_load_str_1 = 8193;
     constexpr StringId temporary_object_load_str_2 = 8194;
