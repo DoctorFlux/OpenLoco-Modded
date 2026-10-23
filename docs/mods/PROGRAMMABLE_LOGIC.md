@@ -2,6 +2,8 @@
 
 The first block-rules delivery is **COMPLETED (user accepted D59/D61)** and included in release `v26.09-modded.3`. D71 (2026-10-23) adds the dragging/conditional-jump follow-up directly on master at the user's request; its current verification and TESTING gate are recorded in `DEVELOPMENT_STATUS.md`. Earlier branch/window/rollback descriptions below are historical; modded.1/.2 releases and tags were retired by D69.
 
+D71 automated verification: final source `04b8a699`, both game builds successful, **583/583 full tests per configuration**, including 199 Rules checks. Status **TESTING** for a short user-only caption-drop and conditional-route check. The published .3 executable is unchanged; use the rebuilt development executable.
+
 ## Order dragging and conditional orders (D71)
 
 Drag a stop/waypoint or cargo-instruction caption, or its `=` grip, onto an order, block header or thin append strip to move it inside that block. Upper/lower row halves choose before/after. Explicit interior drops grow the bracket, including its enclosing containers. Shift-drag selects consecutive orders; dragging a selected caption then moves that selection. Header dragging still moves a complete section, and the closing grip resizes it. Stop/waypoint captions remain native. This fixes the old caption-drag selection behavior that made interior moves appear unavailable. All existing stale/outside/owner/readonly cancellations and atomic command validation remain.

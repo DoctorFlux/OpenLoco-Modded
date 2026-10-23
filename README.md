@@ -8,6 +8,8 @@ Build transport networks with automatic cargo and passenger transfers, shared li
 
 This is an independent fork of [OpenLoco](https://github.com/OpenLoco/OpenLoco), the open-source reimplementation of **Chris Sawyer's Locomotion**. The original game's assets are required and are not included. The `.3` identifier is retained for build continuity; it is the first consolidated modded edition. The earlier modded.1 and modded.2 releases/tags are retired; their commits remain in repository history.
 
+**Master development update (D71):** order captions can be dragged into blocks, and the native Rules palette adds conditional **Jump if** orders with load, age, reliability and speed checks. Both complete test suites pass 583/583. These additions are in source/local development builds; the published .3 download remains the release checkpoint. See [development status](docs/DEVELOPMENT_STATUS.md) and [build instructions](README-LOCAL-SETUP.md).
+
 ## What this modded edition adds
 
 The comparison below uses original Locomotion and this fork's **OpenLoco 26.09 baseline, [`e71abfb3`](https://github.com/OpenLoco/OpenLoco/commit/e71abfb3)**. OpenLoco provides the engine and its existing improvements; the additions listed here are this fork's work on top of that baseline. It is not a claim to include every later upstream change.
