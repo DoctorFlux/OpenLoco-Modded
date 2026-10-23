@@ -8,7 +8,7 @@ Baseline: OpenLoco `e71abfb3`, branch `dev/local-baseline`. Vanilla behaviour is
 
 ## D78 - Windows x64 release 26.09-modded.4 - 2026-10-23
 
-The user requests a new ready-to-download release ZIP. Prepare `v26.09-modded.4` directly on master, retaining the published .3 checkpoint. It includes D71-D77 conditional orders/editor and signal safety/priority work on gameplay source `4e1adff5`. No gameplay, source assets, build scripts, packed-save layouts or companion versions change during release preparation. The existing signals v4 compatibility boundary is explicitly described in setup/release notes.
+The user requests a new ready-to-download release ZIP. Published `v26.09-modded.4` from master, retaining the published .3 checkpoint. It includes D71-D77 conditional orders/editor and signal safety/priority work on gameplay source `4e1adff5`. No gameplay, source assets, build scripts, packed-save layouts or companion versions change during release preparation. The existing signals v4 compatibility boundary is explicitly described in setup/release notes.
 
 Changed files: front-page `README.md`, `README-LOCAL-SETUP.md`, `docs/releases/v26.09-modded.4.md`, development status, decisions, master plan, roadmap/feature matrix, testing and save notes. Source comparison against `4e1adff5`, fresh exact-tag Debug/Release game/all-test builds and both 670-test suites precede packaging. Package only the x64 Release executable, project languages, pinned CMake OpenGraphics objects, setup/release notes and project notices; include a SHA-256 asset and verify public downloaded bytes. No original game assets, player data, test binaries or debug symbols. Game control stays with the user.
 
@@ -18,9 +18,11 @@ Compiler warnings: **0**. Link notices: Debug **2 LNK4075**; Release **7 LNK4020
 
 Windows x64 archive **`OpenLoco-v26.09-modded.4-windows-x64.zip`** is **16313864 bytes**, with **224 entries** (20 languages, 198 pinned OpenGraphics files). SHA-256: **`2ff108601740bd01cab2a6246c73f38d6c2799c17667f49d7652f478722a139e`**. ZIP CRC, unique/safe entry paths, exact source/built asset bytes, every archived file, executable architecture/stamp/hash and system-only DLL imports are verified. Tests, PDBs, original assets and player profiles/saves are excluded. The checksum asset is `OpenLoco-v26.09-modded.4-windows-x64.zip.sha256`. Evidence: `build/modded-4/package-manifest.json` and `package-files.json`.
 
-D78_PUBLICATION_PENDING
+Publication **COMPLETED**: [26.09-modded.4](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.4) is the latest normal GitHub release, tagged **`2d57120a2c91ba0c6d733a9f8147e35151a186ac`**. The ZIP and `.zip.sha256` assets are uploaded; both were downloaded from GitHub and compared byte-for-byte with the verified local artifacts. Server asset sizes/digests, downloaded ZIP CRC/executable hash, exact remote tag, master ancestry and .3 checkpoint tag/assets are checked. The previous .3 release remains published unchanged; no tag is moved or release retired. Final evidence: `build/modded-4/release-draft.json`, `published-release.json`, `verified-release.json` and `downloads/`.
 
-Release status: **IN DEVELOPMENT** until tagged builds, package and published-asset verification complete. D71-D77 follow-up manual gates remain **TESTING** independently of release publication. Next concrete task: complete artifact verification and record the download/checksum; then the user's short signal/editor acceptance. Save-container work, consists and shunting stay deferred.
+Direct download: [Windows x64 ZIP](https://github.com/DoctorFlux/OpenLoco-Modded/releases/download/v26.09-modded.4/OpenLoco-v26.09-modded.4-windows-x64.zip); [SHA-256](https://github.com/DoctorFlux/OpenLoco-Modded/releases/download/v26.09-modded.4/OpenLoco-v26.09-modded.4-windows-x64.zip.sha256).
+
+Release status: **COMPLETED** for artifact/publication verification. D71-D77 follow-up manual gates remain **TESTING** independently of release publication. Blockers: none for the release. Next concrete task: the user's short signal/editor acceptance; retain separate saves for the .3 rollback. Save-container work, consists and shunting stay deferred.
 
 
 ## D77 - Native legend text and dragging orders out of blocks - 2026-10-23

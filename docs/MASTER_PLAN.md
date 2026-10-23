@@ -1,6 +1,6 @@
 # Master plan
 
-D78 (2026-10-23) prepares **26.09-modded.4** from tested master for a Windows x64 ZIP/checksum release. It includes D71-D77 changes and preserves .3 as the previous checkpoint. Release results/publication are recorded in development status. Existing manual follow-up gates stay TESTING; save containers, consists and shunting remain deferred.
+D78 (2026-10-23) publishes **26.09-modded.4** from tested master as the latest Windows x64 ZIP/checksum release. Both fresh tagged suites pass **670/670**, and downloaded assets are verified. It includes D71-D77 changes and preserves .3 as the previous checkpoint. Release results/publication are recorded in development status. Existing manual follow-up gates stay TESTING; save containers, consists and shunting remain deferred.
 
 D76 (2026-10-23) refines the existing signal UI on master: one colour per type in either direction and a compact 2x2 key in a 156x286 construction tab. It supersedes D75 directional colours; station/merge safety, deferred phases and the published .3 checkpoint remain unchanged. Verification and the user-only visual gate are in development status.
 

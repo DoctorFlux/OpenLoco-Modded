@@ -1,5 +1,7 @@
 # Testing plan
 
+D78 final release result: exact .4 tagged Debug/Release builds and complete suites each pass **670/670**; ZIP contents/runtime imports/checksum and downloaded GitHub assets are verified. .3 remains unchanged. Actual times/digests and evidence are in development status; no new manual check is claimed.
+
 D78 release checks: unchanged src/data/cmake/build inputs versus `4e1adff5`; exact local annotated .4 tag and x64/stamp verification; reconfigure/build Debug and Release/all test targets, run both complete 670-test suites, and retain source hashes/discovery/logs. Verify ZIP allowlist/CRC/byte identity, project/OpenGraphics sources, excluded originals/profiles/tests/PDBs, dependency imports and SHA-256. After upload, verify tag/latest-release metadata and downloaded ZIP/checksum bytes. Preserve .3 and user-only manual gates. Evidence is recorded in development status and `build/modded-4/`.
 
 D77 final automated result: **670/670 Debug and Release**, **10 added regressions**, zero failures. Manual appearance/drop acceptance remains **TESTING**; actual times, evidence and publication are in development status.

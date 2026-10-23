@@ -2,6 +2,8 @@
 
 Current release: **26.09-modded.4**, with the latest station/merge signal protection, saved priority, compact arrow key and inline order drops. [Download](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.4), [release notes](docs/releases/v26.09-modded.4.md). The .3 release remains the earlier checkpoint. Current release-build/package results are in `docs/DEVELOPMENT_STATUS.md`; older stamps below are historical. Keep each SV5 and matching `.olines` v5, `.osignals` v4, `.orules` v1 and `.ocargodist` v1 together. The .3 executable cannot read v4 signals/new Rules values: retain separate checkpoint saves. Normal launches retain the existing user directory; optional isolated launches use `--user_path`. Game control remains with the user.
 
+D78 verified release binaries: `build/windows/Debug/OpenLoco.exe` and `build/windows/Release/OpenLoco.exe`, stamped **v26.09-modded.4 / master / 2d57120a**. Fresh full suites pass **670/670** each (59.82s Debug, 21.45s Release). The published ZIP/checksum were downloaded and verified; .3 remains available. Evidence: `build/modded-4/`. This supersedes older local binary stamps below; manual signal/editor follow-up acceptance remains TESTING.
+
 Branch `dev/local-baseline` tracks OpenLoco `e71abfb3` plus the local framework plan. Project rules are in `AGENTS.md` and `docs/MASTER_PLAN.md`. These notes are for this machine. They do not change the original Locomotion installation.
 
 ## Machine
