@@ -6,6 +6,21 @@ States: `DEFERRED`, `NOT STARTED`, `RESEARCHING`, `PLANNED`, `IN DEVELOPMENT`, `
 
 Baseline: OpenLoco `e71abfb3`, branch `dev/local-baseline`. Vanilla behaviour is the upstream game, not a framework feature.
 
+## D78 - Windows x64 release 26.09-modded.4 - 2026-10-23
+
+The user requests a new ready-to-download release ZIP. Prepare `v26.09-modded.4` directly on master, retaining the published .3 checkpoint. It includes D71-D77 conditional orders/editor and signal safety/priority work on gameplay source `4e1adff5`. No gameplay, source assets, build scripts, packed-save layouts or companion versions change during release preparation. The existing signals v4 compatibility boundary is explicitly described in setup/release notes.
+
+Changed files: front-page `README.md`, `README-LOCAL-SETUP.md`, `docs/releases/v26.09-modded.4.md`, development status, decisions, master plan, roadmap/feature matrix, testing and save notes. Source comparison against `4e1adff5`, fresh exact-tag Debug/Release game/all-test builds and both 670-test suites precede packaging. Package only the x64 Release executable, project languages, pinned CMake OpenGraphics objects, setup/release notes and project notices; include a SHA-256 asset and verify public downloaded bytes. No original game assets, player data, test binaries or debug symbols. Game control stays with the user.
+
+D78_BUILD_PENDING
+
+D78_PACKAGE_PENDING
+
+D78_PUBLICATION_PENDING
+
+Release status: **IN DEVELOPMENT** until tagged builds, package and published-asset verification complete. D71-D77 follow-up manual gates remain **TESTING** independently of release publication. Next concrete task: complete artifact verification and record the download/checksum; then the user's short signal/editor acceptance. Save-container work, consists and shunting stay deferred.
+
+
 ## D77 - Native legend text and dragging orders out of blocks - 2026-10-23
 
 Two requested fixes on **master**. Signal legend headings, labels and note now use the construction window's native secondary text colour, like the checkboxes and placement controls. Explicit black formatting is removed from the legend strings; type samples retain D76's four colours and compact layout.

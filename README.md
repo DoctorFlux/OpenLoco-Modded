@@ -1,14 +1,14 @@
 # OpenLoco Modded
 
-**26.09-modded.3 — the first consolidated modded release (edition 1).**
+**26.09-modded.4 — signal safety and native order editing.**
 
 Build transport networks with automatic cargo and passenger transfers, shared lines, timetables, path/chain signals and visual block orders, using Locomotion's native windows, graphics and controls.
 
-[Download Windows x64](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.3) · [Release notes](docs/releases/v26.09-modded.3.md) · [Development status](docs/DEVELOPMENT_STATUS.md) · [Local build guide](README-LOCAL-SETUP.md)
+[Download Windows x64](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.4) · [Release notes](docs/releases/v26.09-modded.4.md) · [Development status](docs/DEVELOPMENT_STATUS.md) · [Local build guide](README-LOCAL-SETUP.md)
 
-This is an independent fork of [OpenLoco](https://github.com/OpenLoco/OpenLoco), the open-source reimplementation of **Chris Sawyer's Locomotion**. The original game's assets are required and are not included. The `.3` identifier is retained for build continuity; it is the first consolidated modded edition. The earlier modded.1 and modded.2 releases/tags are retired; their commits remain in repository history.
+This is an independent fork of [OpenLoco](https://github.com/OpenLoco/OpenLoco), the open-source reimplementation of **Chris Sawyer's Locomotion**. The original game's assets are required and are not included. The .3 release remains the previous consolidated checkpoint; .4 includes the latest signal and Rules fixes. The earlier modded.1 and modded.2 releases/tags are retired; their commits remain in repository history.
 
-**Master development update (D71):** order captions can be dragged into blocks, and the native Rules palette adds conditional **Jump if** orders with load, age, reliability and speed checks. Both complete test suites pass 583/583. These additions are in source/local development builds; the published .3 download remains the release checkpoint. See [development status](docs/DEVELOPMENT_STATUS.md) and [build instructions](README-LOCAL-SETUP.md).
+**New in .4:** station-through reservation safety, whole-train conflict protection, saved signal waiting priorities, a compact signal-arrow key, conditional **Jump if** orders, and drag/drop both into and out of blocks in native vehicle/shared-line windows. Full Debug/Release suites pass 670/670 on the included gameplay source; release verification and remaining user-only checks are in [development status](docs/DEVELOPMENT_STATUS.md).
 
 ## What this modded edition adds
 
@@ -30,9 +30,9 @@ Station and vehicle Cargo tabs show compact, expandable destination quantities. 
 
 **Shared lines and rules:** use ordinary routes, or click **Rules** in Vehicle Route / shared-line Orders to edit blocks in that same window. Stops and waypoints keep their base-game appearance. Vehicles on a shared line share the program while keeping independent waits and loop counters. Rules do not bypass physical movement or signal safety.
 
-**Save compatibility:** packed SV5/SC5 files stay unchanged. Keep each save with its matching `.olines` v5, `.osignals` v3, `.orules` v1 and `.ocargodist` v1 companions. Missing CargoDist companions migrate native quantities automatically. Keep backups before moving saves between builds. The release does not add multiplayer, larger maps/object limits, NSF/NOF, coupling/shunting or a script/mod loader.
+**Save compatibility:** packed SV5/SC5 files stay unchanged. Keep each save with its matching `.olines` v5, `.osignals` v4, `.orules` v1 and `.ocargodist` v1 companions. Missing CargoDist companions migrate native quantities automatically. Keep separate checkpoint saves when returning to .3, whose executable cannot read v4 signal companions or new Rules condition values. The release does not add multiplayer, larger maps/object limits, NSF/NOF, coupling/shunting or a script/mod loader.
 
-Fresh tagged Debug and Release builds succeed; both complete suites passed **566/566**, including **113 CargoDist checks**. Tagged-release verification is recorded in the [release notes](docs/releases/v26.09-modded.3.md). Only a Windows x64 package is published for this release; other platforms require source builds. Native game acceptance remains user-controlled.
+Fresh tagged Debug and Release builds succeed; both complete suites passed **670/670**. Tagged-release verification is recorded in the [release notes](docs/releases/v26.09-modded.4.md). Only a Windows x64 package is published for this release; other platforms require source builds. Native game acceptance remains user-controlled.
 
 ---
 
@@ -74,7 +74,7 @@ Upstream reports its C++ reimplementation complete as of December 2025 and ident
 
 # 2 Downloading the game (pre-built)
 
-Download [26.09-modded.3 for Windows x64](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.3), with its SHA-256 checksum. Extract the ZIP into a separate folder, run `OpenLoco.exe`, and select your Locomotion installation when prompted. This release supersedes the retired modded.1 and modded.2 downloads. Linux, macOS and BSD users can build from source; no verified binaries for those platforms accompany this release.
+Download [26.09-modded.4 for Windows x64](https://github.com/DoctorFlux/OpenLoco-Modded/releases/tag/v26.09-modded.4), with its SHA-256 checksum. Extract the ZIP into a separate folder, run `OpenLoco.exe`, and select your Locomotion installation when prompted. The .3 checkpoint remains available; modded.1 and modded.2 remain retired. Linux, macOS and BSD users can build from source; no verified binaries for those platforms accompany this release.
 
 Please note that OpenLoco requires the asset files of the original Chris Sawyer's Locomotion to play the game.
 It can be bought at e.g. [Steam](https://store.steampowered.com/app/356430/) or [GOG.com](https://www.gog.com/game/chris_sawyers_locomotion).
@@ -95,7 +95,7 @@ You can use `clang-format` to apply these guidelines automatically.
 
 If you would like to contribute code to OpenLoco, please follow the instructions below to get started compiling the game.
 
-If you just want to play this fork, [download its latest release](https://github.com/DoctorFlux/OpenLoco-Modded/releases/latest). The published modded.3 package is Windows x64. [Upstream OpenLoco releases](https://github.com/OpenLoco/OpenLoco/releases) have their own platform packages and feature set.
+If you just want to play this fork, [download its latest release](https://github.com/DoctorFlux/OpenLoco-Modded/releases/latest). The published modded.4 package is Windows x64. [Upstream OpenLoco releases](https://github.com/OpenLoco/OpenLoco/releases) have their own platform packages and feature set.
 
 ## 4.1 Building prerequisites
 

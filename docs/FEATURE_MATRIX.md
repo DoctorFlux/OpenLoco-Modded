@@ -1,5 +1,7 @@
 # Feature matrix
 
+D78 (2026-10-23) prepares **26.09-modded.4** from tested master for a Windows x64 ZIP/checksum release. It includes D71-D77 changes and preserves .3 as the previous checkpoint. Release results/publication are recorded in development status. Existing manual follow-up gates stay TESTING; save containers, consists and shunting remain deferred.
+
 D77 final automated result: **670/670 Debug and Release**, **10 added regressions**, zero failures. Manual appearance/drop acceptance remains **TESTING**; actual times, evidence and publication are in development status.
 
 D77 delivers the two requested UI fixes on master: native-colour legend text and validated dragging out of logic blocks, including adjacent and nested moves. Ten regressions extend 660 to 670 tests; actual results and GitHub publication are recorded in development status. Visual/drop acceptance stays **TESTING**; deferred phases remain unchanged.

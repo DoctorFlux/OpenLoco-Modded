@@ -1,5 +1,7 @@
 # Save format
 
+D78 release .4 ships the existing `.osignals` v4 priority/committed-protection support and v1-v3 reader, `.olines` v5, `.orules` v1/PHASES and `.ocargodist` v1. Release preparation changes no format. .3 cannot read signals v4 or new Rules condition values; keep separate checkpoint saves and all matching companions when switching executables.
+
 D75 adds no persisted state or version change. Native routing/tail occupancy and the existing signals v4 committed section remain authoritative across reload; extra physical footprint checks, occupied-post display and menu legend are computed from existing state. Packed saves, `.olines` v5, `.orules` v1/PHASES and `.ocargodist` v1 remain unchanged.
 
 D74 supersedes the D72/D73 signal-version and transient-priority statements below. `<save>.SV5.osignals` now writes **OSIGNALS 4**, preserving each waiting train's elapsed simulation ticks, cached tie draw and departure-wait flag, plus complete committed-section protection and the existing pending routes/kinds. Save tick, native-file fingerprint and train identity validate attachment; mismatches/truncation reject the entire companion with a named log warning. Native reconstructed occupied holds survive rejection. Read versions 1-3; because they cannot distinguish entered sections, their pending path-mode routes are conservatively non-yieldable until progress or a validated replacement. Missing companions start with no extended priority state.

@@ -1,5 +1,7 @@
 # Master plan
 
+D78 (2026-10-23) prepares **26.09-modded.4** from tested master for a Windows x64 ZIP/checksum release. It includes D71-D77 changes and preserves .3 as the previous checkpoint. Release results/publication are recorded in development status. Existing manual follow-up gates stay TESTING; save containers, consists and shunting remain deferred.
+
 D76 (2026-10-23) refines the existing signal UI on master: one colour per type in either direction and a compact 2x2 key in a 156x286 construction tab. It supersedes D75 directional colours; station/merge safety, deferred phases and the published .3 checkpoint remain unchanged. Verification and the user-only visual gate are in development status.
 
 D75 (2026-10-23) follows D74 on master with whole-train signal clearance and an inline arrow-colour legend. Native block clearing uses complete rail footprints; occupied-only protection remains visible to block handoffs, and normal/standalone Chain posts remain red for occupied blocks. Path/combined route-specific permission is preserved. Current verification/manual acceptance are in development status; deferred phases and published .3 remain unchanged.
